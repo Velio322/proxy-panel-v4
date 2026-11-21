@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Client\" SET \"lastActiveAt\" = $2, \"updatedAt\" = $2\n               WHERE id = ANY($1::text[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f6fcabc4989a0deeb203a3833266cfa75a7772f18a50852d2b452a964aea93f5"
+}

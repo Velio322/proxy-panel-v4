@@ -1,0 +1,43 @@
+# mypanel3 — Caddy reverse proxy configuration (Docker Compose & reference)
+#
+# Required environment variables:
+#   PANEL_DOMAIN   - public hostname for the panel (e.g. panel.example.com)
+#   PANEL_UPSTREAM - upstream address (default: 127.0.0.1:3000; in docker-compose: mypanel3:3000)
+#
+# Note: install.sh generates /etc/caddy/Caddyfile on bare-metal hosts, adding a
+# second site block automatically when a separate SUB_DOMAIN is configured.
+
+{$PANEL_DOMAIN} {
+	encode gzip zstd
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy {$PANEL_UPSTREAM:127.0.0.1:3000} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	log {
+		output file /var/log/caddy/panel.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+	}
+}
+
+# Optional separate subscription domain example:
+# sub.example.com {
+# 	encode gzip zstd
+# 	reverse_proxy {$PANEL_UPSTREAM:127.0.0.1:3000} {
+# 		header_up Host {host}
+# 		header_up X-Real-IP {remote_host}
+# 		header_up X-Forwarded-Proto {scheme}
+# 	}
+# }

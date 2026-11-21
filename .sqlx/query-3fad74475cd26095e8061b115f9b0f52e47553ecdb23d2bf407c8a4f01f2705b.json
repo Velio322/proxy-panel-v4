@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"NodeMetric\" (id, \"nodeId\", \"cpuUsage\", \"memUsage\", \"netUpload\",\n                  \"netDownload\", connections, uptime, \"recordedAt\")\n           VALUES ($1, $2, $3, $4, 0, 0, $5, $6, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Float8",
+        "Float8",
+        "Int4",
+        "Int4",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3fad74475cd26095e8061b115f9b0f52e47553ecdb23d2bf407c8a4f01f2705b"
+}

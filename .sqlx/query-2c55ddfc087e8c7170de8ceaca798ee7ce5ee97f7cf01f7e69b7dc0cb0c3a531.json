@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"Notification\" (id, type, title, message, metadata)\n           VALUES ($1, $2::text::\"NotificationType\", $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2c55ddfc087e8c7170de8ceaca798ee7ce5ee97f7cf01f7e69b7dc0cb0c3a531"
+}

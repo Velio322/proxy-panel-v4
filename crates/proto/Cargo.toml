@@ -1,0 +1,24 @@
+[package]
+name = "mypanel-proto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure, I/O-free shared protocol types, URI builders, subscription renderers, and OpenWrt exporters for mypanel3"
+
+[dependencies]
+age.workspace = true
+base64.workspace = true
+chacha20poly1305.workspace = true
+chrono.workspace = true
+percent-encoding.workspace = true
+rand.workspace = true
+regex.workspace = true
+rsa.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+url.workspace = true
+uuid.workspace = true

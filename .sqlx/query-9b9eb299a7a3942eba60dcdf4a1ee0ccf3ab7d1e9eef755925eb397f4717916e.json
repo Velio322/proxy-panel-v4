@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"c!\" FROM \"Client\"\n           WHERE ($1::text IS NULL OR \"resellerId\" = $1)\n             AND banned = false\n             AND (\"expireAt\" IS NULL OR \"expireAt\" > $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "c!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9b9eb299a7a3942eba60dcdf4a1ee0ccf3ab7d1e9eef755925eb397f4717916e"
+}

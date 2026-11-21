@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"PortShare\" SET protocol = $3::text::\"Protocol\", tag = $4, settings = $5,\n                  stream = $6, host = $7, path = $8, enable = $9, \"updatedAt\" = $10\n           WHERE id = $1 AND \"inboundId\" = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Bool",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e618dfb9acced9d2cd89294630016bfe8e3cbde31c3e9fbdec2f3ee46fe4c6ce"
+}

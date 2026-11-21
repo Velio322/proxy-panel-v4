@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"maxClients\", \"trafficLimit\", \"usedTraffic\", balance FROM \"Reseller\"\n           WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "maxClients",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "trafficLimit",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "usedTraffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "balance",
+        "type_info": "Numeric"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d444044b46905cc75469b9727bb00f88523a786e89944ad1367a2d034d569358"
+}

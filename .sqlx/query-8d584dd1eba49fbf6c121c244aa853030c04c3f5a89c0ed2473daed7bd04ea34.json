@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, username, \"telegramId\" AS telegram_id, \"expireAt\" AS expire_at,\n                  \"usedTraffic\" AS used_traffic, \"trafficLimit\" AS traffic_limit\n           FROM \"Client\"\n           WHERE banned = false AND \"telegramId\" IS NOT NULL\n             AND \"expireAt\" IS NOT NULL AND \"expireAt\" >= $1 AND \"expireAt\" <= $2\n           ORDER BY \"expireAt\" ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "telegram_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "expire_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 4,
+        "name": "used_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "traffic_limit",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "8d584dd1eba49fbf6c121c244aa853030c04c3f5a89c0ed2473daed7bd04ea34"
+}

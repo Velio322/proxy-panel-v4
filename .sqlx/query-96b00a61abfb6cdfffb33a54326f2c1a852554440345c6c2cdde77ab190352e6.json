@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"c!\" FROM \"Client\"\n           WHERE ($1::text IS NULL OR \"resellerId\" = $1) AND banned = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "c!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "96b00a61abfb6cdfffb33a54326f2c1a852554440345c6c2cdde77ab190352e6"
+}

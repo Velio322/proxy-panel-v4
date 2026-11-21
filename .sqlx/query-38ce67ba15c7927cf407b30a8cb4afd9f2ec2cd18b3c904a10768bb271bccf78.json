@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"nodeId\" AS node_id, SUM(upload)::bigint AS upload,\n                  SUM(download)::bigint AS download\n           FROM \"TrafficLog\" WHERE \"clientId\" = $1 AND \"recordAt\" >= $2\n           GROUP BY \"nodeId\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "node_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "upload",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "download",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "38ce67ba15c7927cf407b30a8cb4afd9f2ec2cd18b3c904a10768bb271bccf78"
+}

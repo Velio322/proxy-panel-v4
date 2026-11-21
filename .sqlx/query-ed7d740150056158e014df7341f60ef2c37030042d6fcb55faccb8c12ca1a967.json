@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT role AS \"role: UserRole\" FROM \"User\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role: UserRole",
+        "type_info": {
+          "Custom": {
+            "name": "\"UserRole\"",
+            "kind": {
+              "Enum": [
+                "SUPER_ADMIN",
+                "ADMIN",
+                "RESELLER",
+                "OPERATOR"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ed7d740150056158e014df7341f60ef2c37030042d6fcb55faccb8c12ca1a967"
+}

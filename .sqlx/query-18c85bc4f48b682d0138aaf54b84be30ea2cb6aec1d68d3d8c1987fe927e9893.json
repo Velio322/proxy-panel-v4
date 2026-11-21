@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, hwid, os, \"osVersion\" AS os_version, model,\n                  \"userAgent\" AS user_agent, ip, \"lastSeenAt\" AS last_seen_at,\n                  \"createdAt\" AS created_at\n           FROM \"Device\" WHERE \"clientId\" = $1\n           ORDER BY \"lastSeenAt\" DESC, id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "hwid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "os",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "os_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "model",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "user_agent",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "ip",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_seen_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "18c85bc4f48b682d0138aaf54b84be30ea2cb6aec1d68d3d8c1987fe927e9893"
+}

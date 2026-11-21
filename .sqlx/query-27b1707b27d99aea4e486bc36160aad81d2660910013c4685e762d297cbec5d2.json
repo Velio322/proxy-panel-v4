@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"User\" (id, username, email, password, role, language, banned, \"createdAt\", \"updatedAt\")\n                   VALUES ($1, $2, $3, $4, 'SUPER_ADMIN', 'en', false, $5, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "27b1707b27d99aea4e486bc36160aad81d2660910013c4685e762d297cbec5d2"
+}

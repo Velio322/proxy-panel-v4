@@ -1,0 +1,152 @@
+use crate::cores::{extract_protocol_users, safe_id, str_or_empty, validate_inbound, CoreUser};
+use mypanel_proto::{InboundConfig, Protocol};
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
+
+/// Returns `<CONFIG_DIR>/mieru-<safe_id>.json`.
+pub fn mieru_config_path(config_dir: &Path, inbound_id: &str) -> Result<PathBuf, String> {
+    let id = safe_id(inbound_id)?;
+    Ok(config_dir.join(format!("mieru-{id}.json")))
+}
+
+/// Parses and validates Mieru transport (`tcp`, `udp`, `both`, `tcp,udp`) into uppercase protocol names.
+pub fn parse_mieru_protocols(settings: &Value) -> Result<Vec<&'static str>, String> {
+    let raw = settings
+        .get("transport")
+        .or_else(|| settings.get("protocol"))
+        .and_then(Value::as_str)
+        .unwrap_or("tcp")
+        .trim()
+        .to_ascii_lowercase();
+
+    match raw.as_str() {
+        "tcp" | "" => Ok(vec!["TCP"]),
+        "udp" => Ok(vec!["UDP"]),
+        "both" | "tcp,udp" => Ok(vec!["TCP", "UDP"]),
+        _ => Err(format!("Invalid Mieru transport: {raw}")),
+    }
+}
+
+/// Validates and builds Mieru `portBindings` array (`port` or `portRange` `"start-end"` with `1025..=65535`).
+pub fn build_port_bindings(inbound: &InboundConfig) -> Result<Vec<Value>, String> {
+    let protocols = parse_mieru_protocols(&inbound.settings)?;
+    let port_range = inbound
+        .settings
+        .get("portRange")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    if let Some(range) = port_range {
+        let (a, b) = range
+            .split_once('-')
+            .ok_or_else(|| format!("Invalid Mieru port range: {range}"))?;
+        let start: u16 = a
+            .trim()
+            .parse()
+            .map_err(|_| format!("Invalid Mieru port range: {range}"))?;
+        let end: u16 = b
+            .trim()
+            .parse()
+            .map_err(|_| format!("Invalid Mieru port range: {range}"))?;
+        if start < 1025 || start > end {
+            return Err(format!("Invalid Mieru port range: {range}"));
+        }
+        let normalized = format!("{start}-{end}");
+        Ok(protocols
+            .into_iter()
+            .map(|p| {
+                json!({
+                    "portRange": normalized,
+                    "protocol": p
+                })
+            })
+            .collect())
+    } else {
+        if inbound.port == 0 {
+            return Err("Inbound port must be between 1 and 65535".into());
+        }
+        Ok(protocols
+            .into_iter()
+            .map(|p| {
+                json!({
+                    "port": inbound.port,
+                    "protocol": p
+                })
+            })
+            .collect())
+    }
+}
+
+/// Generates a Mieru (`mita`) server JSON configuration (`<CONFIG_DIR>/mieru-<id>.json`).
+pub fn generate_config(inbound: &InboundConfig) -> Result<Value, String> {
+    if inbound.protocol != Protocol::Mieru {
+        return Err(format!(
+            "Protocol {} is not supported by Mieru",
+            inbound.protocol
+        ));
+    }
+    validate_inbound(inbound)?;
+
+    let bindings = build_port_bindings(inbound)?;
+    let users = extract_protocol_users(&inbound.users, &inbound.settings, true)?;
+    let user_vals: Vec<Value> = users
+        .into_iter()
+        .map(|u| {
+            json!({
+                "name": u.name,
+                "password": u.password
+            })
+        })
+        .collect();
+
+    let logging_level = {
+        let lvl = str_or_empty(&inbound.settings, "loggingLevel");
+        if lvl.is_empty() {
+            "INFO"
+        } else {
+            lvl
+        }
+    };
+
+    Ok(json!({
+        "portBindings": bindings,
+        "users": user_vals,
+        "loggingLevel": logging_level
+    }))
+}
+
+/// Generates a Mieru client profile JSON helper for subscription / diagnostics.
+pub fn generate_client_config(
+    inbound: &InboundConfig,
+    host: &str,
+    user: &CoreUser,
+) -> Result<Value, String> {
+    let bindings = build_port_bindings(inbound)?;
+    let domain_name = if !host.trim().is_empty() {
+        host.trim()
+    } else {
+        let d = str_or_empty(&inbound.settings, "domain");
+        if !d.is_empty() {
+            d
+        } else {
+            str_or_empty(&inbound.settings, "sni")
+        }
+    };
+
+    Ok(json!({
+        "profiles": [{
+            "profileName": inbound.tag,
+            "user": {
+                "name": user.name,
+                "password": user.password
+            },
+            "servers": [{
+                "domainName": domain_name,
+                "portBindings": bindings
+            }]
+        }],
+        "activeProfile": inbound.tag,
+        "socks5Port": 1080
+    }))
+}

@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.id, a.action, a.resource, a.\"resourceId\", a.details, a.ip,\n                  a.\"createdAt\", u.id AS \"u_id: Option<String>\", u.username AS \"u_username: Option<String>\",\n                  u.role AS \"u_role: Option<UserRole>\"\n           FROM \"AuditLog\" a LEFT JOIN \"User\" u ON u.id = a.\"userId\"\n           ORDER BY a.\"createdAt\" DESC LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "resource",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "resourceId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "details",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "ip",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "createdAt",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "u_id: Option<String>",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "u_username: Option<String>",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "u_role: Option<UserRole>",
+        "type_info": {
+          "Custom": {
+            "name": "\"UserRole\"",
+            "kind": {
+              "Enum": [
+                "SUPER_ADMIN",
+                "ADMIN",
+                "RESELLER",
+                "OPERATOR"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4a56573f7030d038e80c548b77483fa95d0bfc2dd3938ebb00fe1578d0edd181"
+}

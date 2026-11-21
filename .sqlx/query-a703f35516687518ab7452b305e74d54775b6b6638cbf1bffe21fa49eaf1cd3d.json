@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Client\"\n           SET \"restrictionReason\" = $2, \"restrictedAt\" = $3,\n               \"accessRevision\" = \"accessRevision\" + 1, \"updatedAt\" = $4\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a703f35516687518ab7452b305e74d54775b6b6638cbf1bffe21fa49eaf1cd3d"
+}

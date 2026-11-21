@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM \"NodeCommand\"\n           WHERE \"nodeId\" = $1 AND kind = $2 AND status = 'PENDING'\n           ORDER BY \"createdAt\" ASC, id ASC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "554d02c45d22fcce4b72b73cd42ea2f8ecedbd544e7185df5accf231f4177b5f"
+}

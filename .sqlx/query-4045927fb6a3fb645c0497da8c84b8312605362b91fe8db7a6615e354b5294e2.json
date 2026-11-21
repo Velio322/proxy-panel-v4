@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"PortShare\" WHERE id = $1 AND \"inboundId\" = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4045927fb6a3fb645c0497da8c84b8312605362b91fe8db7a6615e354b5294e2"
+}

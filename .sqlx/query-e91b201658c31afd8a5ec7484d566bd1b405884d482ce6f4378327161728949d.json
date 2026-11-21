@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"createdAt\" FROM \"NodeCommand\"\n               WHERE id = $1 AND \"nodeId\" = $2 AND status = 'PENDING'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "createdAt",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e91b201658c31afd8a5ec7484d566bd1b405884d482ce6f4378327161728949d"
+}

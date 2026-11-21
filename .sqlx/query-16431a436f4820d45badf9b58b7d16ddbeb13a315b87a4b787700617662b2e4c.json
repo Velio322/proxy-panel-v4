@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Node\"\n           SET name = $2,\n               version = COALESCE(NULLIF($3, ''), version),\n               status = CASE WHEN status = 'MAINTENANCE'::\"NodeStatus\"\n                             THEN status ELSE 'ONLINE'::\"NodeStatus\" END,\n               \"lastCheckAt\" = $4, \"updatedAt\" = $4\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "16431a436f4820d45badf9b58b7d16ddbeb13a315b87a4b787700617662b2e4c"
+}

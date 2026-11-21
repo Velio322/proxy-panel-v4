@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT username, uuid, \"trafficLimit\" AS traffic_limit,\n                  \"usedTraffic\" AS used_traffic, \"uploadTraffic\" AS upload_traffic,\n                  \"downloadTraffic\" AS download_traffic, \"expireAt\" AS expire_at, banned,\n                  \"lastActiveAt\" AS last_active_at, \"createdAt\" AS created_at, protocols,\n                  \"subToken\" AS sub_token\n           FROM \"Client\" WHERE \"subToken\" = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "traffic_limit",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "used_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "upload_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "download_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "expire_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_active_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 10,
+        "name": "protocols",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "sub_token",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0b038685d6e31ad5993085e48ea9b1a7b662ea329d0754cb370726aee3768055"
+}

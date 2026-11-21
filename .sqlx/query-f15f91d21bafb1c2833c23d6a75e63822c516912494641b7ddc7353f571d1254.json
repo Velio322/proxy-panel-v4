@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT active, \"expiresAt\" AS expires_at, \"maxClients\" AS max_clients,\n                  \"trafficLimit\" AS traffic_limit, \"usedTraffic\" AS used_traffic\n           FROM \"Reseller\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "expires_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 2,
+        "name": "max_clients",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "traffic_limit",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "used_traffic",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f15f91d21bafb1c2833c23d6a75e63822c516912494641b7ddc7353f571d1254"
+}

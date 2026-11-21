@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"cpuUsage\", \"memUsage\", \"tcpConnections\", \"udpSockets\", \"uploadBps\",\n                  \"downloadBps\", \"uptime\", \"coreStatuses\", \"hostTelemetry\", \"recordedAt\"\n           FROM \"NodeMetric\" WHERE \"nodeId\" = $1 ORDER BY \"recordedAt\" DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cpuUsage",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 1,
+        "name": "memUsage",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 2,
+        "name": "tcpConnections",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "udpSockets",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "uploadBps",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 5,
+        "name": "downloadBps",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "uptime",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "coreStatuses",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "hostTelemetry",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "recordedAt",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "45a662ae30ef5701c3ce5edc1cf0186fac0caae248ae3e713d59f4a4a2e8240f"
+}

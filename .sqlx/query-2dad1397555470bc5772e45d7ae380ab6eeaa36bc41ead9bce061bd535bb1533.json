@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"nodeId\" AS node_id, id, protocol AS \"protocol: Protocol\", tag, enable, port\n           FROM \"Inbound\" WHERE \"nodeId\" = ANY($1::text[]) ORDER BY port ASC, id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "node_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "protocol: Protocol",
+        "type_info": {
+          "Custom": {
+            "name": "\"Protocol\"",
+            "kind": {
+              "Enum": [
+                "VLESS",
+                "VMESS",
+                "TROJAN",
+                "SHADOWSOCKS",
+                "HYSTERIA2",
+                "NAIVEPROXY",
+                "MIERU",
+                "TUIC",
+                "ANYTLS"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "enable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "port",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2dad1397555470bc5772e45d7ae380ab6eeaa36bc41ead9bce061bd535bb1533"
+}

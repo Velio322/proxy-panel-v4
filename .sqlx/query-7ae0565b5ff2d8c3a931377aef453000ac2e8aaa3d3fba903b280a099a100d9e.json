@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"Webhook\" (id, name, url, secret, scopes, events, active,\n                                  \"createdAt\", \"updatedAt\")\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray",
+        "TextArray",
+        "Bool",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7ae0565b5ff2d8c3a931377aef453000ac2e8aaa3d3fba903b280a099a100d9e"
+}

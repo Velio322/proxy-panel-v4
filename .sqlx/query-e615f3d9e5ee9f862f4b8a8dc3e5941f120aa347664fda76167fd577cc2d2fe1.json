@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"RoutingRule\" SET name = $2, description = $3, enabled = $4, priority = $5,\n                  type = $6, domain = $7, ip = $8, port = $9, \"sourcePort\" = $10, source = $11,\n                  protocol = $12, \"inboundTag\" = $13, \"outboundTag\" = $14, \"balancerTag\" = $15,\n                  \"subRules\" = $16, \"nodeScope\" = $17, \"updatedAt\" = $18\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Int4",
+        "Text",
+        "TextArray",
+        "TextArray",
+        "Text",
+        "Text",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e615f3d9e5ee9f862f4b8a8dc3e5941f120aa347664fda76167fd577cc2d2fe1"
+}

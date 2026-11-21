@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, type AS \"type: BackupType\", status AS \"status: BackupStatus\",\n                  destination, \"filePath\", \"fileSize\", error, \"createdAt\"\n           FROM \"BackupLog\" ORDER BY \"createdAt\" DESC LIMIT $1 OFFSET $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "type: BackupType",
+        "type_info": {
+          "Custom": {
+            "name": "\"BackupType\"",
+            "kind": {
+              "Enum": [
+                "DATABASE",
+                "CONFIG",
+                "FULL"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "status: BackupStatus",
+        "type_info": {
+          "Custom": {
+            "name": "\"BackupStatus\"",
+            "kind": {
+              "Enum": [
+                "SUCCESS",
+                "FAILED",
+                "IN_PROGRESS"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "destination",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "filePath",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "fileSize",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "createdAt",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "2aa99f16ebac21d72e48655c040bccacc54ed5a201ba5511a8440442f6ca938d"
+}

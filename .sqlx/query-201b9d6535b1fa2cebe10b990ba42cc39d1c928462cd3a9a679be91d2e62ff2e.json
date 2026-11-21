@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, username, email, password, role AS \"role: UserRole\",\n                  \"resellerId\" AS reseller_id, language, banned,\n                  \"totpSecret\" AS totp_secret, \"totpEnabled\" AS totp_enabled\n           FROM \"User\" WHERE username = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "password",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "role: UserRole",
+        "type_info": {
+          "Custom": {
+            "name": "\"UserRole\"",
+            "kind": {
+              "Enum": [
+                "SUPER_ADMIN",
+                "ADMIN",
+                "RESELLER",
+                "OPERATOR"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "reseller_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "language",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "totp_secret",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "totp_enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "201b9d6535b1fa2cebe10b990ba42cc39d1c928462cd3a9a679be91d2e62ff2e"
+}

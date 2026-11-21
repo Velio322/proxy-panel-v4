@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT host, \"apiPort\" FROM \"Node\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "host",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "apiPort",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "4beaa316e9a76638c5acb1075bd00f46216cc655c45cb71bfed01f5c9a9bb607"
+}

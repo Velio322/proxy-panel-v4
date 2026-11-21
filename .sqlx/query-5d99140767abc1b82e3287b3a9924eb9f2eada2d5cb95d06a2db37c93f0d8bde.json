@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Client\" SET \"lastActiveAt\" = $2, \"updatedAt\" = $2\n           WHERE id = $1 AND \"lastActiveAt\" IS NULL\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5d99140767abc1b82e3287b3a9924eb9f2eada2d5cb95d06a2db37c93f0d8bde"
+}

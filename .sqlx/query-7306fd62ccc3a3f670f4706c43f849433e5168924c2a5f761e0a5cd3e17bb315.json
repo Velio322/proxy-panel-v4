@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, host, \"apiPort\" AS api_port, secret, status AS \"status: NodeStatus\",\n                  \"cpuUsage\" AS cpu_usage, \"memUsage\" AS mem_usage\n           FROM \"Node\" WHERE active = true ORDER BY id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "host",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "api_port",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "secret",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status: NodeStatus",
+        "type_info": {
+          "Custom": {
+            "name": "\"NodeStatus\"",
+            "kind": {
+              "Enum": [
+                "ONLINE",
+                "OFFLINE",
+                "ERROR",
+                "MAINTENANCE"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "cpu_usage",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "mem_usage",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "7306fd62ccc3a3f670f4706c43f849433e5168924c2a5f761e0a5cd3e17bb315"
+}

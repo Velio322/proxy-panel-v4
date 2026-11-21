@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"resellerId\" AS \"reseller_id!\", count(*) AS \"c!\" FROM \"User\"\n           WHERE \"resellerId\" IS NOT NULL GROUP BY \"resellerId\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "reseller_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "c!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "5f4b3b1867f5188e8c8f5295ed6a373bb01e64a81fe7e7e6d99a8a4278464266"
+}

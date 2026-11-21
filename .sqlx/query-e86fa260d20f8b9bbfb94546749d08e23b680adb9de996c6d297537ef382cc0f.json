@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"Inbound\" (id, \"nodeId\", protocol, tag, port, listen, settings, stream,\n                                  routing, sniffing, remark, enable, \"createdAt\", \"updatedAt\")\n           VALUES ($1, $2, $3::text::\"Protocol\", $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Text",
+        "Bool",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e86fa260d20f8b9bbfb94546749d08e23b680adb9de996c6d297537ef382cc0f"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"BackupLog\" (id, type, status, destination, \"createdAt\")\n           VALUES ($1, $2::text::\"BackupType\", 'IN_PROGRESS', $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "90f2d3a71bba65d8c5a2f4a010795fd59eaf81b4f04f2735b42fd347e893dc3f"
+}

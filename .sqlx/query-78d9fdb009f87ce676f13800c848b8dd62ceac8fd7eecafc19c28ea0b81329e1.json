@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"User\" SET password = $2, email = COALESCE($3, email), banned = false, \"updatedAt\" = $4 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78d9fdb009f87ce676f13800c848b8dd62ceac8fd7eecafc19c28ea0b81329e1"
+}

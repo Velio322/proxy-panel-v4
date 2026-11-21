@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"c!\" FROM \"Client\" WHERE banned = false\n           AND (\"expireAt\" IS NULL OR \"expireAt\" > $1)\n           AND (\"trafficLimit\" = 0 OR \"usedTraffic\" < \"trafficLimit\")",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "c!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "33dff515b25dfc87cc5a90ce199999d6a0081164d1179c25d962096bb0fbd3aa"
+}

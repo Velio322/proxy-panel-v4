@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, host, status AS \"status: NodeStatus\" FROM \"Node\"\n           WHERE id = ANY($1::text[])",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "host",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "status: NodeStatus",
+        "type_info": {
+          "Custom": {
+            "name": "\"NodeStatus\"",
+            "kind": {
+              "Enum": [
+                "ONLINE",
+                "OFFLINE",
+                "ERROR",
+                "MAINTENANCE"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "793ed9c5e0637cda9db4fcbde21fee43f65d515ccebda74ff1ed08b5219d7ed9"
+}

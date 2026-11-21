@@ -1,0 +1,99 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, protocol AS \"protocol: Protocol\", tag, port, listen, settings, stream,\n                  routing, sniffing, remark, enable\n           FROM \"Inbound\"\n           WHERE \"nodeId\" = $1 AND enable = true\n           ORDER BY \"createdAt\" ASC, id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "protocol: Protocol",
+        "type_info": {
+          "Custom": {
+            "name": "\"Protocol\"",
+            "kind": {
+              "Enum": [
+                "VLESS",
+                "VMESS",
+                "TROJAN",
+                "SHADOWSOCKS",
+                "HYSTERIA2",
+                "NAIVEPROXY",
+                "MIERU",
+                "TUIC",
+                "ANYTLS"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "port",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "listen",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "settings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "stream",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "routing",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "sniffing",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "remark",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "enable",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "3b543a0aaea7e6387b0fab6508489c669205ea2732f2e9d67eea2ca6b2e895dc"
+}

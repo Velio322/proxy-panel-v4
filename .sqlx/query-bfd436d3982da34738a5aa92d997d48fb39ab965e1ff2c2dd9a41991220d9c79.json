@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"NodeCommand\" SET status = 'FAILED', \"lastError\" = $2\n                   WHERE id = $1 AND status = 'PENDING'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bfd436d3982da34738a5aa92d997d48fb39ab965e1ff2c2dd9a41991220d9c79"
+}

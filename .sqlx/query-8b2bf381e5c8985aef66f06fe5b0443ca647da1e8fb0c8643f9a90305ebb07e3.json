@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"clientId\" AS client_id, SUM(upload)::bigint AS upload,\n                  SUM(download)::bigint AS download\n           FROM \"TrafficLog\" WHERE \"nodeId\" = $1 AND \"recordAt\" >= $2\n             AND ($3::text IS NULL OR \"clientId\" IN\n                  (SELECT id FROM \"Client\" WHERE \"resellerId\" = $3))\n           GROUP BY \"clientId\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "client_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "upload",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "download",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "8b2bf381e5c8985aef66f06fe5b0443ca647da1e8fb0c8643f9a90305ebb07e3"
+}

@@ -1,0 +1,235 @@
+use anyhow::{bail, Result};
+use std::env;
+use std::path::{Path, PathBuf};
+
+/// Default HTTP port for the worker node agent API (`0.0.0.0:2087`).
+pub const DEFAULT_WORKER_PORT: u16 = 2087;
+/// Default listen address for the worker node agent HTTP API.
+pub const DEFAULT_WORKER_HOST: &str = "0.0.0.0";
+/// Default directory for rendered core configuration and runtime state files.
+pub const DEFAULT_CONFIG_DIR: &str = "/var/lib/mypanel3-node";
+/// Default Xray-core binary path.
+pub const DEFAULT_XRAY_BIN: &str = "/usr/local/bin/xray";
+/// Default Sing-box binary path.
+pub const DEFAULT_SINGBOX_BIN: &str = "/usr/local/bin/sing-box";
+/// Default NaiveProxy (Caddy with `forward_proxy` plugin) binary path.
+pub const DEFAULT_NAIVE_BIN: &str = "/usr/local/bin/caddy-naive";
+/// Default Mieru server (`mita` / `mieru`) binary path.
+pub const DEFAULT_MIERU_BIN: &str = "/usr/local/bin/mita";
+/// Default local Xray gRPC `StatsService` & `HandlerService` port (`127.0.0.1:10085`).
+pub const DEFAULT_XRAY_API_PORT: u16 = 10085;
+/// Default local Sing-box Clash API address (`127.0.0.1:9091`).
+pub const DEFAULT_SINGBOX_API_ADDR: &str = "127.0.0.1:9091";
+/// Canonical worker agent version string.
+pub const AGENT_VERSION: &str = "3.0.0";
+
+/// Configuration for the ProxyPanel v4 node worker daemon (`mypanel-agent`).
+#[derive(Debug, Clone)]
+pub struct AgentConfig {
+    /// Master panel base URL (e.g. `https://panel.example.com`). Empty in standalone mode.
+    pub master_url: String,
+    /// Shared secret authenticating this node with the Master (`NODE_RPC_SECRET`).
+    pub node_secret: String,
+    /// Human-readable node name reported during self-registration (`NODE_NAME`).
+    pub node_name: String,
+    /// Public host or domain of this node (`NODE_HOST`).
+    pub node_host: String,
+    /// Bind address for the worker HTTP server (`WORKER_HOST`, default `"0.0.0.0"`).
+    pub worker_host: String,
+    /// Bind port for the worker HTTP server (`WORKER_PORT`, default `2087`).
+    pub worker_port: u16,
+    /// Directory where core configurations, access logs, and state files are persisted (`CONFIG_DIR`).
+    pub config_dir: PathBuf,
+    /// Path to the `xray` binary (`XRAY_BIN`).
+    pub xray_bin: PathBuf,
+    /// Path to the `sing-box` binary (`SINGBOX_BIN`).
+    pub singbox_bin: PathBuf,
+    /// Path to the `caddy-naive` / `naive` binary (`NAIVE_BIN`).
+    pub naive_bin: PathBuf,
+    /// Path to the `mita` / `mieru` binary (`MIERU_BIN`).
+    pub mieru_bin: PathBuf,
+    /// Optional `XRAY_LOCATION_ASSET` directory passed to child Xray processes.
+    pub xray_asset_dir: Option<PathBuf>,
+    /// Local loopback port for Xray gRPC `StatsService` and `HandlerService` (`XRAY_API_PORT`, default `10085`).
+    pub xray_api_port: u16,
+    /// Local loopback address for Sing-box Clash API (`SINGBOX_API_ADDR`, default `"127.0.0.1:9091"`).
+    pub singbox_api_addr: String,
+    /// Optional PEM-encoded CA certificate path or inline PEM for mTLS (`MTLS_CA_CERT`).
+    pub mtls_ca_cert: Option<String>,
+    /// Optional PEM-encoded client certificate path or inline PEM for mTLS (`MTLS_CLIENT_CERT`).
+    pub mtls_client_cert: Option<String>,
+    /// Optional PEM-encoded client private key path or inline PEM for mTLS (`MTLS_CLIENT_KEY`).
+    pub mtls_client_key: Option<String>,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        let host = default_hostname();
+        Self {
+            master_url: String::new(),
+            node_secret: String::new(),
+            node_name: host.clone(),
+            node_host: host,
+            worker_host: DEFAULT_WORKER_HOST.to_string(),
+            worker_port: DEFAULT_WORKER_PORT,
+            config_dir: PathBuf::from(DEFAULT_CONFIG_DIR),
+            xray_bin: PathBuf::from(DEFAULT_XRAY_BIN),
+            singbox_bin: PathBuf::from(DEFAULT_SINGBOX_BIN),
+            naive_bin: PathBuf::from(DEFAULT_NAIVE_BIN),
+            mieru_bin: PathBuf::from(DEFAULT_MIERU_BIN),
+            xray_asset_dir: None,
+            xray_api_port: DEFAULT_XRAY_API_PORT,
+            singbox_api_addr: DEFAULT_SINGBOX_API_ADDR.to_string(),
+            mtls_ca_cert: None,
+            mtls_client_cert: None,
+            mtls_client_key: None,
+        }
+    }
+}
+
+impl AgentConfig {
+    /// Loads [`AgentConfig`] from environment variables.
+    pub fn from_env() -> Result<Self> {
+        let pairs: Vec<(String, String)> = env::vars().collect();
+        Self::from_pairs(&pairs)
+    }
+
+    /// Parses [`AgentConfig`] from an explicit slice of `(key, value)` environment pairs.
+    pub fn from_pairs<K, V>(vars: &[(K, V)]) -> Result<Self>
+    where
+        K: AsRef<str>,
+        V: AsRef<str>,
+    {
+        let get = |name: &str| -> Option<String> {
+            vars.iter()
+                .find(|(k, _)| k.as_ref() == name)
+                .map(|(_, v)| v.as_ref().trim().to_string())
+                .filter(|v| !v.is_empty())
+        };
+
+        let mut cfg = Self::default();
+
+        if let Some(url) = get("MASTER_URL") {
+            cfg.master_url = url.trim_end_matches('/').to_string();
+        }
+        if let Some(sec) = get("NODE_RPC_SECRET").or_else(|| get("NODE_SECRET")) {
+            if sec.len() < 16 || sec.len() > 256 {
+                bail!("NODE_RPC_SECRET must be between 16 and 256 characters");
+            }
+            if sec.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                bail!("NODE_RPC_SECRET must not contain whitespace or control characters");
+            }
+            cfg.node_secret = sec;
+        }
+        if let Some(host) = get("NODE_HOST") {
+            cfg.node_host = host;
+        }
+        if let Some(name) = get("NODE_NAME") {
+            cfg.node_name = name;
+        } else {
+            cfg.node_name = cfg.node_host.clone();
+        }
+        if let Some(wh) = get("WORKER_HOST") {
+            cfg.worker_host = wh;
+        }
+        if let Some(wp) = get("WORKER_PORT") {
+            let port: u16 = wp
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid WORKER_PORT: {wp}"))?;
+            if port == 0 {
+                bail!("WORKER_PORT must be in 1..=65535");
+            }
+            cfg.worker_port = port;
+        }
+        if let Some(dir) = get("CONFIG_DIR") {
+            cfg.config_dir = PathBuf::from(dir);
+        }
+        if let Some(xb) = get("XRAY_BIN") {
+            cfg.xray_bin = PathBuf::from(xb);
+        }
+        if let Some(sb) = get("SINGBOX_BIN") {
+            cfg.singbox_bin = PathBuf::from(sb);
+        }
+        if let Some(nb) = get("NAIVE_BIN") {
+            cfg.naive_bin = PathBuf::from(nb);
+        }
+        if let Some(mb) = get("MIERU_BIN") {
+            cfg.mieru_bin = PathBuf::from(mb);
+        }
+        if let Some(ad) = get("XRAY_LOCATION_ASSET") {
+            cfg.xray_asset_dir = Some(PathBuf::from(ad));
+        }
+        if let Some(ap) = get("XRAY_API_PORT") {
+            let port: u16 = ap
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid XRAY_API_PORT: {ap}"))?;
+            if port == 0 {
+                bail!("XRAY_API_PORT must be in 1..=65535");
+            }
+            cfg.xray_api_port = port;
+        }
+        if let Some(sa) = get("SINGBOX_API_ADDR") {
+            cfg.singbox_api_addr = sa;
+        }
+        cfg.mtls_ca_cert = get("MTLS_CA_CERT");
+        cfg.mtls_client_cert = get("MTLS_CLIENT_CERT");
+        cfg.mtls_client_key = get("MTLS_CLIENT_KEY");
+
+        Ok(cfg)
+    }
+
+    /// Creates a test configuration pointing to `config_dir` with a valid 24-character node secret.
+    pub fn for_tests(config_dir: impl AsRef<Path>) -> Self {
+        Self {
+            master_url: String::new(),
+            node_secret: "test-node-secret-0123456789".to_string(),
+            node_name: "test-node".to_string(),
+            node_host: "127.0.0.1".to_string(),
+            worker_host: "127.0.0.1".to_string(),
+            worker_port: DEFAULT_WORKER_PORT,
+            config_dir: config_dir.as_ref().to_path_buf(),
+            ..Self::default()
+        }
+    }
+
+    /// Path to `<CONFIG_DIR>/desired_config.json` used for cold-start restoration.
+    pub fn desired_config_path(&self) -> PathBuf {
+        self.config_dir.join("desired_config.json")
+    }
+
+    /// Path to `<CONFIG_DIR>/xray.json`.
+    pub fn xray_config_path(&self) -> PathBuf {
+        self.config_dir.join("xray.json")
+    }
+
+    /// Path to `<CONFIG_DIR>/singbox.json`.
+    pub fn singbox_config_path(&self) -> PathBuf {
+        self.config_dir.join("singbox.json")
+    }
+
+    /// Path to `<CONFIG_DIR>/traffic-pending.json`.
+    pub fn traffic_pending_path(&self) -> PathBuf {
+        self.config_dir.join("traffic-pending.json")
+    }
+
+    /// Path to `<CONFIG_DIR>/naive-access.log`.
+    pub fn naive_access_log_path(&self) -> PathBuf {
+        self.config_dir.join("naive-access.log")
+    }
+
+    /// Returns `true` when mTLS client credentials and CA certificate are configured.
+    pub fn has_mtls(&self) -> bool {
+        self.mtls_ca_cert.is_some()
+            && self.mtls_client_cert.is_some()
+            && self.mtls_client_key.is_some()
+    }
+}
+
+fn default_hostname() -> String {
+    env::var("HOSTNAME")
+        .or_else(|_| env::var("COMPUTERNAME"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "proxypanel-node".to_string())
+}

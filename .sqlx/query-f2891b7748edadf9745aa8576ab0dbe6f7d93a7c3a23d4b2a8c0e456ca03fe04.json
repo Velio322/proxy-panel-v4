@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"TrafficReceipt\" (id, \"batchId\", \"nodeId\", \"createdAt\")\n           SELECT u.id, NULLIF(u.\"batchId\", ''), u.\"nodeId\", $4\n           FROM UNNEST($1::text[], $2::text[], $3::text[]) AS u(id, \"batchId\", \"nodeId\")\n           ON CONFLICT (id) DO NOTHING\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f2891b7748edadf9745aa8576ab0dbe6f7d93a7c3a23d4b2a8c0e456ca03fe04"
+}

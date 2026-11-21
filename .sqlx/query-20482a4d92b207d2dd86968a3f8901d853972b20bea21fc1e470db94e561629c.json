@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Node\" SET \"secretHash\" = $2 WHERE id = $1 AND \"secretHash\" IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "20482a4d92b207d2dd86968a3f8901d853972b20bea21fc1e470db94e561629c"
+}

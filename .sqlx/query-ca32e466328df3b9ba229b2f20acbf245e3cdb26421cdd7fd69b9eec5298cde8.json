@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"totpSecret\" AS totp_secret FROM \"User\"\n           WHERE id = $1 AND \"totpEnabled\" = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "totp_secret",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "ca32e466328df3b9ba229b2f20acbf245e3cdb26421cdd7fd69b9eec5298cde8"
+}

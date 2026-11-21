@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT i.id, i.protocol AS \"protocol: Protocol\", i.tag, i.port, i.settings, i.stream,\n                  n.host AS node_host\n           FROM \"Inbound\" i\n           JOIN \"Node\" n ON n.id = i.\"nodeId\"\n           WHERE i.enable = true\n             AND i.protocol::text = ANY($1::text[])\n             AND n.active = true\n             -- Status hysteresis: nodes that dropped offline moments ago stay\n             -- in subscriptions for a grace period, so a brief flap does not\n             -- make clients lose (and regain) whole nodes on every refresh.\n             AND (n.status = 'ONLINE'\n                  OR (n.status = 'OFFLINE' AND n.\"updatedAt\" > $3))\n             AND EXISTS (SELECT 1 FROM \"ClientInbound\" ci\n                         WHERE ci.\"inboundId\" = i.id AND ci.\"clientId\" = $2 AND ci.enable = true)\n           ORDER BY i.\"createdAt\" ASC, i.id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "protocol: Protocol",
+        "type_info": {
+          "Custom": {
+            "name": "\"Protocol\"",
+            "kind": {
+              "Enum": [
+                "VLESS",
+                "VMESS",
+                "TROJAN",
+                "SHADOWSOCKS",
+                "HYSTERIA2",
+                "NAIVEPROXY",
+                "MIERU",
+                "TUIC",
+                "ANYTLS"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "port",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "settings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "stream",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "node_host",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a706caf889eb331c631a4e306ca7856b4e9b03789d42bb77f495ffa5ea819300"
+}

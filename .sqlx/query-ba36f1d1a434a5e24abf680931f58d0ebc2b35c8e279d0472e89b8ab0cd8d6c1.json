@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Client\"\n                           SET \"usedTraffic\" = 0, \"uploadTraffic\" = 0, \"downloadTraffic\" = 0,\n                               \"lastTrafficResetAt\" = $2, \"nextTrafficResetAt\" = $3,\n                               \"updatedAt\" = $2\n                           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba36f1d1a434a5e24abf680931f58d0ebc2b35c8e279d0472e89b8ab0cd8d6c1"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"BackupLog\" SET status = 'FAILED',\n                      error = 'interrupted by service restart'\n               WHERE status = 'IN_PROGRESS'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "3bcfb28e3306050fedd46f0fface79b40b470f8f253cf5f70ab0bf2996a16f2d"
+}

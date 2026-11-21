@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT role AS \"role: UserRole\", banned FROM \"User\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role: UserRole",
+        "type_info": {
+          "Custom": {
+            "name": "\"UserRole\"",
+            "kind": {
+              "Enum": [
+                "SUPER_ADMIN",
+                "ADMIN",
+                "RESELLER",
+                "OPERATOR"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "banned",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "6c29ca11440f5a5a9a1274c3bedce2d4831ad4bc05fd6a55d1a85ff78b8c96ee"
+}

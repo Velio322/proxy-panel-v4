@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Node\" SET status = 'ONLINE', \"lastCheckAt\" = $2, \"updatedAt\" = $2\n           WHERE id = $1 AND status <> 'MAINTENANCE'::\"NodeStatus\"",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d5704c975b7e90a9ade93a6511cc4ab49636a1f3bcf01bd54cd0c484b9370bd3"
+}

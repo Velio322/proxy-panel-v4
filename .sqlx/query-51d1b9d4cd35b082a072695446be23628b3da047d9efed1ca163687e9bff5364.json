@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Device\"\n               SET \"lastSeenAt\" = $2, \"updatedAt\" = $2, ip = $3, os = $4,\n                   \"osVersion\" = $5, model = $6, \"userAgent\" = $7\n               WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51d1b9d4cd35b082a072695446be23628b3da047d9efed1ca163687e9bff5364"
+}

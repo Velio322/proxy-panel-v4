@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"AuditLog\" WHERE \"createdAt\" < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "444be80a5372c2118aa8b10e68578cfa4e591cdede19de03c0c7eb16a30328d0"
+}

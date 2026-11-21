@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Client\" AS c\n           SET \"uploadTraffic\" = c.\"uploadTraffic\" + v.upload,\n               \"downloadTraffic\" = c.\"downloadTraffic\" + v.download,\n               \"usedTraffic\" = c.\"usedTraffic\" + v.upload + v.download,\n               \"lastActiveAt\" = $4, \"updatedAt\" = $4\n           FROM UNNEST($1::text[], $2::bigint[], $3::bigint[]) AS v(id, upload, download)\n           WHERE c.id = v.id\n           RETURNING c.id, c.\"usedTraffic\" AS used_traffic,\n                     c.\"trafficLimit\" AS traffic_limit",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "used_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "traffic_limit",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8Array",
+        "Int8Array",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "51ee2f2ef0f6df1808858a489fbbc2e3754dcd11b15a4238e427c15756f255a6"
+}

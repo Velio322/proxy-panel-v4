@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Client\" SET \"subToken\" = $2, \"subId\" = $3, \"updatedAt\" = $4 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "37cbf6a698b385d19e04298d26e1110c7bf3162fd4220d9ef6380dff9f8b718c"
+}

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"inboundId\" FROM \"ClientInbound\" WHERE \"clientId\" = $1 ORDER BY \"createdAt\", id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "inboundId",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e864b66e9aee7a799997885e63c28916555d5524ec36e034e8256f613721622b"
+}

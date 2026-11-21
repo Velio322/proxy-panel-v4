@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"NodeMetric\" WHERE \"recordedAt\" < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3c323bf5218ca2102bbd3fd6640f2d9a7996b8ea270662fe420086e5c74ec3a7"
+}

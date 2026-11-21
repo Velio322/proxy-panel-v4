@@ -1,0 +1,11 @@
+/target
+/mypanel3
+/.env
+/.env.local
+/.env.*.local
+/client/node_modules
+/client/dist
+*.log
+*.tmp
+*.bak
+.DS_Store

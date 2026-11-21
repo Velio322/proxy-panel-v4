@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(SUM(t.upload), 0)::bigint AS upload,\n                  COALESCE(SUM(t.download), 0)::bigint AS download\n           FROM \"TrafficLog\" t JOIN \"Client\" c ON c.id = t.\"clientId\"\n           WHERE t.\"recordAt\" >= $2 AND ($1::text IS NULL OR c.\"resellerId\" = $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "upload",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "download",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "2fc40b443573f25782ee3db2bcd18e297343ccb164a0b33abe82deffe1afa79d"
+}

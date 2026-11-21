@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"ProtocolCredential\" (id, \"clientId\", protocol, \"encryptedSecret\",\n                                              \"createdAt\", \"updatedAt\")\n           VALUES ($1, $2, $3::text::\"Protocol\", $4, $5, $5)\n           ON CONFLICT (\"clientId\", protocol) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "32f292a1f572dd08c79d5aa4ff925d82eae153eb4ab146c50259b6235a8b80fd"
+}

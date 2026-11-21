@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"ClientInbound\" SET uuid = $2, enable = $3 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "abc92da25c2c68e1f62e37cb7e35b1a4b8f1f4f821d1044cb01a72c949988d21"
+}

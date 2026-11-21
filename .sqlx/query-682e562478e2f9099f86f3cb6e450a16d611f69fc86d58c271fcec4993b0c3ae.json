@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Node\"\n                   SET status = CASE WHEN status = 'MAINTENANCE'::\"NodeStatus\"\n                                     THEN status ELSE 'ONLINE'::\"NodeStatus\" END,\n                       \"lastCheckAt\" = $2, \"lastPingMs\" = $3,\n                       version = COALESCE($4, version),\n                       \"xrayVersion\" = $5, \"singboxVersion\" = $6,\n                       \"updatedAt\" = $2\n                   WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp",
+        "Int4",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "682e562478e2f9099f86f3cb6e450a16d611f69fc86d58c271fcec4993b0c3ae"
+}

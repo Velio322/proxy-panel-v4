@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"NodeCommand\"\n           WHERE status IN ('ACKNOWLEDGED', 'FAILED') AND \"createdAt\" < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78f3c5992cf028c16ce53c80917ad01c27d07e3dcfc249c35128a31cd9eb1194"
+}

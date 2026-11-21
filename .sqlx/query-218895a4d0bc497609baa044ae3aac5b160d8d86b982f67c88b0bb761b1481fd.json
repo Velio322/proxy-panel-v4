@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, \"contactEmail\" AS contact_email,\n                  \"contactTelegram\" AS contact_telegram, \"maxClients\" AS max_clients,\n                  \"maxNodes\" AS max_nodes, \"trafficLimit\" AS traffic_limit,\n                  \"usedTraffic\" AS used_traffic, balance, \"whiteLabel\" AS white_label,\n                  active, \"expiresAt\" AS expires_at, \"createdAt\" AS created_at,\n                  \"updatedAt\" AS updated_at\n           FROM \"Reseller\" ORDER BY \"createdAt\" DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "contact_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "contact_telegram",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "max_clients",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "max_nodes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "traffic_limit",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "used_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "balance",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 9,
+        "name": "white_label",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "expires_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "218895a4d0bc497609baa044ae3aac5b160d8d86b982f67c88b0bb761b1481fd"
+}

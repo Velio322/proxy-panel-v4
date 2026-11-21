@@ -1,0 +1,152 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 162 82% 35%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 24% 93%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 214 24% 93%;
+    --muted-foreground: 215 16% 44%;
+    --accent: 162 36% 93%;
+    --accent-foreground: 162 72% 24%;
+    --destructive: 0 84% 55%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 20% 88%;
+    --input: 214 20% 86%;
+    --ring: 162 82% 35%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 220 20% 3.5%;
+    --foreground: 210 20% 95%;
+    --card: 220 16% 6.5%;
+    --card-foreground: 210 20% 95%;
+    --popover: 220 18% 7.5%;
+    --popover-foreground: 210 20% 95%;
+    --primary: 162 84% 43%;
+    --primary-foreground: 168 70% 5%;
+    --secondary: 218 15% 11.5%;
+    --secondary-foreground: 210 20% 92%;
+    --muted: 218 14% 11%;
+    --muted-foreground: 215 12% 58%;
+    --accent: 164 32% 11.5%;
+    --accent-foreground: 162 70% 82%;
+    --destructive: 0 72% 52%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 218 14% 14%;
+    --input: 218 14% 16%;
+    --ring: 162 84% 43%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-size: 16px;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased selection:bg-primary/25 selection:text-foreground;
+    min-height: 100vh;
+  }
+}
+
+/* Subtle top emerald ambient wash (pure CSS gradient) */
+.dark .app-shell-bg {
+  background-image: radial-gradient(ellipse 65% 32% at 50% -8%, hsl(162 84% 43% / 0.08), transparent 70%);
+}
+
+/* Crisp inner highlight + depth for techno cards */
+.dark .surface-card {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.035), 0 8px 24px -16px rgba(0, 0, 0, 0.75);
+}
+
+/* Server Blade card sheen for Nodes rack telemetry */
+.node-blade {
+  background: linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--card) / 0.88) 100%);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.04), 0 10px 28px -18px rgba(0, 0, 0, 0.45);
+}
+.dark .node-blade {
+  background: linear-gradient(180deg, hsl(220 16% 8%) 0%, hsl(220 18% 5.5%) 100%);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 12px 30px -18px rgba(0, 0, 0, 0.85);
+}
+.node-blade:hover {
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.07), 0 12px 32px -16px hsl(var(--primary) / 0.18);
+}
+
+/* Technical matrix grid + radial glow for Node Detail Command Banner */
+.node-hero-grid {
+  background-image:
+    radial-gradient(ellipse 55% 80% at 8% 0%, hsl(var(--primary) / 0.13), transparent 65%),
+    radial-gradient(hsl(var(--border) / 0.55) 1px, transparent 1px);
+  background-size: 100% 100%, 18px 18px;
+}
+
+.telemetry-track {
+  background: hsl(var(--muted) / 0.85);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.rack-inset {
+  background: hsl(var(--background) / 0.55);
+  border: 1px solid hsl(var(--border) / 0.72);
+}
+.dark .rack-inset {
+  background: hsl(220 20% 4.2% / 0.72);
+  border-color: hsl(218 14% 16% / 0.85);
+}
+
+/* Density mode for data tables */
+html[data-density='compact'] .data-table th,
+html[data-density='compact'] .data-table td {
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+
+/* Login radial dot grid + soft emerald glow */
+.login-grid-bg {
+  background-image:
+    radial-gradient(circle at 50% 25%, hsl(var(--primary) / 0.14), transparent 55%),
+    radial-gradient(hsl(var(--primary) / 0.16) 1px, transparent 1px);
+  background-size: 100% 100%, 24px 24px;
+}
+
+/* Hide scrollbars while keeping horizontal scroll interactive */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.28);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.45);
+}

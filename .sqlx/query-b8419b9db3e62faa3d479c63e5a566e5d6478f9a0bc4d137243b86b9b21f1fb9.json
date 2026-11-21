@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT i.\"nodeId\" AS node_id\n           FROM \"ClientInbound\" ci JOIN \"Inbound\" i ON i.id = ci.\"inboundId\"\n           WHERE ci.\"clientId\" = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "node_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b8419b9db3e62faa3d479c63e5a566e5d6478f9a0bc4d137243b86b9b21f1fb9"
+}

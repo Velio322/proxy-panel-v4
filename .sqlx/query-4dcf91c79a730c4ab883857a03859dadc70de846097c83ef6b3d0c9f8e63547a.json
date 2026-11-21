@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT c.\"nodeId\" FROM \"NodeCommand\" c\n           JOIN \"Node\" n ON n.id = c.\"nodeId\"\n           WHERE c.status = 'PENDING' AND c.kind = 'CONFIG_SYNC' AND n.active = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "nodeId",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4dcf91c79a730c4ab883857a03859dadc70de846097c83ef6b3d0c9f8e63547a"
+}

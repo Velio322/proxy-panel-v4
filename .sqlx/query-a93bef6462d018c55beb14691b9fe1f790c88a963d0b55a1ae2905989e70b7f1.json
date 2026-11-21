@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"encryptedSecret\" FROM \"ProtocolCredential\"\n           WHERE \"clientId\" = $1 AND protocol = $2::text::\"Protocol\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "encryptedSecret",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a93bef6462d018c55beb14691b9fe1f790c88a963d0b55a1ae2905989e70b7f1"
+}

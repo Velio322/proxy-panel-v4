@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"ApiKey\" SET \"lastUsedAt\" = $2 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "634b08881c6eb9906f18b2e1d357934e4a4b4ee020729e32d37ae94092a6016a"
+}

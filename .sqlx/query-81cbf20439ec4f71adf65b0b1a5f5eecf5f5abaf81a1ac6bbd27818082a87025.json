@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT resource, count(*) AS \"c!\" FROM \"AuditLog\"\n           GROUP BY resource ORDER BY count(*) DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "c!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "81cbf20439ec4f71adf65b0b1a5f5eecf5f5abaf81a1ac6bbd27818082a87025"
+}

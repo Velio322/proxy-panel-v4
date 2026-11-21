@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"User\" SET banned = $2, \"updatedAt\" = $3 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9c514f2ab8d06dfef7afcba2d0d8e8c4983e82a8724cf3c8823b81a12aca9188"
+}

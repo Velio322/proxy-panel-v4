@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status AS \"status: NodeStatus\" FROM \"Node\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status: NodeStatus",
+        "type_info": {
+          "Custom": {
+            "name": "\"NodeStatus\"",
+            "kind": {
+              "Enum": [
+                "ONLINE",
+                "OFFLINE",
+                "ERROR",
+                "MAINTENANCE"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "26e3076c3c6683f0d26c05681e4a12456a5c27a7d5ff7749364f243bf4e3be67"
+}

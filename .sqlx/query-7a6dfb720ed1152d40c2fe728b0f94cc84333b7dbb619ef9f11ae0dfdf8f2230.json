@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Node\"\n           SET status = CASE WHEN status = 'MAINTENANCE'::\"NodeStatus\"\n                             THEN status ELSE $2::text::\"NodeStatus\" END,\n               \"cpuUsage\" = $3, \"memUsage\" = $4,\n               \"lastCheckAt\" = $5, \"lastPingMs\" = NULL, \"updatedAt\" = $5\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Float8",
+        "Float8",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a6dfb720ed1152d40c2fe728b0f94cc84333b7dbb619ef9f11ae0dfdf8f2230"
+}

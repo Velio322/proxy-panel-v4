@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"NodeCommand\"\n                   SET status = 'ACKNOWLEDGED', \"acknowledgedAt\" = $3, \"lastError\" = NULL\n                   WHERE \"nodeId\" = $1 AND status = 'PENDING' AND kind = $4\n                     AND \"createdAt\" <= $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp",
+        "Timestamp",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2fe4c05a837b45bfa8f2fa6cb7f7b15a6c1d71fdf5a0846789f6bc2b799c4e38"
+}

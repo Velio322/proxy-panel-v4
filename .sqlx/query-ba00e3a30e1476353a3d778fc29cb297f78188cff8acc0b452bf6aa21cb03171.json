@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM \"Client\"\n                       WHERE ((\"expireAt\" IS NOT NULL AND \"expireAt\" <= $1)\n                           OR (\"trafficLimit\" > 0 AND \"usedTraffic\" >= \"trafficLimit\")\n                           OR \"restrictionReason\" IS NOT NULL\n                           OR (\"nextTrafficResetAt\" IS NOT NULL AND \"nextTrafficResetAt\" <= $1)\n                           OR (\"trafficResetDay\" IS NOT NULL AND \"nextTrafficResetAt\" IS NULL))\n                         AND ($2::text IS NULL OR id > $2::text)\n                       ORDER BY id ASC\n                       LIMIT 100",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ba00e3a30e1476353a3d778fc29cb297f78188cff8acc0b452bf6aa21cb03171"
+}

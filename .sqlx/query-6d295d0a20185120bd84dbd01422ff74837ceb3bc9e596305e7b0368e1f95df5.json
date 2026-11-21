@@ -1,0 +1,172 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, host, port, \"apiPort\" AS api_port, secret, country, city, isp,\n                  status AS \"status: NodeStatus\", \"lastCheckAt\" AS last_check_at,\n                  \"lastPingMs\" AS last_ping_ms, version, \"cpuUsage\" AS cpu_usage,\n                  \"memUsage\" AS mem_usage, \"netUpload\" AS net_upload,\n                  \"netDownload\" AS net_download, \"xrayVersion\" AS xray_version,\n                  \"singboxVersion\" AS singbox_version, features, tags, active,\n                  \"createdAt\" AS created_at, \"updatedAt\" AS updated_at\n           FROM \"Node\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "host",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "port",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "api_port",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "secret",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "country",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "city",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "isp",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "status: NodeStatus",
+        "type_info": {
+          "Custom": {
+            "name": "\"NodeStatus\"",
+            "kind": {
+              "Enum": [
+                "ONLINE",
+                "OFFLINE",
+                "ERROR",
+                "MAINTENANCE"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "last_check_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 11,
+        "name": "last_ping_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "cpu_usage",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 14,
+        "name": "mem_usage",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 15,
+        "name": "net_upload",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "net_download",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "xray_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "singbox_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
+        "name": "features",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 20,
+        "name": "tags",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 21,
+        "name": "active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 22,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 23,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6d295d0a20185120bd84dbd01422ff74837ceb3bc9e596305e7b0368e1f95df5"
+}

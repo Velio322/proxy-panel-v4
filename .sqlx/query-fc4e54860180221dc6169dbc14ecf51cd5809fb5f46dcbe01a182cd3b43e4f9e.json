@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Client\" SET uuid = $2, username = $3, email = $4, password = $5,\n                                  \"trafficLimit\" = $6, \"expireAt\" = $7, banned = $8, protocols = $9,\n                                  \"subId\" = $10, \"subToken\" = $11, \"updatedAt\" = $12\n                           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Timestamp",
+        "Bool",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fc4e54860180221dc6169dbc14ecf51cd5809fb5f46dcbe01a182cd3b43e4f9e"
+}

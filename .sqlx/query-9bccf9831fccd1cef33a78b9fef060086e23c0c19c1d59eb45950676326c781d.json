@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.\"deviceLimit\" AS client_limit, p.\"hwidLimit\" AS plan_limit\n           FROM \"Client\" c\n           LEFT JOIN \"Plan\" p ON p.id = c.\"planId\"\n           WHERE c.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "client_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "plan_limit",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "9bccf9831fccd1cef33a78b9fef060086e23c0c19c1d59eb45950676326c781d"
+}

@@ -1,0 +1,404 @@
+use crate::api::execute_core_update;
+use crate::config::{AgentConfig, AGENT_VERSION};
+use crate::cores::write_atomic_0600;
+use crate::process::ProcessManager;
+use crate::traffic::CumulativeTrafficTracker;
+use futures_util::{SinkExt, StreamExt};
+use mypanel_proto::{
+    ApplyConfigRequest, CommandAck, EmptyPayload, Envelope, RegisterRequest, RegisterSystemInfo,
+    SessionsList, TrafficReport,
+};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Mutex;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_util::sync::CancellationToken;
+
+const RECONNECT_DELAY: Duration = Duration::from_secs(5);
+const STATUS_INTERVAL: Duration = Duration::from_secs(30);
+const TRAFFIC_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Registers this node with the Master panel (`POST /api/v1/nodes/self/register`).
+/// Retries up to `max_attempts` times (`5s` apart) before returning an error.
+pub async fn register_node(
+    client: &reqwest::Client,
+    cfg: &AgentConfig,
+    max_attempts: usize,
+    retry_delay: Duration,
+) -> Result<(), String> {
+    if cfg.master_url.is_empty() {
+        return Ok(());
+    }
+    let url = format!("{}/api/v1/nodes/self/register", cfg.master_url);
+    let payload = RegisterRequest {
+        token: cfg.node_secret.clone(),
+        name: Some(cfg.node_name.clone()),
+        host: Some(cfg.node_host.clone()),
+        port: Some(443),
+        api_port: Some(cfg.worker_port),
+        system: Some(RegisterSystemInfo {
+            release: AGENT_VERSION.to_string(),
+        }),
+    };
+
+    let mut last_err = String::new();
+    for attempt in 1..=max_attempts.max(1) {
+        match client
+            .post(&url)
+            .json(&payload)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::info!(attempt, "Registered node with Master");
+                return Ok(());
+            }
+            Ok(resp) => {
+                last_err = format!("HTTP {}", resp.status());
+            }
+            Err(err) => {
+                last_err = err.to_string();
+            }
+        }
+        if attempt < max_attempts {
+            tokio::time::sleep(retry_delay).await;
+        }
+    }
+
+    Err(format!(
+        "Node registration failed after {max_attempts} attempts: {last_err}"
+    ))
+}
+
+/// Converts an HTTP(S) `MASTER_URL` into a WS(S) `/ws/worker` URL.
+pub fn build_ws_url(master_url: &str) -> Result<String, String> {
+    let trimmed = master_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("MASTER_URL is empty".into());
+    }
+    let ws_base = if let Some(rest) = trimmed.strip_prefix("https://") {
+        format!("wss://{rest}")
+    } else if let Some(rest) = trimmed.strip_prefix("http://") {
+        format!("ws://{rest}")
+    } else if trimmed.starts_with("ws://") || trimmed.starts_with("wss://") {
+        trimmed.to_string()
+    } else {
+        return Err(format!("Unsupported MASTER_URL scheme: {trimmed}"));
+    };
+    Ok(format!("{ws_base}/ws/worker"))
+}
+
+/// Runs the Master registration + persistent WebSocket control loop until `cancel` is triggered.
+pub async fn run_master_loop(
+    cfg: AgentConfig,
+    http_client: reqwest::Client,
+    pm: Arc<Mutex<ProcessManager>>,
+    tracker: Arc<Mutex<CumulativeTrafficTracker>>,
+    cancel: CancellationToken,
+) {
+    if cfg.master_url.is_empty() {
+        return;
+    }
+
+    if let Err(err) = register_node(&http_client, &cfg, 30, Duration::from_secs(5)).await {
+        tracing::warn!(error = %err, "Initial node registration failed; continuing to WS loop");
+    }
+
+    let mut last_applied_json: Option<String> = None;
+
+    loop {
+        if cancel.is_cancelled() {
+            break;
+        }
+
+        match connect_and_serve(
+            &cfg,
+            &http_client,
+            &pm,
+            &tracker,
+            &mut last_applied_json,
+            &cancel,
+        )
+        .await
+        {
+            Ok(()) => break,
+            Err(err) => {
+                tracing::warn!(error = %err, "Master WS disconnected; reconnecting in 5s");
+            }
+        }
+
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            _ = tokio::time::sleep(RECONNECT_DELAY) => {}
+        }
+    }
+}
+
+async fn connect_and_serve(
+    cfg: &AgentConfig,
+    http_client: &reqwest::Client,
+    pm: &Arc<Mutex<ProcessManager>>,
+    tracker: &Arc<Mutex<CumulativeTrafficTracker>>,
+    last_applied_json: &mut Option<String>,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
+    let ws_url = build_ws_url(&cfg.master_url)?;
+    let mut request = ws_url
+        .into_client_request()
+        .map_err(|e| format!("Invalid WS request: {e}"))?;
+
+    let bearer = format!("Bearer {}", cfg.node_secret);
+    let bearer_hv =
+        HeaderValue::from_str(&bearer).map_err(|e| format!("Invalid Bearer header: {e}"))?;
+    let secret_hv = HeaderValue::from_str(&cfg.node_secret)
+        .map_err(|e| format!("Invalid X-Node-Secret header: {e}"))?;
+    request.headers_mut().insert("Authorization", bearer_hv);
+    request.headers_mut().insert("X-Node-Secret", secret_hv);
+
+    let (ws_stream, _) = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio_tungstenite::connect_async(request),
+    )
+    .await
+    .map_err(|_| "WS handshake timed out".to_string())?
+    .map_err(|e| format!("WS connect failed: {e}"))?;
+
+    let (mut write, mut read) = ws_stream.split();
+
+    // Send initial status_report + config_request
+    {
+        let status = {
+            let mut guard = pm.lock().await;
+            guard.status_report(false).await
+        };
+        send_envelope(&mut write, &Envelope::StatusReport(status)).await?;
+        send_envelope(&mut write, &Envelope::ConfigRequest(EmptyPayload {})).await?;
+
+        // Replay any unacknowledged pending traffic batches
+        let pending = {
+            let guard = tracker.lock().await;
+            guard.pending_reports()
+        };
+        for report in pending {
+            send_envelope(&mut write, &Envelope::TrafficReport(report)).await?;
+        }
+    }
+
+    let mut status_tick = tokio::time::interval(STATUS_INTERVAL);
+    status_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut traffic_tick = tokio::time::interval(TRAFFIC_INTERVAL);
+    traffic_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                let _ = write.close().await;
+                return Ok(());
+            }
+            _ = status_tick.tick() => {
+                let status = {
+                    let mut guard = pm.lock().await;
+                    guard.status_report(false).await
+                };
+                send_envelope(&mut write, &Envelope::StatusReport(status)).await?;
+            }
+            _ = traffic_tick.tick() => {
+                let cur = {
+                    let mut guard = pm.lock().await;
+                    guard.collect_traffic().await
+                };
+                let report = {
+                    let mut tr = tracker.lock().await;
+                    tr.compute_delta(&cur).await.unwrap_or_else(|_| TrafficReport {
+                        batch_id: None,
+                        stats: HashMap::new(),
+                    })
+                };
+                send_envelope(&mut write, &Envelope::TrafficReport(report)).await?;
+            }
+            msg = read.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        if let Ok(env) = serde_json::from_str::<Envelope>(&text) {
+                            handle_master_envelope(
+                                env,
+                                cfg,
+                                http_client,
+                                pm,
+                                tracker,
+                                last_applied_json,
+                                &mut write,
+                            ).await?;
+                        }
+                    }
+                    Some(Ok(Message::Ping(payload))) => {
+                        write.send(Message::Pong(payload)).await.map_err(|e| format!("WS pong failed: {e}"))?;
+                    }
+                    Some(Ok(Message::Close(_))) | None => {
+                        return Err("WS closed by Master".into());
+                    }
+                    Some(Err(e)) => {
+                        return Err(format!("WS read error: {e}"));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+async fn handle_master_envelope<S>(
+    env: Envelope,
+    cfg: &AgentConfig,
+    http_client: &reqwest::Client,
+    pm: &Arc<Mutex<ProcessManager>>,
+    tracker: &Arc<Mutex<CumulativeTrafficTracker>>,
+    last_applied_json: &mut Option<String>,
+    write: &mut S,
+) -> Result<(), String>
+where
+    S: SinkExt<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    match env {
+        Envelope::ConfigUpdate(cmd) => {
+            let fingerprint = serde_json::to_string(&(
+                &cmd.inbounds,
+                &cmd.routing_rules,
+                &cmd.xray_profile,
+            ))
+            .ok();
+            if fingerprint.is_some() && fingerprint == *last_applied_json {
+                let ack = CommandAck {
+                    command_id: cmd.command_id,
+                    ok: true,
+                    error: None,
+                };
+                return send_envelope(write, &Envelope::CommandAck(ack)).await;
+            }
+
+            let apply_res = {
+                let mut guard = pm.lock().await;
+                guard
+                    .apply_config_with_profile(
+                        cmd.inbounds.clone(),
+                        cmd.routing_rules.clone(),
+                        cmd.xray_profile.clone(),
+                    )
+                    .await
+            };
+
+            let ack = match apply_res {
+                Ok(_) => {
+                    *last_applied_json = fingerprint;
+                    let desired = ApplyConfigRequest {
+                        inbounds: cmd.inbounds,
+                        routing_rules: cmd.routing_rules,
+                        xray_profile: cmd.xray_profile,
+                    };
+                    if let Ok(bytes) = serde_json::to_vec_pretty(&desired) {
+                        let _ = write_atomic_0600(&cfg.desired_config_path(), &bytes).await;
+                    }
+                    CommandAck {
+                        command_id: cmd.command_id,
+                        ok: true,
+                        error: None,
+                    }
+                }
+                Err(err) => CommandAck {
+                    command_id: cmd.command_id,
+                    ok: false,
+                    error: Some(err),
+                },
+            };
+            send_envelope(write, &Envelope::CommandAck(ack)).await?;
+        }
+        Envelope::ApplyConfigRequest(req) => {
+            let mut guard = pm.lock().await;
+            if guard
+                .apply_config_with_profile(
+                    req.inbounds.clone(),
+                    req.routing_rules.clone(),
+                    req.xray_profile.clone(),
+                )
+                .await
+                .is_ok()
+            {
+                if let Ok(bytes) = serde_json::to_vec_pretty(&req) {
+                    let _ = write_atomic_0600(&cfg.desired_config_path(), &bytes).await;
+                }
+            }
+        }
+        Envelope::TrafficAck(ack) => {
+            let mut tr = tracker.lock().await;
+            let _ = tr.acknowledge_batch(&ack.batch_id).await;
+        }
+        Envelope::DropSessionCmd(cmd) => {
+            let res = {
+                let mut guard = pm.lock().await;
+                guard.drop_session(&cmd).await
+            };
+            let ack = match res {
+                Ok(_) => {
+                    let sessions = {
+                        let mut guard = pm.lock().await;
+                        guard.get_sessions().await
+                    };
+                    let _ = send_envelope(write, &Envelope::SessionsList(SessionsList { sessions })).await;
+                    CommandAck {
+                        command_id: cmd.command_id,
+                        ok: true,
+                        error: None,
+                    }
+                }
+                Err(err) => CommandAck {
+                    command_id: cmd.command_id,
+                    ok: false,
+                    error: Some(err),
+                },
+            };
+            send_envelope(write, &Envelope::CommandAck(ack)).await?;
+        }
+        Envelope::CoreUpdateCmd(cmd) => {
+            let ack = match execute_core_update(pm, http_client, &cmd).await {
+                Ok(_) => {
+                    let status = {
+                        let mut guard = pm.lock().await;
+                        guard.status_report(false).await
+                    };
+                    let _ = send_envelope(write, &Envelope::StatusReport(status)).await;
+                    CommandAck {
+                        command_id: cmd.command_id,
+                        ok: true,
+                        error: None,
+                    }
+                }
+                Err(err) => CommandAck {
+                    command_id: cmd.command_id,
+                    ok: false,
+                    error: Some(err),
+                },
+            };
+            send_envelope(write, &Envelope::CommandAck(ack)).await?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn send_envelope<S>(write: &mut S, env: &Envelope) -> Result<(), String>
+where
+    S: SinkExt<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    let text = serde_json::to_string(env)
+        .map_err(|e| format!("Failed to serialize WS envelope: {e}"))?;
+    write
+        .send(Message::Text(text.into()))
+        .await
+        .map_err(|e| format!("WS send failed: {e}"))
+}

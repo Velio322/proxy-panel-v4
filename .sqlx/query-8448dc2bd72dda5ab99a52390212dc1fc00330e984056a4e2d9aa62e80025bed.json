@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT \"nodeId\" FROM \"NodeCommand\"\n           WHERE status = 'PENDING' AND kind = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "nodeId",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8448dc2bd72dda5ab99a52390212dc1fc00330e984056a4e2d9aa62e80025bed"
+}

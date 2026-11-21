@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"TelegramUser\" (id, \"telegramId\", username, \"firstName\", \"lastName\",\n                  language, \"isSubscribed\", \"createdAt\", \"updatedAt\")\n           VALUES ($1, $2, $3, $4, $5, 'en', false, $6, $6)\n           ON CONFLICT (\"telegramId\") DO UPDATE\n             SET username = EXCLUDED.username, \"firstName\" = EXCLUDED.\"firstName\",\n                 \"lastName\" = EXCLUDED.\"lastName\", \"updatedAt\" = EXCLUDED.\"updatedAt\"",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d88571cb552899e39b7ce5c85485f629bb0a6290905dd2d3b0e6e06c1fb1c0a1"
+}

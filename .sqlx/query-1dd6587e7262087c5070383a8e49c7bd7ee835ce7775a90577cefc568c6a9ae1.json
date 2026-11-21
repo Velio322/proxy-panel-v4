@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT k.id AS key_id, k.permissions, k.\"expiresAt\" AS expires_at,\n                  u.id AS user_id, u.username,\n                  u.role AS \"role: UserRole\", u.\"resellerId\" AS reseller_id, u.banned,\n                  u.\"totpEnabled\" AS totp_enabled\n           FROM \"ApiKey\" k JOIN \"User\" u ON u.id = k.\"userId\"\n           WHERE k.key = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "permissions",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "expires_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "role: UserRole",
+        "type_info": {
+          "Custom": {
+            "name": "\"UserRole\"",
+            "kind": {
+              "Enum": [
+                "SUPER_ADMIN",
+                "ADMIN",
+                "RESELLER",
+                "OPERATOR"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "reseller_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "totp_enabled",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "1dd6587e7262087c5070383a8e49c7bd7ee835ce7775a90577cefc568c6a9ae1"
+}

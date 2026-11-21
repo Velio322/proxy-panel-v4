@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"SystemSetting\" (id, key, value, description, \"updatedAt\") VALUES ($1, $2, $3, $4, $5)\n                   ON CONFLICT (key) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9b2a78e2564384ff992dc6b378859a52563bf0934f550a413563296b0a8d5662"
+}

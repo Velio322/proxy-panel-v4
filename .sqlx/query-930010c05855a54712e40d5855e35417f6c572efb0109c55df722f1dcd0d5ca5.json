@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"SystemSetting\" (id, key, value, description, \"updatedAt\")\n           VALUES ($1, $2, $3, $4, $5)\n           ON CONFLICT (key) DO UPDATE SET\n             value = EXCLUDED.value,\n             description = COALESCE(EXCLUDED.\"description\", \"SystemSetting\".description),\n             \"updatedAt\" = EXCLUDED.\"updatedAt\"",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "930010c05855a54712e40d5855e35417f6c572efb0109c55df722f1dcd0d5ca5"
+}

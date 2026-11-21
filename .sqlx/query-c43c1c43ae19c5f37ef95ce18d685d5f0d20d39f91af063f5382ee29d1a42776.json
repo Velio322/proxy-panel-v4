@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"Device\" WHERE \"clientId\" = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c43c1c43ae19c5f37ef95ce18d685d5f0d20d39f91af063f5382ee29d1a42776"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"ClientSetting\" (id, \"clientId\", \"createdAt\", \"updatedAt\")\n           VALUES ($1, $2, $3, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bd0915174104ce9a7ecd6cfe17611f195cee2b5d367663707ecffcedc8f46d06"
+}

@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name, host, status AS \"status: NodeStatus\", \"lastCheckAt\" AS last_check_at\n           FROM \"Node\" WHERE active = true ORDER BY name ASC, id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "host",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "status: NodeStatus",
+        "type_info": {
+          "Custom": {
+            "name": "\"NodeStatus\"",
+            "kind": {
+              "Enum": [
+                "ONLINE",
+                "OFFLINE",
+                "ERROR",
+                "MAINTENANCE"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "last_check_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "9c32b1b4ea28a91e44ba7e0ed9ba80ce3d0b7834ca3d608b67789bf4e8175b32"
+}

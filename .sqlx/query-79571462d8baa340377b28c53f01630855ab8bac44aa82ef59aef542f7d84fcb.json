@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"TelegramUser\" SET language = $2, \"updatedAt\" = $3 WHERE \"telegramId\" = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "79571462d8baa340377b28c53f01630855ab8bac44aa82ef59aef542f7d84fcb"
+}

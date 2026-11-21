@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM \"User\"\n               WHERE username = ANY($1::text[])\n                  OR (\"email\" IS NOT NULL AND \"email\" = ANY($2::text[]))\n               LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "10418119e15e503df8bf679daaf144677cf8c26a3de190e5f1011a9ad16bc688"
+}

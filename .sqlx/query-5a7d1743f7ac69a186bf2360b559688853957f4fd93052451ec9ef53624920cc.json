@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT SUM(t.upload)::bigint AS upload, SUM(t.download)::bigint AS download\n           FROM \"TrafficLog\" t JOIN \"Client\" c ON c.id = t.\"clientId\"\n           WHERE c.\"resellerId\" = $1 AND t.\"recordAt\" >= $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "upload",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "download",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "5a7d1743f7ac69a186bf2360b559688853957f4fd93052451ec9ef53624920cc"
+}

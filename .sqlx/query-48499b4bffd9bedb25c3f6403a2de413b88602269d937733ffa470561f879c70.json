@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT username, \"restrictionMode\" AS restriction_mode,\n                  \"trafficResetDay\" AS traffic_reset_day,\n                  \"nextTrafficResetAt\" AS next_traffic_reset_at,\n                  \"usedTraffic\" AS used_traffic, \"uploadTraffic\" AS upload_traffic,\n                  \"downloadTraffic\" AS download_traffic,\n                  \"expireAt\" AS expire_at, \"trafficLimit\" AS traffic_limit,\n                  \"restrictionReason\" AS restriction_reason, \"accessRevision\" AS access_revision\n           FROM \"Client\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "restriction_mode",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "traffic_reset_day",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "next_traffic_reset_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 4,
+        "name": "used_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "upload_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "download_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "expire_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "traffic_limit",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "restriction_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "access_revision",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "48499b4bffd9bedb25c3f6403a2de413b88602269d937733ffa470561f879c70"
+}

@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Client\" SET\n               email = CASE WHEN $2::bool THEN $3::text ELSE email END,\n               password = COALESCE($4, password),\n               \"trafficLimit\" = COALESCE($5, \"trafficLimit\"),\n               \"expireAt\" = CASE WHEN $6::bool THEN $7::timestamp ELSE \"expireAt\" END,\n               banned = COALESCE($8, banned),\n               \"restrictionMode\" = COALESCE($9, \"restrictionMode\"),\n               note = CASE WHEN $10::bool THEN $11::text ELSE note END,\n               protocols = COALESCE($12, protocols),\n               \"trafficResetDay\" = CASE WHEN $13::bool THEN $14::int ELSE \"trafficResetDay\" END,\n               \"nextTrafficResetAt\" = CASE WHEN $13::bool\n                       THEN (CASE WHEN $14::int IS NULL THEN NULL\n                                  ELSE $15::timestamp END)\n                       ELSE \"nextTrafficResetAt\" END,\n               \"planId\" = CASE WHEN $17::bool THEN $18::text ELSE \"planId\" END,\n               \"deviceLimit\" = CASE WHEN $19::bool THEN $20::int ELSE \"deviceLimit\" END,\n               \"updatedAt\" = $16\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bool",
+        "Text",
+        "Text",
+        "Int8",
+        "Bool",
+        "Timestamp",
+        "Bool",
+        "Text",
+        "Bool",
+        "Text",
+        "Jsonb",
+        "Bool",
+        "Int4",
+        "Timestamp",
+        "Timestamp",
+        "Bool",
+        "Text",
+        "Bool",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bdb0dde8af26d7ded383c0b25dfae7e87320f91ec7f76c8a4e8667eab56b2649"
+}

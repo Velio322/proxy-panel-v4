@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, \"type\"::text AS ty, title, message, read, metadata,\n                  \"createdAt\" AS created_at\n           FROM \"Notification\"\n           WHERE (\"targetUserId\" IS NULL OR \"targetUserId\" = $1)\n             AND ($2::text IS NULL OR \"targetResellerId\" IS NULL OR \"targetResellerId\" = $2)\n           ORDER BY \"createdAt\" DESC, id DESC\n           LIMIT 50",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "ty",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "read",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "4b842e7398087c40378e5cd7e292afd6c1f1b6e6ef1910b756ffcfb5a961bba1"
+}

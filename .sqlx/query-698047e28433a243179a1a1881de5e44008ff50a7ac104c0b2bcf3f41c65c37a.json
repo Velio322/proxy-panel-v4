@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"Plan\" (id, name, description, type, price, currency, duration, \"trafficLimit\",\n                       \"maxClients\", \"maxSpeed\", protocols, \"sortOrder\", active, \"createdAt\", \"updatedAt\")\n                   VALUES ($1, $2, $3, $4::text::\"PlanType\", $5, 'USD', 30, $6, $7, $8, $9, $10, true, $11, $11)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Numeric",
+        "Int8",
+        "Int4",
+        "Int4",
+        "Jsonb",
+        "Int4",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "698047e28433a243179a1a1881de5e44008ff50a7ac104c0b2bcf3f41c65c37a"
+}

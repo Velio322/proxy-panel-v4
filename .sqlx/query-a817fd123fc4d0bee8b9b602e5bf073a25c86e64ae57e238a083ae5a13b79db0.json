@@ -1,0 +1,122 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, description, type AS \"ty: PlanType\", price, currency, duration,\n                  \"trafficLimit\" AS traffic_limit, \"maxClients\" AS max_clients,\n                  \"maxSpeed\" AS max_speed, \"hwidLimit\" AS hwid_limit, protocols,\n                  \"sortOrder\" AS sort_order, active,\n                  \"createdAt\" AS created_at, \"updatedAt\" AS updated_at\n           FROM \"Plan\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "ty: PlanType",
+        "type_info": {
+          "Custom": {
+            "name": "\"PlanType\"",
+            "kind": {
+              "Enum": [
+                "USER",
+                "RESELLER"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "price",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 5,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "duration",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "traffic_limit",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "max_clients",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "max_speed",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "hwid_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "protocols",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "sort_order",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a817fd123fc4d0bee8b9b602e5bf073a25c86e64ae57e238a083ae5a13b79db0"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"User\" SET \"totpEnabled\" = false, \"totpSecret\" = NULL, \"updatedAt\" = $2\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f0a684cdd7b62843f60bd3dc53f59846a3e3c8f7b0f32bc711f1d608f020cca9"
+}

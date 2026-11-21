@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Node\" SET status = 'OFFLINE', \"updatedAt\" = $2\n           WHERE active = true AND status = 'ONLINE'::\"NodeStatus\"\n             AND \"lastCheckAt\" IS NOT NULL AND \"lastCheckAt\" < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d03fb927569a57a0b439ec583ca7c3e252f2f43c63d83fbd472b3d70968c6c8"
+}

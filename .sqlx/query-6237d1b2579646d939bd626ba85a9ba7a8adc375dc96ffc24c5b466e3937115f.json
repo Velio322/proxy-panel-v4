@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"BackupLog\" SET status = 'SUCCESS', \"filePath\" = $2, \"fileSize\" = $3\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6237d1b2579646d939bd626ba85a9ba7a8adc375dc96ffc24c5b466e3937115f"
+}

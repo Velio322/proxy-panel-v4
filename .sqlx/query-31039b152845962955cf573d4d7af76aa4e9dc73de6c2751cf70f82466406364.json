@@ -1,0 +1,99 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, \"inboundId\" AS inbound_id, protocol AS \"protocol: Protocol\", tag, settings,\n                  stream, host, path, enable, \"createdAt\" AS created_at, \"updatedAt\" AS updated_at\n           FROM \"PortShare\" WHERE \"inboundId\" = $1 ORDER BY \"createdAt\", id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "inbound_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "protocol: Protocol",
+        "type_info": {
+          "Custom": {
+            "name": "\"Protocol\"",
+            "kind": {
+              "Enum": [
+                "VLESS",
+                "VMESS",
+                "TROJAN",
+                "SHADOWSOCKS",
+                "HYSTERIA2",
+                "NAIVEPROXY",
+                "MIERU",
+                "TUIC",
+                "ANYTLS"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "settings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "stream",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "host",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "enable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "31039b152845962955cf573d4d7af76aa4e9dc73de6c2751cf70f82466406364"
+}

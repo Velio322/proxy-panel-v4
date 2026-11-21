@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"ClientInbound\" WHERE \"clientId\" = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5a4a580d1e5a11e0ee1d62d2147dde405d37ea9844a6f1bce9aaebe27c01f00f"
+}

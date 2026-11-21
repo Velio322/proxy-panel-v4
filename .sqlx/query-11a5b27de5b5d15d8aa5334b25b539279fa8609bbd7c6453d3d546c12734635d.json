@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Reseller\" AS r\n               SET \"usedTraffic\" = r.\"usedTraffic\" + v.upload + v.download,\n                   \"updatedAt\" = $4\n               FROM UNNEST($1::text[], $2::bigint[], $3::bigint[]) AS v(id, upload, download)\n               WHERE r.id = v.id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8Array",
+        "Int8Array",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "11a5b27de5b5d15d8aa5334b25b539279fa8609bbd7c6453d3d546c12734635d"
+}

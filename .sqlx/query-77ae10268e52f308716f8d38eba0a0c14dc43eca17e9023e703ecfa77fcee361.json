@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"User\" (id, username, email, password, role, \"resellerId\", language,\n                               \"createdAt\", \"updatedAt\")\n           VALUES ($1, $2, $3, $4, 'RESELLER', $5, $6, $7, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "77ae10268e52f308716f8d38eba0a0c14dc43eca17e9023e703ecfa77fcee361"
+}

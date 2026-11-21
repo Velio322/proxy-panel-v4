@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name, price, currency, duration, \"trafficLimit\" AS traffic_limit,\n                  \"maxClients\" AS max_clients, \"maxSpeed\" AS max_speed\n           FROM \"Plan\"\n           WHERE \"type\" = 'USER'::\"PlanType\" AND active = true\n           ORDER BY \"sortOrder\" ASC, \"createdAt\" ASC, id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "price",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 2,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "duration",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "traffic_limit",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "max_clients",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "max_speed",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "60c565e04331e9bee98cb8cdf7efcc121623395aa6ce1dcb7e47ba93ec3a4174"
+}

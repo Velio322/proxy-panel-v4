@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \"nodeId\" AS node_id, \"cpuUsage\" AS cpu_usage, \"memUsage\" AS mem_usage,\n                  \"tcpConnections\" AS tcp_connections, \"udpSockets\" AS udp_sockets,\n                  \"uploadBps\" AS upload_bps, \"downloadBps\" AS download_bps,\n                  \"recordedAt\" AS recorded_at\n           FROM \"NodeMetric\" WHERE \"nodeId\" = ANY($1::text[])\n           ORDER BY \"recordedAt\" DESC, id DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "node_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "cpu_usage",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 2,
+        "name": "mem_usage",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 3,
+        "name": "tcp_connections",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "udp_sockets",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "upload_bps",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "download_bps",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "recorded_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "3dedd14422dd2406d258fffb9f38386d70fac4d249e6b5e96ece84683b12ad64"
+}

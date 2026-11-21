@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Notification\" SET read = true\n           WHERE read = false\n             AND (\"targetUserId\" IS NULL OR \"targetUserId\" = $1)\n             AND ($2::text IS NULL OR \"targetResellerId\" IS NULL OR \"targetResellerId\" = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "157363f609b09a65f014216ac65e000059b77ff627d175bd42577c741039509b"
+}

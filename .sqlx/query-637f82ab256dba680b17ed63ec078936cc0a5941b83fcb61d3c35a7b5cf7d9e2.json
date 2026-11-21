@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Webhook\" SET\n               name = COALESCE($2, name),\n               url = COALESCE($3, url),\n               secret = COALESCE($4, secret),\n               scopes = COALESCE($5, scopes),\n               events = COALESCE($6, events),\n               active = COALESCE($7, active),\n               \"updatedAt\" = $8\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray",
+        "TextArray",
+        "Bool",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "637f82ab256dba680b17ed63ec078936cc0a5941b83fcb61d3c35a7b5cf7d9e2"
+}

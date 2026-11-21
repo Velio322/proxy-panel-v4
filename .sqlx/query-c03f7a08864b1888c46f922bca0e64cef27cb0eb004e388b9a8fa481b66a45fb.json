@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"TrafficLog\" (id, \"clientId\", \"nodeId\", upload, download, protocol, \"inboundTag\")\n           SELECT u.id, u.\"clientId\", u.\"nodeId\", u.upload, u.download,\n                  NULLIF(u.protocol, '')::\"Protocol\", NULLIF(u.\"inboundTag\", '')\n           FROM UNNEST($1::text[], $2::text[], $3::text[], $4::bigint[], $5::bigint[],\n                       $6::text[], $7::text[])\n             AS u(id, \"clientId\", \"nodeId\", upload, download, protocol, \"inboundTag\")",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Int8Array",
+        "Int8Array",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c03f7a08864b1888c46f922bca0e64cef27cb0eb004e388b9a8fa481b66a45fb"
+}

@@ -1,0 +1,26 @@
+[Unit]
+Description=mypanel3 proxy management panel
+Documentation=https://github.com/Velio322/proxy-panel-v4
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mypanel3
+Group=mypanel3
+WorkingDirectory=/var/lib/mypanel3
+EnvironmentFile=/etc/mypanel3/mypanel3.env
+ExecStart=/usr/local/bin/mypanel3 serve
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mypanel3
+
+[Install]
+WantedBy=multi-user.target

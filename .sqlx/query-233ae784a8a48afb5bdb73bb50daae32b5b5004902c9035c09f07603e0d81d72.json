@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, type AS \"rule_type!\", domain, ip, port, \"sourcePort\" AS \"source_port\",\n                  source, protocol, \"inboundTag\" AS \"inbound_tag\",\n                  \"outboundTag\" AS \"outbound_tag\", \"balancerTag\" AS \"balancer_tag\"\n           FROM \"RoutingRule\"\n           WHERE enabled = true AND (\"nodeScope\" IS NULL OR \"nodeScope\" = $1)\n           ORDER BY priority DESC, \"createdAt\" ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "rule_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "domain",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 3,
+        "name": "ip",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "port",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "source_port",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "source",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "protocol",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "inbound_tag",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 9,
+        "name": "outbound_tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "balancer_tag",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "233ae784a8a48afb5bdb73bb50daae32b5b5004902c9035c09f07603e0d81d72"
+}

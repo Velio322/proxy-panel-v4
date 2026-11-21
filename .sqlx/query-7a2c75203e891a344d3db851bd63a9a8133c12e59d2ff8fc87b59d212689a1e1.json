@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"User\" (id, username, email, password, role, \"resellerId\", language,\n                                       banned, \"createdAt\", \"updatedAt\")\n                   VALUES ($1, $2, $3, $4, $5::text::\"UserRole\", NULL, $6, $7, $8, $8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a2c75203e891a344d3db851bd63a9a8133c12e59d2ff8fc87b59d212689a1e1"
+}

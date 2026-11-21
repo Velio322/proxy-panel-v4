@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"TrafficLog\" WHERE \"recordAt\" < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e00793622edf7ffd9515c00980ed992792730ab91df36dc89d4c84e57405782"
+}

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Inbound\" SET \"nodeId\" = $2, protocol = $3::text::\"Protocol\", tag = $4, port = $5,\n                                  listen = $6, settings = $7, stream = $8, routing = $9,\n                                  sniffing = $10, remark = $11, enable = $12, \"updatedAt\" = $13\n                           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb",
+        "Bool",
+        "Text",
+        "Bool",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2e9cfb45aa1037fe47d05b46403461cb59d5045e2983abb5ca4fa7716b5d3ec3"
+}

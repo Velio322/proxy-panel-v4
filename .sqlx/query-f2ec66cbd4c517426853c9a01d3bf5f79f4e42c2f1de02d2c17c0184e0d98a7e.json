@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"RoutingRule\" SET priority = $2, \"updatedAt\" = $3 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f2ec66cbd4c517426853c9a01d3bf5f79f4e42c2f1de02d2c17c0184e0d98a7e"
+}

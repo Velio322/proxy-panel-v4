@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, username, \"usedTraffic\" AS used_traffic,\n                  \"trafficLimit\" AS traffic_limit, \"telegramId\" AS telegram_id,\n                  \"restrictedAt\" AS restricted_at\n           FROM \"Client\"\n           WHERE banned = false AND \"trafficLimit\" > 0\n             AND \"usedTraffic\" >= \"trafficLimit\"\n             AND \"restrictionReason\" = 'TRAFFIC'\n             AND \"restrictedAt\" IS NOT NULL AND \"restrictedAt\" >= $1\n           ORDER BY \"restrictedAt\" ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "used_traffic",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "traffic_limit",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "telegram_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "restricted_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "8b0a460de478ffc64faffd8eb4a70da8fbe99bfc712096f7febd412212778e9c"
+}

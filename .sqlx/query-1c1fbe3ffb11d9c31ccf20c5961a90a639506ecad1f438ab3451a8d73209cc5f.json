@@ -1,0 +1,130 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, description, enabled, priority, \"type\" AS rule_type, domain, ip, port,\n                  \"sourcePort\" AS source_port, source, protocol, \"inboundTag\" AS inbound_tag,\n                  \"outboundTag\" AS outbound_tag, \"balancerTag\" AS balancer_tag,\n                  \"subRules\" AS sub_rules, \"nodeScope\" AS node_scope,\n                  \"createdAt\" AS created_at, \"updatedAt\" AS updated_at\n           FROM \"RoutingRule\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "priority",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "rule_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "domain",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 7,
+        "name": "ip",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "port",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "source_port",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "source",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 11,
+        "name": "protocol",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 12,
+        "name": "inbound_tag",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 13,
+        "name": "outbound_tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "balancer_tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "sub_rules",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 16,
+        "name": "node_scope",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 18,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "1c1fbe3ffb11d9c31ccf20c5961a90a639506ecad1f438ab3451a8d73209cc5f"
+}

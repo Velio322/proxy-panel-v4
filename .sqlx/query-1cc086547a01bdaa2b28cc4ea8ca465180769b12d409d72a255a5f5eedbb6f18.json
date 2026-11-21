@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"NodeCommand\" (id, \"nodeId\", kind, payload, revision, status, attempts, \"createdAt\")\n           VALUES ($1, $2, $3, $4, 0, 'PENDING', 0, $5)\n           ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1cc086547a01bdaa2b28cc4ea8ca465180769b12d409d72a255a5f5eedbb6f18"
+}

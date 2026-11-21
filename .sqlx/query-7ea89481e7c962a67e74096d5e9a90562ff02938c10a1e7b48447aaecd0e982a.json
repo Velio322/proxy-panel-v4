@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Node\" SET name = $2, host = $3, port = $4, \"apiPort\" = $5, secret = $6,\n                  \"secretHash\" = $13, country = $7, city = $8, isp = $9, tags = $10,\n                  active = $11, \"updatedAt\" = $12\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Int4",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray",
+        "Bool",
+        "Timestamp",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7ea89481e7c962a67e74096d5e9a90562ff02938c10a1e7b48447aaecd0e982a"
+}

@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, revision, attempts, \"createdAt\" AS created_at\n               FROM \"NodeCommand\"\n               WHERE \"nodeId\" = $1 AND kind = $2 AND status = 'PENDING'\n               ORDER BY \"createdAt\" ASC, id ASC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "revision",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "009ed201a3f94915bb4ec3216547b1f5b5fb332244d620c584e5fa9a2320538c"
+}

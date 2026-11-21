@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"Translation\" (id, locale, key, value) VALUES ($1, $2, $3, $4)\n                   ON CONFLICT (locale, key) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fe23b1d5fac8ec76feb976ba214a47e7adca3d80084f06638de9564d391b2717"
+}

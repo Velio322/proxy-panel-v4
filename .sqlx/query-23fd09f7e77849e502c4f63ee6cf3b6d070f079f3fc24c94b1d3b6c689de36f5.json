@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"BackupLog\" SET status = 'FAILED', error = $2 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "23fd09f7e77849e502c4f63ee6cf3b6d070f079f3fc24c94b1d3b6c689de36f5"
+}

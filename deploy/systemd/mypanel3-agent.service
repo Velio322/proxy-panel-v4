@@ -1,0 +1,23 @@
+[Unit]
+Description=mypanel3 node worker agent
+Documentation=https://github.com/Velio322/proxy-panel-v4
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/var/lib/mypanel3-node
+EnvironmentFile=/etc/mypanel3/node.env
+ExecStart=/usr/local/bin/mypanel3 agent
+Restart=always
+RestartSec=5s
+LimitNOFILE=1048576
+
+# Security hardening (retains CAP_NET_BIND_SERVICE/CAP_NET_ADMIN for proxy cores)
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

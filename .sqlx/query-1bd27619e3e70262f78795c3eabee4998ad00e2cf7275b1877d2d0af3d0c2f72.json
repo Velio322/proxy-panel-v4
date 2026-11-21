@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"Client\" SET \"nextTrafficResetAt\" = $2, \"updatedAt\" = $3\n                       WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1bd27619e3e70262f78795c3eabee4998ad00e2cf7275b1877d2d0af3d0c2f72"
+}

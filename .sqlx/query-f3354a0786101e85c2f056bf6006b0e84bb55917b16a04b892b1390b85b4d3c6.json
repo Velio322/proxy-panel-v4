@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"TrafficReceipt\" WHERE \"createdAt\" < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f3354a0786101e85c2f056bf6006b0e84bb55917b16a04b892b1390b85b4d3c6"
+}
