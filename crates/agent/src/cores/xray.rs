@@ -341,7 +341,7 @@ pub fn build_inbound(inbound: &InboundConfig) -> Result<Value, String> {
                 .collect::<Vec<_>>()
         })
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| vec!["http".into(), "tls".into(), "quic".into()]);
+        .unwrap_or_else(|| vec!["http".into(), "tls".into(), "quic".into(), "fakedns".into()]);
     let sn_route_only = sn_cfg
         .and_then(|o| o.get("routeOnly").and_then(Value::as_bool))
         .unwrap_or(true);
@@ -396,9 +396,6 @@ fn build_vless(inbound: &InboundConfig) -> Result<Value, String> {
     };
 
     let users = extract_protocol_users(&inbound.users, s, false)?;
-    if users.is_empty() {
-        return Err("Missing client UUID".into());
-    }
 
     let mut clients = Vec::with_capacity(users.len());
     for u in users {
@@ -466,9 +463,6 @@ fn build_vmess(inbound: &InboundConfig) -> Result<Value, String> {
         .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|st| st.parse().ok())))
         .unwrap_or(0);
     let users = extract_protocol_users(&inbound.users, s, false)?;
-    if users.is_empty() {
-        return Err("Missing client UUID".into());
-    }
 
     let mut clients = Vec::with_capacity(users.len());
     for u in users {
@@ -491,9 +485,6 @@ fn build_vmess(inbound: &InboundConfig) -> Result<Value, String> {
 fn build_trojan(inbound: &InboundConfig) -> Result<Value, String> {
     let s = &inbound.settings;
     let users = extract_protocol_users(&inbound.users, s, false)?;
-    if users.is_empty() {
-        return Err("Missing persisted Trojan credential".into());
-    }
 
     let mut clients = Vec::with_capacity(users.len());
     for u in users {
@@ -961,7 +952,9 @@ fn build_stream_settings(stream: &Value, settings: &Value) -> Value {
         }
         "xhttp" => {
             let x = stream.get("xhttpSettings").unwrap_or(&Value::Null);
-            let path = str_or_empty(x, "path").or_not_empty(str_or_empty(stream, "path"));
+            let path = str_or_empty(x, "path")
+                .or_not_empty(str_or_empty(stream, "path"))
+                .or_not_empty("/");
             let host = str_or_empty(x, "host").or_not_empty(str_or_empty(stream, "host"));
             let mode = {
                 let m = str_or_empty(x, "mode");
@@ -1011,7 +1004,9 @@ fn build_stream_settings(stream: &Value, settings: &Value) -> Value {
                     }
                 }
             }
-            x_out.insert("extra".into(), Value::Object(extra));
+            if !extra.is_empty() {
+                x_out.insert("extra".into(), Value::Object(extra));
+            }
             if let Some(xmux) = x.get("xmux").filter(|v| !v.is_null()) {
                 x_out.insert("xmux".into(), xmux.clone());
             }
@@ -1206,4 +1201,161 @@ fn extract_short_ids(v: Option<&Value>, fallback_short_id: &str) -> Vec<String> 
         }
     }
     vec![fallback_short_id.trim().to_string()]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mypanel_proto::NodeUser;
+
+    /// Exact `VLESS + XHTTP + Reality` inbound `streamSettings` from the reference
+    /// Remnawave node config (`VLESS_XHTTP_REALITY`).
+    fn reference_stream() -> Value {
+        json!({
+            "network": "xhttp",
+            "sockopt": {
+                "mark": 0,
+                "V6Only": false,
+                "tproxy": "off",
+                "tcpMptcp": false,
+                "interface": "",
+                "penetrate": false,
+                "tcpMaxSeg": 1440,
+                "dialerProxy": "",
+                "tcpFastOpen": true,
+                "tcpcongestion": "bbr",
+                "domainStrategy": "UseIP",
+                "tcpUserTimeout": 10000,
+                "tcpWindowClamp": 600,
+                "tcpKeepAliveIdle": 300,
+                "acceptProxyProtocol": false,
+                "tcpKeepAliveInterval": 0
+            },
+            "security": "reality",
+            "xhttpSettings": {
+                "host": "www.twitch.tv",
+                "mode": "packet-up",
+                "path": "/"
+            },
+            "realitySettings": {
+                "show": false,
+                "xver": 0,
+                "target": "www.twitch.tv:443",
+                "shortIds": [""],
+                "privateKey": "L-y1ZTWHuRgg09Bv0JJOYqQkly9jMcsmD7D97O2093o",
+                "publicKey": "YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg",
+                "fingerprint": "firefox",
+                "serverNames": ["www.twitch.tv"]
+            }
+        })
+    }
+
+    fn reference_inbound() -> InboundConfig {
+        InboundConfig {
+            id: "in-ref".into(),
+            tag: "VLESS_XHTTP_REALITY".into(),
+            protocol: Protocol::Vless,
+            listen: "0.0.0.0".into(),
+            port: 443,
+            settings: json!({ "decryption": "none" }),
+            stream: reference_stream(),
+            routing: json!({}),
+            sniffing: true,
+            remark: None,
+            enable: true,
+            users: vec![NodeUser {
+                id: "3a8a4cc5-c756-41a3-9961-3789079074a7".into(),
+                username: "finland-user".into(),
+                uuid: "3a8a4cc5-c756-41a3-9961-3789079074a7".into(),
+                email: "finland-user".into(),
+                name: "finland-user".into(),
+                password: Some("3a8a4cc5-c756-41a3-9961-3789079074a7".into()),
+                auth: None,
+                flow: Some(String::new()),
+                level: 0,
+            }],
+            port_shares: Vec::new(),
+            hosts: Vec::new(),
+        }
+    }
+
+    /// The generated Xray `config.json` inbound must carry the reference network &
+    /// TLS/Reality parameters 1:1 (plus the legacy `dest` alias of `target`).
+    #[test]
+    fn generated_inbound_matches_remnawave_reference() {
+        let cfg = generate_config_with_api_port(&[reference_inbound()], &[], 10085).unwrap();
+        let ib = &cfg["inbounds"][0];
+
+        assert_eq!(ib["tag"], json!("VLESS_XHTTP_REALITY"));
+        assert_eq!(ib["port"], json!(443));
+        assert_eq!(ib["listen"], json!("0.0.0.0"));
+        assert_eq!(ib["protocol"], json!("vless"));
+        assert_eq!(ib["settings"]["decryption"], json!("none"));
+
+        // Clients are substituted from `InboundConfig.users` and never wiped.
+        assert_eq!(ib["settings"]["clients"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            ib["settings"]["clients"][0],
+            json!({
+                "id": "3a8a4cc5-c756-41a3-9961-3789079074a7",
+                "flow": "",
+                "email": "finland-user",
+                "level": 0
+            })
+        );
+
+        let ss = &ib["streamSettings"];
+        assert_eq!(ss["network"], json!("xhttp"));
+        assert_eq!(ss["security"], json!("reality"));
+        // xhttpSettings identical to the reference (no synthetic `extra`).
+        assert_eq!(
+            ss["xhttpSettings"],
+            json!({ "host": "www.twitch.tv", "mode": "packet-up", "path": "/" })
+        );
+        // realitySettings: reference keys verbatim + legacy `dest` alias of `target`.
+        assert_eq!(
+            ss["realitySettings"],
+            json!({
+                "show": false,
+                "xver": 0,
+                "target": "www.twitch.tv:443",
+                "dest": "www.twitch.tv:443",
+                "shortIds": [""],
+                "privateKey": "L-y1ZTWHuRgg09Bv0JJOYqQkly9jMcsmD7D97O2093o",
+                "publicKey": "YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg",
+                "fingerprint": "firefox",
+                "serverNames": ["www.twitch.tv"]
+            })
+        );
+        // sockopt passes through untouched (tcpWindowClamp, tcpFastOpen, ...).
+        assert_eq!(ss["sockopt"], reference_stream()["sockopt"]);
+
+        // sniffing matches the reference destOverride set.
+        assert_eq!(ib["sniffing"]["enabled"], json!(true));
+        assert_eq!(
+            ib["sniffing"]["destOverride"],
+            json!(["http", "tls", "quic", "fakedns"])
+        );
+
+        // Outbound order: `freedom` first = default outbound when no rule matches.
+        assert_eq!(cfg["outbounds"][0]["tag"], json!("direct"));
+        assert_eq!(cfg["outbounds"][0]["protocol"], json!("freedom"));
+        assert_eq!(cfg["outbounds"][1]["protocol"], json!("blackhole"));
+
+        println!(
+            "=== generated node config inbounds[0] ===\n{}",
+            serde_json::to_string_pretty(ib).unwrap()
+        );
+    }
+
+    /// An inbound without eligible users (e.g. port-share only) must render an
+    /// empty `clients` array instead of failing the whole node config.
+    #[test]
+    fn empty_clients_render_empty_array_instead_of_error() {
+        let mut inbound = reference_inbound();
+        inbound.users.clear();
+        inbound.settings = json!({ "decryption": "none", "clients": [] });
+        let cfg = generate_config_with_api_port(&[inbound], &[], 10085).unwrap();
+        assert_eq!(cfg["inbounds"][0]["settings"]["clients"], json!([]));
+    }
 }

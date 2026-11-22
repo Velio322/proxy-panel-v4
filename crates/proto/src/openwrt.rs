@@ -692,7 +692,7 @@ mod tests {
         assert_eq!(ob["server"], json!("178.104.166.22"));
         assert_eq!(ob["tls"]["server_name"], json!("www.twitch.tv"));
         assert_eq!(ob["tls"]["alpn"], json!(["h2", "http/1.1"]));
-        assert_eq!(ob["tls"]["utls"]["fingerprint"], json!("edge"));
+        assert_eq!(ob["tls"]["utls"]["fingerprint"], json!("firefox"));
         assert_eq!(ob["transport"]["type"], json!("xhttp"));
         assert_eq!(ob["transport"]["mode"], json!("packet-up"));
         assert_eq!(ob["transport"]["x_padding_bytes"], json!("100-1000"));

@@ -901,10 +901,10 @@ fn singbox_utls_fingerprint(e: &SubEntry) -> Option<String> {
         .filter(|s| !s.is_empty());
     let is_reality_or_xhttp = e.security.as_deref() == Some("reality") || is_xhttp_net(e);
     if is_reality_or_xhttp {
-        return Some(match raw.map(str::to_ascii_lowercase).as_deref() {
-            None | Some("firefox" | "random" | "randomized") => "edge".to_string(),
-            Some(_) => raw.unwrap().to_string(),
-        });
+        // Keep the fingerprint configured on the inbound (`fp` in share links) verbatim
+        // so every format carries the same TLS/Reality identity; fall back to Xray's
+        // default `chrome` only when the inbound stores no fingerprint.
+        return Some(raw.unwrap_or("chrome").to_string());
     }
     raw.map(ToString::to_string)
 }
@@ -1504,12 +1504,14 @@ fn xray_stream_settings(e: &SubEntry) -> Value {
             "shortId".into(),
             json!(e.short_id.clone().unwrap_or_default()),
         );
-        if let Some(ref spx) = e.spider_x {
-            reality.insert("spiderX".into(), json!(spx));
-        }
-        if let Some(ref pqv) = e.mldsa65_verify {
-            reality.insert("mldsa65Verify".into(), json!(pqv));
-        }
+        reality.insert(
+            "spiderX".into(),
+            json!(e.spider_x.clone().unwrap_or_default()),
+        );
+        reality.insert(
+            "mldsa65Verify".into(),
+            json!(e.mldsa65_verify.clone().unwrap_or_default()),
+        );
         stream.insert("realitySettings".into(), Value::Object(reality));
     }
 
@@ -1561,7 +1563,8 @@ fn xray_stream_settings(e: &SubEntry) -> Value {
                     .xhttp_path
                     .clone()
                     .or_else(|| e.stream_path.clone())
-                    .unwrap_or_default()),
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "/".into())),
             );
             if let Some(ref h) = e.xhttp_host {
                 xh.insert("host".into(), json!(h));
@@ -2379,6 +2382,234 @@ mod tests {
         );
     }
 
+    /// Exact `VLESS + XHTTP + Reality` inbound from the reference Remnawave node config.
+    fn remnawave_reference_stream() -> Value {
+        json!({
+            "network": "xhttp",
+            "sockopt": {
+                "mark": 0,
+                "V6Only": false,
+                "tproxy": "off",
+                "tcpMptcp": false,
+                "interface": "",
+                "penetrate": false,
+                "tcpMaxSeg": 1440,
+                "dialerProxy": "",
+                "tcpFastOpen": true,
+                "tcpcongestion": "bbr",
+                "domainStrategy": "UseIP",
+                "tcpUserTimeout": 10000,
+                "tcpWindowClamp": 600,
+                "tcpKeepAliveIdle": 300,
+                "acceptProxyProtocol": false,
+                "tcpKeepAliveInterval": 0
+            },
+            "security": "reality",
+            "xhttpSettings": {
+                "host": "www.twitch.tv",
+                "mode": "packet-up",
+                "path": "/"
+            },
+            "realitySettings": {
+                "show": false,
+                "xver": 0,
+                "target": "www.twitch.tv:443",
+                "shortIds": [""],
+                "privateKey": "L-y1ZTWHuRgg09Bv0JJOYqQkly9jMcsmD7D97O2093o",
+                "publicKey": "YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg",
+                "fingerprint": "firefox",
+                "serverNames": ["www.twitch.tv"]
+            }
+        })
+    }
+
+    /// Builds the reference Remnawave `Finland` entry (client UUID/address from the
+    /// reference outbound) and proves every network & TLS/Reality parameter of the
+    /// generated subscription matches the reference client config.
+    #[test]
+    fn remnawave_reference_vless_xhttp_reality_matches_all_formats() {
+        let settings = json!({ "clients": [], "decryption": "none" });
+        let ctx = EntryContext {
+            node_host: "95.85.251.177".into(),
+            port: 443,
+            client_uuid: "3a8a4cc5-c756-41a3-9961-3789079074a7".into(),
+            client_id: "finland-user".into(),
+            secret: String::new(),
+        };
+
+        let entry = build_entry(
+            Protocol::Vless,
+            "Finland",
+            &settings,
+            &remnawave_reference_stream(),
+            &ctx,
+        )
+        .unwrap()
+        .unwrap();
+
+        let expected_link = "vless://3a8a4cc5-c756-41a3-9961-3789079074a7@95.85.251.177:443\
+?type=xhttp&encryption=none&security=reality\
+&sni=www.twitch.tv&fp=firefox&pbk=YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg&sid=\
+&path=%2F&host=www.twitch.tv&mode=packet-up#Finland";
+        assert_eq!(entry.raw, expected_link);
+
+        // Base64 (v2rayNG / Happ) decode to the same canonical URI.
+        let b64_decoded = String::from_utf8(
+            STANDARD
+                .decode(render_base64(std::slice::from_ref(&entry)).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        let happ_decoded = String::from_utf8(
+            STANDARD
+                .decode(render_happ(std::slice::from_ref(&entry)).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(b64_decoded, expected_link);
+        assert_eq!(happ_decoded, expected_link);
+
+        // Sing-box JSON (podkop / routers) — matches the reference client outbound.
+        let sb: Value =
+            serde_json::from_str(&render_singbox(std::slice::from_ref(&entry)).unwrap()).unwrap();
+        let vless = sb["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["type"] == "vless")
+            .expect("vless outbound present")
+            .clone();
+        assert_eq!(
+            vless,
+            json!({
+                "type": "vless",
+                "tag": "Finland",
+                "server": "95.85.251.177",
+                "server_port": 443,
+                "uuid": "3a8a4cc5-c756-41a3-9961-3789079074a7",
+                "tls": {
+                    "enabled": true,
+                    "server_name": "www.twitch.tv",
+                    "alpn": ["h2", "http/1.1"],
+                    "reality": {
+                        "enabled": true,
+                        "public_key": "YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg",
+                        "short_id": ""
+                    },
+                    "utls": {
+                        "enabled": true,
+                        "fingerprint": "firefox"
+                    }
+                },
+                "transport": {
+                    "type": "xhttp",
+                    "path": "/",
+                    "mode": "packet-up",
+                    "x_padding_bytes": "100-1000",
+                    "host": "www.twitch.tv"
+                }
+            })
+        );
+        assert!(vless.get("flow").is_none());
+        assert!(vless.get("packet_encoding").is_none());
+
+        // Xray JSON (`flag=original`) — matches the reference `Finland` client outbound.
+        let orig: Value =
+            serde_json::from_str(&render_original(std::slice::from_ref(&entry)).unwrap()).unwrap();
+        assert_eq!(
+            orig["outbounds"][0],
+            json!({
+                "tag": "Finland",
+                "protocol": "vless",
+                "settings": {
+                    "vnext": [{
+                        "address": "95.85.251.177",
+                        "port": 443,
+                        "users": [{
+                            "id": "3a8a4cc5-c756-41a3-9961-3789079074a7",
+                            "encryption": "none",
+                            "flow": ""
+                        }]
+                    }]
+                },
+                "streamSettings": {
+                    "network": "xhttp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "serverName": "www.twitch.tv",
+                        "fingerprint": "firefox",
+                        "publicKey": "YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg",
+                        "shortId": "",
+                        "spiderX": "",
+                        "mldsa65Verify": ""
+                    },
+                    "xhttpSettings": {
+                        "path": "/",
+                        "host": "www.twitch.tv",
+                        "mode": "packet-up"
+                    }
+                }
+            })
+        );
+
+        // Clash / Mihomo keeps the same TLS/Reality identity.
+        let clash_yaml: serde_yaml::Value =
+            serde_yaml::from_str(&render_clash(std::slice::from_ref(&entry)).unwrap()).unwrap();
+        let proxy = &clash_yaml["proxies"][0];
+        assert_eq!(proxy["server"].as_str(), Some("95.85.251.177"));
+        assert_eq!(proxy["port"].as_i64(), Some(443));
+        assert_eq!(proxy["servername"].as_str(), Some("www.twitch.tv"));
+        assert_eq!(proxy["client-fingerprint"].as_str(), Some("firefox"));
+        assert_eq!(
+            proxy["reality-opts"]["public-key"].as_str(),
+            Some("YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg")
+        );
+        assert_eq!(proxy["reality-opts"]["short-id"].as_str(), Some(""));
+        assert_eq!(proxy["xhttp-opts"]["mode"].as_str(), Some("packet-up"));
+        assert_eq!(proxy["xhttp-opts"]["path"].as_str(), Some("/"));
+        assert_eq!(proxy["xhttp-opts"]["host"].as_str(), Some("www.twitch.tv"));
+
+        println!("=== /sub/:token (Base64 / Happ — v2rayNG, Happ) ===\n{b64_decoded}\n");
+        println!(
+            "=== /sub/:token (Sing-box JSON) ===\n{}\n",
+            render_singbox(std::slice::from_ref(&entry)).unwrap()
+        );
+        println!(
+            "=== /sub/:token (Xray JSON) ===\n{}\n",
+            render_original(std::slice::from_ref(&entry)).unwrap()
+        );
+    }
+
+    /// When the inbound stores only `privateKey` (raw imports), `pbk` is derived
+    /// from the X25519 scalar so subscriptions stay complete.
+    #[test]
+    fn reality_public_key_is_derived_from_private_key_when_missing() {
+        let settings = json!({ "clients": [], "decryption": "none" });
+        let mut stream = remnawave_reference_stream();
+        stream["realitySettings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("publicKey");
+        let ctx = EntryContext {
+            node_host: "95.85.251.177".into(),
+            port: 443,
+            client_uuid: "3a8a4cc5-c756-41a3-9961-3789079074a7".into(),
+            client_id: "finland-user".into(),
+            secret: String::new(),
+        };
+
+        let entry = build_entry(Protocol::Vless, "Finland", &settings, &stream, &ctx)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            entry.public_key.as_deref(),
+            Some("Zc3_kRpdUZYYx9xCtRtV7GhlS3V4JF6RGdTE1CXLdis")
+        );
+        assert!(entry
+            .raw
+            .contains("pbk=Zc3_kRpdUZYYx9xCtRtV7GhlS3V4JF6RGdTE1CXLdis"));
+    }
+
     #[test]
     fn vless_xhttp_reality_matches_podkop_reference_config() {
         let settings = json!({ "decryption": "none", "flow": "none" });
@@ -2444,7 +2675,7 @@ mod tests {
                         },
                         "utls": {
                             "enabled": true,
-                            "fingerprint": "edge"
+                            "fingerprint": "firefox"
                         }
                     },
                     "transport": {
@@ -2530,7 +2761,7 @@ mod tests {
         assert_eq!(out["flow"], json!("xtls-rprx-vision"));
         assert_eq!(out["packet_encoding"], json!("xudp"));
         assert_eq!(out["tls"]["server_name"], json!("www.apple.com"));
-        assert_eq!(out["tls"]["utls"]["fingerprint"], json!("edge"));
+        assert_eq!(out["tls"]["utls"]["fingerprint"], json!("chrome"));
         assert!(out.get("transport").is_none());
     }
 

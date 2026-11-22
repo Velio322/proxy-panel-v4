@@ -588,6 +588,70 @@ fn jstr(root: &Value, path: &[&str]) -> Option<String> {
         .map(ToString::to_string)
 }
 
+/// Like [`jstr`] but preserves explicitly configured empty strings (`Some("")`).
+///
+/// Used for Reality `shortId` where `""` is a valid identifier (clients connecting
+/// with an empty short ID must be admitted exactly like in Remnawave's `shortIds: [""]`).
+fn jstr_keep_empty(root: &Value, path: &[&str]) -> Option<String> {
+    at(root, path)
+        .and_then(Value::as_str)
+        .map(|s| s.trim().to_string())
+}
+
+/// Like [`jstr_first`] but preserves an explicitly configured empty first entry (`Some("")`).
+fn jstr_first_keep_empty(root: &Value, path: &[&str]) -> Option<String> {
+    match at(root, path)? {
+        Value::String(s) => Some(s.trim().to_string()),
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|s| s.trim().to_string())
+            .next(),
+        _ => None,
+    }
+}
+
+/// Resolves Reality `shortId` preserving an explicitly configured empty value.
+fn extract_short_id(root: &Value) -> Option<String> {
+    for path in [
+        &["realitySettings", "shortId"][..],
+        &["realitySettings", "shortIds"][..],
+        &["shortId"][..],
+        &["shortIds"][..],
+    ] {
+        let found = if path.last() == Some(&"shortIds") {
+            jstr_first_keep_empty(root, path)
+        } else {
+            jstr_keep_empty(root, path)
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// Derives the X25519 public key for a Reality `privateKey` (base64url scalar).
+///
+/// Returns the base64url-encoded public key so subscriptions always carry `pbk`,
+/// matching Remnawave where the keypair is stored complete even when the inbound
+/// stream only holds `privateKey`.
+pub fn derive_reality_public_key(private_key: &str) -> Option<String> {
+    let trimmed = private_key.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let raw = URL_SAFE_NO_PAD
+        .decode(trimmed)
+        .or_else(|_| URL_SAFE.decode(trimmed))
+        .or_else(|_| STANDARD.decode(trimmed))
+        .ok()?;
+    let bytes: [u8; 32] = raw.as_slice().try_into().ok()?;
+    let secret = x25519_dalek::StaticSecret::from(bytes);
+    let public = x25519_dalek::PublicKey::from(&secret);
+    Some(URL_SAFE_NO_PAD.encode(public.to_bytes()))
+}
+
 fn jstr_or_comma_arr(root: &Value, path: &[&str]) -> Option<String> {
     let val = at(root, path)?;
     match val {
@@ -815,9 +879,14 @@ pub fn build_entry(
     // Reality + ML-DSA-65 verification
     e.public_key =
         jstr(stream, &["publicKey"]).or_else(|| jstr(stream, &["realitySettings", "publicKey"]));
-    e.short_id = jstr(stream, &["shortId"])
-        .or_else(|| jstr(stream, &["realitySettings", "shortId"]))
-        .or_else(|| jstr_first(stream, &["realitySettings", "shortIds"]));
+    if e.public_key.is_none() {
+        let priv_key = jstr(stream, &["privateKey"])
+            .or_else(|| jstr(stream, &["realitySettings", "privateKey"]));
+        if let Some(pk) = priv_key.as_deref().and_then(derive_reality_public_key) {
+            e.public_key = Some(pk);
+        }
+    }
+    e.short_id = extract_short_id(stream);
     e.spider_x =
         jstr(stream, &["spiderX"]).or_else(|| jstr(stream, &["realitySettings", "spiderX"]));
     e.mldsa65_verify = jstr(stream, &["mldsa65Verify"])

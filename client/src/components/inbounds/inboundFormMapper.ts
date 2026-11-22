@@ -1,5 +1,11 @@
 import type { Inbound, Protocol } from '@/types';
-import { generateRealityKeypair, generateShortId } from '@/lib/core-utils';
+import {
+  fromBase64Url,
+  generateRealityKeypair,
+  generateShortId,
+  toBase64Url,
+  x25519PublicFromPrivate,
+} from '@/lib/core-utils';
 import type {
   Hy2BbrProfile,
   Hy2ObfsType,
@@ -104,7 +110,7 @@ export function createDefaultInboundForm(nodeId = ''): InboundFormState {
     kcpReadBufferSize: '',
     kcpWriteBufferSize: '',
 
-    sniffingDestOverride: ['http', 'tls', 'quic'],
+    sniffingDestOverride: ['http', 'tls', 'quic', 'fakedns'],
     sniffingRouteOnly: true,
     sniffingMetadataOnly: false,
     sniffingDomainsExcluded: '',
@@ -400,7 +406,9 @@ export function inboundToForm(inbound: Inbound): InboundFormState {
     kcpReadBufferSize: asNumStr(kcpSettings.readBufferSize),
     kcpWriteBufferSize: asNumStr(kcpSettings.writeBufferSize),
 
-    sniffingDestOverride: sniffingDestOverride.length ? sniffingDestOverride : ['http', 'tls', 'quic'],
+    sniffingDestOverride: sniffingDestOverride.length
+      ? sniffingDestOverride
+      : ['http', 'tls', 'quic', 'fakedns'],
     sniffingRouteOnly: asBool(sniffingObj.routeOnly, true),
     sniffingMetadataOnly: asBool(sniffingObj.metadataOnly, false),
     sniffingDomainsExcluded: Array.isArray(sniffingObj.domainsExcluded)
@@ -414,7 +422,7 @@ export function inboundToForm(inbound: Inbound): InboundFormState {
     sockoptTcpMptcp: asBool(sockoptObj.tcpMptcp, false),
     sockoptTcpKeepAliveInterval: asNumStr(sockoptObj.tcpKeepAliveInterval),
     sockoptTcpKeepAliveIdle: asNumStr(sockoptObj.tcpKeepAliveIdle),
-    sockoptTcpCongestion: asStr(sockoptObj.tcpCongestion),
+    sockoptTcpCongestion: asStr(sockoptObj.tcpcongestion ?? sockoptObj.tcpCongestion),
     sockoptInterface: asStr(sockoptObj.interface),
     sockoptAcceptProxyProtocol: asBool(sockoptObj.acceptProxyProtocol, false),
     sockoptDomainStrategy: asStr(sockoptObj.domainStrategy),
@@ -768,17 +776,24 @@ export function formToPayload(form: InboundFormState): Record<string, unknown> {
       .filter(Boolean);
     settings.sniffing = {
       enabled: form.sniffing,
-      destOverride: form.sniffingDestOverride.length ? form.sniffingDestOverride : ['http', 'tls', 'quic'],
+      destOverride: form.sniffingDestOverride.length
+        ? form.sniffingDestOverride
+        : ['http', 'tls', 'quic', 'fakedns'],
       routeOnly: form.sniffingRouteOnly,
       ...(form.sniffingMetadataOnly ? { metadataOnly: true } : {}),
       ...(domainsExcluded.length ? { domainsExcluded } : {}),
     };
 
     if (form.sockoptEnabled) {
+      // Preserve sockopt keys without explicit form fields (tcpMaxSeg, tcpUserTimeout,
+      // tcpWindowClamp, penetrate, dialerProxy, ...) so saving an inbound never drops
+      // tuning parameters captured from raw / imported configs.
+      const existingSockopt = asObj(form.rawStream.sockopt ?? form.rawSettings.sockopt);
       const mark = parsePositiveNum(form.sockoptMark);
       const keepInt = parsePositiveNum(form.sockoptTcpKeepAliveInterval);
       const keepIdle = parsePositiveNum(form.sockoptTcpKeepAliveIdle);
-      stream.sockopt = {
+      const sockopt: Record<string, unknown> = {
+        ...existingSockopt,
         mark: mark ?? 0,
         V6Only: form.sockoptV6Only,
         tproxy: form.sockoptTproxy,
@@ -786,13 +801,19 @@ export function formToPayload(form: InboundFormState): Record<string, unknown> {
         tcpMptcp: form.sockoptTcpMptcp,
         ...(keepInt !== undefined ? { tcpKeepAliveInterval: keepInt } : {}),
         ...(keepIdle !== undefined ? { tcpKeepAliveIdle: keepIdle } : {}),
-        ...(form.sockoptTcpCongestion.trim() ? { tcpCongestion: form.sockoptTcpCongestion.trim() } : {}),
+        ...(form.sockoptTcpCongestion.trim() ? { tcpcongestion: form.sockoptTcpCongestion.trim() } : {}),
         ...(form.sockoptInterface.trim() ? { interface: form.sockoptInterface.trim() } : {}),
         ...(form.sockoptAcceptProxyProtocol ? { acceptProxyProtocol: true } : {}),
         ...(form.sockoptDomainStrategy.trim() ? { domainStrategy: form.sockoptDomainStrategy.trim() } : {}),
       };
+      // Xray's real key is lowercase `tcpcongestion`; drop any legacy camelCase alias.
+      delete sockopt.tcpCongestion;
+      if (!form.sockoptTcpCongestion.trim()) delete sockopt.tcpcongestion;
+      stream.sockopt = sockopt;
+      delete settings.sockopt;
     } else {
       delete stream.sockopt;
+      delete settings.sockopt;
     }
 
     if (form.network === 'tcp' || form.network === 'raw') {
@@ -986,26 +1007,44 @@ export function formToPayload(form: InboundFormState): Record<string, unknown> {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
-      const shortIds = form.realityShortIds
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // An empty field keeps the Remnawave-compatible `[""]` (admit clients with an
+      // empty short ID); a non-empty list drops stray blank entries.
+      const shortIds = form.realityShortIds.trim()
+        ? form.realityShortIds
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [''];
 
       const dest = form.realityDest.trim() || 'www.google.com:443';
       const spiderX = form.realitySpiderX.trim() || '/';
-      const fp = form.fingerprint.trim() || (form.network === 'xhttp' ? 'edge' : 'chrome');
+      const fp = form.fingerprint.trim() || 'chrome';
       const primarySni = serverNames[0] || form.sni.trim();
       const xver = parsePositiveNum(form.realityXver) ?? 0;
       const maxTimeDiff = parsePositiveNum(form.realityMaxTimeDiff);
       const limitUp = parseJsonSafe(form.realityLimitFallbackUploadJson);
       const limitDown = parseJsonSafe(form.realityLimitFallbackDownloadJson);
+      const privateKey = form.realityPrivateKey.trim();
+      // Keep the keypair complete: derive `publicKey` from `privateKey` when it is
+      // missing (raw imports) so `/sub/:token` always emits `pbk`.
+      const publicKey =
+        form.realityPublicKey.trim() ||
+        (privateKey
+          ? (() => {
+              try {
+                return toBase64Url(x25519PublicFromPrivate(fromBase64Url(privateKey)));
+              } catch {
+                return '';
+              }
+            })()
+          : '');
 
       stream.sni = primarySni;
       stream.fingerprint = fp;
       if (alpnList.length) stream.alpn = alpnList;
       else delete stream.alpn;
-      stream.publicKey = form.realityPublicKey.trim();
-      stream.privateKey = form.realityPrivateKey.trim();
+      stream.publicKey = publicKey;
+      stream.privateKey = privateKey;
       stream.shortId = shortIds[0] || '';
       stream.spiderX = spiderX;
       stream.dest = dest;
@@ -1023,8 +1062,8 @@ export function formToPayload(form: InboundFormState): Record<string, unknown> {
         target: dest,
         xver,
         show: form.realityShow,
-        privateKey: form.realityPrivateKey.trim(),
-        publicKey: form.realityPublicKey.trim(),
+        privateKey,
+        publicKey,
         serverNames,
         shortIds,
         spiderX,
