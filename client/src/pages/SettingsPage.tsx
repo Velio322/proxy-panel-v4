@@ -9,17 +9,22 @@ import {
   Download,
   ExternalLink,
   HardDrive,
+  ImagePlus,
   Key,
   KeyRound,
+  Palette,
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Settings,
   Shield,
   Sparkles,
   Trash2,
+  Upload,
   Webhook,
 } from 'lucide-react';
+import { BrandMark, DEFAULT_PANEL_NAME } from '@/components/branding/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,11 +42,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
 import { LANGUAGES } from '@/i18n/translations';
 import {
   authApi,
   backupApi,
+  brandingApi,
   coresApi,
   getApiErrorMessage,
   nodesApi,
@@ -82,9 +89,127 @@ export function SettingsPage() {
   const setTimezone = useUiStore((s) => s.setTimezone);
   const setCompanyName = useUiStore((s) => s.setCompanyName);
   const healthVersion = usePublicConfigStore((s) => s.healthVersion);
+  const branding = usePublicConfigStore((s) => s.branding);
+  const setBranding = usePublicConfigStore((s) => s.setBranding);
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canEditBranding = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const isRu = language === 'ru';
+
+  // --- Appearance & Branding
+  const [brandName, setBrandName] = useState(branding.panelName || DEFAULT_PANEL_NAME);
+  const [logoMode, setLogoMode] = useState<'upload' | 'svg'>('upload');
+  const [pendingLogoDataUrl, setPendingLogoDataUrl] = useState<string | null>(null);
+  const [pendingSvgCode, setPendingSvgCode] = useState('');
+  const [clearLogoFlag, setClearLogoFlag] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setBrandName(branding.panelName || DEFAULT_PANEL_NAME);
+  }, [branding.panelName]);
+
+  const trimmedSvgDraft = pendingSvgCode.trim();
+  const previewPanelName = brandName.trim() || DEFAULT_PANEL_NAME;
+  const previewLogoUrl = clearLogoFlag
+    ? null
+    : logoMode === 'svg' && trimmedSvgDraft.toLowerCase().includes('<svg')
+      ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(trimmedSvgDraft)}`
+      : pendingLogoDataUrl ?? (branding.hasCustomLogo ? branding.logoUrl ?? null : null);
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setLogoError(null);
+
+    if (file.size > 1_048_576) {
+      setLogoError(isRu ? 'Размер файла превышает 1 МБ' : 'File size exceeds 1 MB limit');
+      return;
+    }
+
+    const lowerName = file.name.toLowerCase();
+    const isAllowedExt =
+      lowerName.endsWith('.svg') || lowerName.endsWith('.png') || lowerName.endsWith('.webp');
+    const isAllowedMime =
+      file.type === 'image/svg+xml' || file.type === 'image/png' || file.type === 'image/webp';
+    if (!isAllowedExt && !isAllowedMime) {
+      setLogoError(
+        isRu ? 'Допустимы только файлы .svg, .png или .webp' : 'Only .svg, .png, or .webp files are allowed',
+      );
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setLogoMode('upload');
+        setPendingLogoDataUrl(reader.result);
+        setPendingSvgCode('');
+        setClearLogoFlag(false);
+      }
+    };
+    reader.onerror = () => {
+      setLogoError(isRu ? 'Не удалось прочитать файл' : 'Failed to read file');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const saveBrandingMut = useMutation({
+    mutationFn: (opts?: { forceClearLogo?: boolean }) => {
+      const clearLogo = opts?.forceClearLogo ?? clearLogoFlag;
+      return brandingApi.update({
+        panelName: previewPanelName,
+        logoDataUrl: !clearLogo && logoMode === 'upload' ? pendingLogoDataUrl ?? undefined : undefined,
+        svgCode: !clearLogo && logoMode === 'svg' && trimmedSvgDraft ? trimmedSvgDraft : undefined,
+        clearLogo,
+      });
+    },
+    onSuccess: (updated) => {
+      setBranding(updated);
+      setBrandName(updated.panelName || DEFAULT_PANEL_NAME);
+      setPendingLogoDataUrl(null);
+      setPendingSvgCode('');
+      setClearLogoFlag(false);
+      setLogoError(null);
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      toast({
+        title: isRu ? 'Брендинг панели обновлён' : 'Panel branding updated',
+        variant: 'success',
+      });
+    },
+    onError: (err) => {
+      const msg = getApiErrorMessage(err);
+      setLogoError(msg);
+      toast({
+        title: isRu ? 'Ошибка сохранения брендинга' : 'Failed to update branding',
+        description: msg,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const resetBrandingMut = useMutation({
+    mutationFn: () => brandingApi.reset(),
+    onSuccess: (resetRes) => {
+      setBranding(resetRes);
+      setBrandName(resetRes.panelName || DEFAULT_PANEL_NAME);
+      setPendingLogoDataUrl(null);
+      setPendingSvgCode('');
+      setClearLogoFlag(false);
+      setLogoError(null);
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      toast({
+        title: isRu ? 'Стандартное оформление восстановлено' : 'Reset to default Keeper branding',
+        variant: 'success',
+      });
+    },
+    onError: (err) =>
+      toast({
+        title: isRu ? 'Ошибка сброса' : 'Reset failed',
+        description: getApiErrorMessage(err),
+        variant: 'destructive',
+      }),
+  });
 
   // --- General & Telegram Settings
   const { data: rawSettings } = useQuery({
@@ -508,6 +633,7 @@ export function SettingsPage() {
       >
         <TabsList className="flex-wrap">
           <TabsTrigger value="general">{t('settings.general')}</TabsTrigger>
+          {canEditBranding && <TabsTrigger value="branding">{t('settings.branding')}</TabsTrigger>}
           <TabsTrigger value="security">{t('settings.security')}</TabsTrigger>
           <TabsTrigger value="api-keys">{t('settings.apiKeys')}</TabsTrigger>
           <TabsTrigger value="webhooks">{t('settings.webhooks')}</TabsTrigger>
@@ -515,6 +641,224 @@ export function SettingsPage() {
           <TabsTrigger value="cores">{t('settings.cores')}</TabsTrigger>
           <TabsTrigger value="backup">{t('settings.backup')}</TabsTrigger>
         </TabsList>
+
+        {canEditBranding && (
+          <TabsContent value="branding" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-primary" />
+                  <span>{isRu ? 'Внешний вид и брендинг' : 'Appearance & Branding'}</span>
+                </CardTitle>
+                <CardDescription>
+                  {isRu
+                    ? 'Настройте отображаемое название и логотип (.svg, .png, .webp до 1 МБ). Изменения сразу применяются к сайдбару, экрану входа и favicon браузера без пересборки.'
+                    : 'Customize the panel display name and icon (.svg, .png, .webp up to 1 MB). Changes apply immediately to Sidebar, Login page, title, and browser favicon without rebuilding.'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Real-time 3-surface Preview */}
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    {isRu ? 'Предпросмотр в реальном времени' : 'Live Preview'}
+                  </Label>
+                  <div className="grid gap-3 lg:grid-cols-3">
+                    {/* 1. Mini Browser Tab */}
+                    <div className="rounded-xl border border-border/80 bg-muted/30 p-3 space-y-2">
+                      <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                        {isRu ? 'Вкладка браузера (Favicon)' : 'Browser Tab (Favicon)'}
+                      </div>
+                      <div className="flex items-center gap-2 rounded-t-lg border border-b-0 border-border/80 bg-background px-3 py-2 shadow-sm">
+                        <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="xs" />
+                        <span className="truncate text-xs font-medium">{previewPanelName}</span>
+                      </div>
+                      <div className="h-2 rounded-b bg-background/70 border border-t-0 border-border/60" />
+                    </div>
+
+                    {/* 2. Mini Sidebar Header */}
+                    <div className="rounded-xl border border-border/80 bg-muted/30 p-3 space-y-2">
+                      <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                        {isRu ? 'Шапка сайдбара' : 'Sidebar Header'}
+                      </div>
+                      <div className="keeper-sidebar keeper-sidebar-brand flex items-center gap-2.5 rounded-lg border border-border/80 px-3 py-2.5">
+                        <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="sm" />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-bold leading-tight">{previewPanelName}</div>
+                          <div className="mt-0.5 inline-flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-[1px] font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-500 dark:text-emerald-300">
+                            <span className="h-1 w-1 rounded-full bg-emerald-400" />
+                            <span>CORE · {healthVersion ? `v${healthVersion.replace(/^v/i, '')}` : 'v4.0.0'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 3. Mini Login Card */}
+                    <div className="rounded-xl border border-border/80 bg-muted/30 p-3 space-y-2">
+                      <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                        {isRu ? 'Экран входа (Login)' : 'Login Card'}
+                      </div>
+                      <div className="login-grid-bg flex flex-col items-center justify-center gap-1.5 rounded-lg border border-border/80 bg-background/90 py-3 px-4 text-center">
+                        <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="md" />
+                        <div className="truncate max-w-full text-sm font-bold">{previewPanelName}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Panel Name */}
+                <div className="max-w-md space-y-1.5">
+                  <Label htmlFor="branding-panel-name">
+                    {isRu ? 'Отображаемое название панели' : 'Display Panel Name'}
+                  </Label>
+                  <Input
+                    id="branding-panel-name"
+                    maxLength={64}
+                    placeholder={DEFAULT_PANEL_NAME}
+                    value={brandName}
+                    onChange={(e) => setBrandName(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {isRu
+                      ? 'До 64 символов. Используется в шапке меню, на экране входа и в заголовке вкладки.'
+                      : 'Up to 64 characters. Displayed in Sidebar, Login page, and browser tab title.'}
+                  </p>
+                </div>
+
+                {/* Custom Icon Input */}
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Label>{isRu ? 'Иконка / логотип панели' : 'Panel Icon / Logo'}</Label>
+                    <div className="inline-flex rounded-lg border border-border/80 bg-muted/40 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLogoMode('upload');
+                          setLogoError(null);
+                        }}
+                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                          logoMode === 'upload'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {isRu ? 'Загрузить файл' : 'Upload File'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLogoMode('svg');
+                          setLogoError(null);
+                        }}
+                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                          logoMode === 'svg'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {isRu ? 'Вставить SVG-код' : 'Paste SVG Code'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {logoMode === 'upload' ? (
+                    <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/90 bg-muted/20 px-4 py-6 text-center transition-colors hover:border-primary/50 hover:bg-accent/30">
+                      <Upload className="h-5 w-5 text-primary" />
+                      <div className="text-xs font-medium">
+                        {isRu
+                          ? 'Выберите .svg, .png или .webp (до 1 МБ)'
+                          : 'Choose an .svg, .png, or .webp file (max 1 MB)'}
+                      </div>
+                      {pendingLogoDataUrl && (
+                        <div className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-500 dark:text-emerald-300">
+                          <ImagePlus className="h-3 w-3" />
+                          <span>{isRu ? 'Новый файл выбран для предпросмотра' : 'New logo staged for preview'}</span>
+                        </div>
+                      )}
+                      <input
+                        type="file"
+                        accept=".svg,.png,.webp,image/svg+xml,image/png,image/webp"
+                        onChange={handleLogoFileChange}
+                        className="sr-only"
+                      />
+                    </label>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <Textarea
+                        rows={5}
+                        className="font-mono text-xs"
+                        placeholder='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">...</svg>'
+                        value={pendingSvgCode}
+                        onChange={(e) => {
+                          setPendingSvgCode(e.target.value);
+                          setClearLogoFlag(false);
+                          setLogoError(null);
+                        }}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        {isRu
+                          ? 'Сервер проверяет SVG и блокирует скрипты, внешние DOCTYPE и обработчики событий (on*=).'
+                          : 'SVG markup is sanitized on save: <script>, DOCTYPE/ENTITY, and inline event handlers are rejected.'}
+                      </p>
+                    </div>
+                  )}
+
+                  {logoError && (
+                    <div className="rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2 text-xs text-red-500 dark:text-red-400">
+                      {logoError}
+                    </div>
+                  )}
+                </div>
+
+                {/* Branding Actions */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={saveBrandingMut.isPending || resetBrandingMut.isPending}
+                      onClick={() => resetBrandingMut.mutate()}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>{isRu ? 'Сбросить к стандарту Keeper' : 'Reset to Default'}</span>
+                    </Button>
+
+                    {(branding.hasCustomLogo || pendingLogoDataUrl || trimmedSvgDraft) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={saveBrandingMut.isPending || resetBrandingMut.isPending}
+                        onClick={() => {
+                          setPendingLogoDataUrl(null);
+                          setPendingSvgCode('');
+                          setLogoError(null);
+                          if (branding.hasCustomLogo) {
+                            saveBrandingMut.mutate({ forceClearLogo: true });
+                          } else {
+                            setClearLogoFlag(false);
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                        <span>{isRu ? 'Убрать логотип' : 'Remove Logo'}</span>
+                      </Button>
+                    )}
+                  </div>
+
+                  <Button
+                    type="button"
+                    loading={saveBrandingMut.isPending}
+                    disabled={resetBrandingMut.isPending}
+                    onClick={() => saveBrandingMut.mutate({})}
+                  >
+                    {isRu ? 'Сохранить брендинг' : 'Save Branding'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="general" className="space-y-4">
           <Card>

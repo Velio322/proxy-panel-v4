@@ -6,9 +6,9 @@ use utoipa_scalar::{Scalar, Servable};
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "ProxyPanel v4 API",
+        title = "Keeper API",
         version = "4.0.0",
-        description = "Control plane HTTP API for ProxyPanel v4 (mypanel3)"
+        description = "Control plane HTTP API for Keeper"
     ),
     paths()
 )]

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { browserSupportsWebAuthn } from '@simplewebauthn/browser';
-import { Eye, EyeOff, KeyRound, Lock, Moon, ShieldCheck, Sun, User as UserIcon } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, Lock, Moon, Sun, User as UserIcon } from 'lucide-react';
+import { BrandMark, DEFAULT_PANEL_NAME } from '@/components/branding/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -30,7 +31,8 @@ export function LoginPage() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   const publicConfig = usePublicConfigStore((s) => s.config);
-  const companyName = useUiStore((s) => s.companyName);
+  const branding = usePublicConfigStore((s) => s.branding);
+  const healthVersion = usePublicConfigStore((s) => s.healthVersion);
   const theme = useUiStore((s) => s.theme);
   const toggleTheme = useUiStore((s) => s.toggleTheme);
   const language = useUiStore((s) => s.language);
@@ -45,6 +47,9 @@ export function LoginPage() {
 
   const tgContainerRef = useRef<HTMLDivElement | null>(null);
   const supportsPasskey = typeof window !== 'undefined' && browserSupportsWebAuthn();
+
+  const displayName = branding.panelName || DEFAULT_PANEL_NAME;
+  const versionBadge = healthVersion ? `v${healthVersion.replace(/^v/i, '')}` : 'v4.0.0';
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -130,7 +135,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="login-grid-bg relative flex min-h-screen items-center justify-center bg-background p-4">
+    <div className="login-grid-bg relative flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <div className="absolute right-4 top-4 flex items-center gap-1.5">
         <Button
           type="button"
@@ -153,12 +158,17 @@ export function LoginPage() {
         </Button>
       </div>
 
-      <Card className="w-full max-w-md shadow-2xl border-border/90 bg-card/95">
-        <CardHeader className="space-y-1 text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/35 shadow-[0_0_24px_-6px_hsl(var(--primary)/0.45)]">
-            <ShieldCheck className="h-6 w-6" />
+      <Card className="w-full max-w-md border-border/90 bg-card/95 shadow-2xl backdrop-blur-md">
+        <CardHeader className="space-y-1.5 text-center">
+          <div className="mx-auto mb-1 flex justify-center">
+            <BrandMark logoUrl={branding.hasCustomLogo ? branding.logoUrl : null} panelName={displayName} size="lg" />
           </div>
-          <CardTitle className="text-xl">{companyName || 'ProxyPanel'}</CardTitle>
+          <div className="flex items-center justify-center gap-2">
+            <CardTitle className="text-xl tracking-tight">{displayName}</CardTitle>
+            <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-emerald-500 dark:text-emerald-300">
+              {versionBadge}
+            </span>
+          </div>
           <CardDescription>
             {pending2faToken ? t('auth.twoFactorHint') : t('auth.signInSubtitle')}
           </CardDescription>
@@ -265,7 +275,7 @@ export function LoginPage() {
               )}
 
               {publicConfig?.telegramBotUsername && (
-                <div className="pt-2 border-t flex flex-col items-center gap-2">
+                <div className="flex flex-col items-center gap-2 border-t pt-2">
                   <span className="text-xs text-muted-foreground">
                     {language === 'ru' ? 'Или войти через Telegram' : 'Or continue with Telegram'}
                   </span>
@@ -276,6 +286,10 @@ export function LoginPage() {
           )}
         </CardContent>
       </Card>
+
+      <div className="mt-5 font-mono text-[11px] text-muted-foreground/75">
+        {displayName} · Infrastructure Control · {versionBadge}
+      </div>
     </div>
   );
 }

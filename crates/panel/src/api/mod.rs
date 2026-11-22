@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod auth;
 pub mod backup;
+pub mod branding;
 pub mod clients;
 pub mod common;
 pub mod config_transfer;
@@ -76,6 +77,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/webhooks", webhooks::router())
         .nest("/notifications", notifications::router())
         .nest("/public-config", public_config::router())
+        .nest("/branding", branding::router())
         .nest("/sessions", sessions_explorer::router())
         .nest("/logs", logs::router())
         .nest("/inspector", srh::router())

@@ -9,11 +9,13 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn public_config(State(state): State<AppState>) -> Json<Value> {
+    let branding = crate::api::branding::load_branding(&state).await;
     Json(json!({
         "apiUrl": state.cfg.api_url,
         "subUrl": state.cfg.sub_url,
         "version": "4.0.0",
         "telegramBotUsername": state.cfg.telegram_bot_username,
+        "branding": branding,
         "features": {
             "telegramOauth": state.cfg.telegram_bot_token.is_some(),
             "passkeys": true,

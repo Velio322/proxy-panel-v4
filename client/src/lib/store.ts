@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { startAuthentication } from '@simplewebauthn/browser';
+import { applyBrandingToDocument, DEFAULT_PANEL_NAME } from '@/components/branding/BrandLogo';
 import {
   authApi,
   publicConfigApi,
@@ -7,7 +8,7 @@ import {
   settingsApi,
 } from '@/lib/api';
 import { setFormattingDefaults } from '@/lib/core-utils';
-import type { Language, PublicConfig, TelegramOAuthPayload, User } from '@/types';
+import type { BrandingConfig, Language, PublicConfig, TelegramOAuthPayload, User } from '@/types';
 
 const UI_STORAGE_KEY = 'mypanel3_ui_prefs';
 const CURRENT_PREFS_VERSION = 2;
@@ -24,6 +25,14 @@ interface UiPrefs {
   companyName: string;
 }
 
+function normalizeBrandName(raw: string | undefined | null): string {
+  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  if (!trimmed || trimmed === 'ProxyPanel' || trimmed === 'mypanel3') {
+    return DEFAULT_PANEL_NAME;
+  }
+  return trimmed;
+}
+
 function readUiPrefs(): UiPrefs {
   const fallbackTz =
     typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' : 'UTC';
@@ -34,7 +43,7 @@ function readUiPrefs(): UiPrefs {
     timezone: fallbackTz,
     sidebarCollapsed: false,
     density: 'comfortable',
-    companyName: 'ProxyPanel',
+    companyName: DEFAULT_PANEL_NAME,
   };
   if (typeof window === 'undefined') return defaults;
   try {
@@ -45,6 +54,7 @@ function readUiPrefs(): UiPrefs {
     }
     const parsed = JSON.parse(raw) as Partial<UiPrefs>;
     const needsUpgrade = (parsed.prefsVersion ?? 0) < CURRENT_PREFS_VERSION;
+    const legacyName = parsed.companyName === 'ProxyPanel' || parsed.companyName === 'mypanel3';
     const resolved: UiPrefs = {
       prefsVersion: CURRENT_PREFS_VERSION,
       theme: needsUpgrade ? 'dark' : parsed.theme === 'light' ? 'light' : 'dark',
@@ -52,12 +62,9 @@ function readUiPrefs(): UiPrefs {
       timezone: typeof parsed.timezone === 'string' && parsed.timezone ? parsed.timezone : fallbackTz,
       sidebarCollapsed: Boolean(parsed.sidebarCollapsed),
       density: parsed.density === 'compact' ? 'compact' : 'comfortable',
-      companyName:
-        typeof parsed.companyName === 'string' && parsed.companyName.trim()
-          ? parsed.companyName
-          : 'ProxyPanel',
+      companyName: normalizeBrandName(parsed.companyName),
     };
-    if (needsUpgrade) {
+    if (needsUpgrade || legacyName) {
       writeUiPrefs(resolved);
     }
     return resolved;
@@ -139,8 +146,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           .get()
           .then((s) => {
             if (s.timezone) useUiStore.getState().setTimezone(s.timezone);
-            if (s.white_label_enabled === 'true' && s.company_name) {
-              useUiStore.getState().setCompanyName(s.company_name);
+            if (!s.panel_branding && s.white_label_enabled === 'true' && s.company_name) {
+              const clean = normalizeBrandName(s.company_name);
+              if (clean !== DEFAULT_PANEL_NAME) {
+                useUiStore.getState().setCompanyName(clean);
+              }
             }
           })
           .catch(() => {});
@@ -216,36 +226,13 @@ registerUnauthorizedHandler(() => {
 
 export interface PublicConfigState {
   config: PublicConfig | null;
+  branding: BrandingConfig;
   healthVersion: string | null;
   healthStatus: 'ok' | 'degraded' | 'unknown';
   loaded: boolean;
+  setBranding: (branding: BrandingConfig) => void;
   fetchPublicConfig: () => Promise<void>;
 }
-
-export const usePublicConfigStore = create<PublicConfigState>((set) => ({
-  config: null,
-  healthVersion: null,
-  healthStatus: 'unknown',
-  loaded: false,
-  fetchPublicConfig: async () => {
-    const [cfgRes, healthRes] = await Promise.allSettled([
-      publicConfigApi.get(),
-      publicConfigApi.health(),
-    ]);
-    const config = cfgRes.status === 'fulfilled' ? cfgRes.value : null;
-    const healthVersion =
-      healthRes.status === 'fulfilled'
-        ? healthRes.value.version || config?.version || null
-        : config?.version || null;
-    const healthStatus =
-      healthRes.status === 'fulfilled'
-        ? healthRes.value.status === 'ok'
-          ? 'ok'
-          : 'degraded'
-        : 'degraded';
-    set({ config, healthVersion, healthStatus, loaded: true });
-  },
-}));
 
 export interface UiState extends UiPrefs {
   setTheme: (theme: 'dark' | 'light') => void;
@@ -312,9 +299,60 @@ export const useUiStore = create<UiState>((set, get) => ({
     get().setDensity(nextDensity);
   },
   setCompanyName: (companyName) => {
-    const safeName = companyName.trim() || 'mypanel3';
+    const safeName = normalizeBrandName(companyName);
     const next = { ...get(), companyName: safeName };
     persistFromState(next);
     set({ companyName: safeName });
+  },
+}));
+
+export const usePublicConfigStore = create<PublicConfigState>((set) => ({
+  config: null,
+  branding: {
+    panelName: initialPrefs.companyName || DEFAULT_PANEL_NAME,
+    hasCustomLogo: false,
+    logoMime: null,
+    logoVersion: null,
+    logoUrl: null,
+  },
+  healthVersion: null,
+  healthStatus: 'unknown',
+  loaded: false,
+  setBranding: (branding) => {
+    const safeName = normalizeBrandName(branding.panelName);
+    const resolved: BrandingConfig = {
+      ...branding,
+      panelName: safeName,
+      logoUrl: branding.hasCustomLogo ? branding.logoUrl ?? '/api/v1/branding/logo' : null,
+    };
+    useUiStore.getState().setCompanyName(safeName);
+    applyBrandingToDocument(resolved.panelName, resolved.logoUrl, resolved.logoMime);
+    set((prev) => ({
+      branding: resolved,
+      config: prev.config ? { ...prev.config, branding: resolved } : prev.config,
+    }));
+  },
+  fetchPublicConfig: async () => {
+    const [cfgRes, healthRes] = await Promise.allSettled([
+      publicConfigApi.get(),
+      publicConfigApi.health(),
+    ]);
+    const config = cfgRes.status === 'fulfilled' ? cfgRes.value : null;
+    const healthVersion =
+      healthRes.status === 'fulfilled'
+        ? healthRes.value.version || config?.version || null
+        : config?.version || null;
+    const healthStatus =
+      healthRes.status === 'fulfilled'
+        ? healthRes.value.status === 'ok'
+          ? 'ok'
+          : 'degraded'
+        : 'degraded';
+    set({ config, healthVersion, healthStatus, loaded: true });
+    if (config?.branding) {
+      usePublicConfigStore.getState().setBranding(config.branding);
+    } else {
+      applyBrandingToDocument(useUiStore.getState().companyName || DEFAULT_PANEL_NAME, null, null);
+    }
   },
 }));

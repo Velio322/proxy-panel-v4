@@ -9,6 +9,7 @@ import type {
   ApiKeyItem,
   AuditLog,
   BackupLog,
+  BrandingConfig,
   Client,
   ClientLinksResponse,
   ClientNodesResponse,
@@ -191,6 +192,26 @@ export const publicConfigApi = {
     const { data } = await axios.get<{ status: string; version?: string; timestamp?: string }>('/api/health', {
       withCredentials: true,
     });
+    return data;
+  },
+};
+
+export const brandingApi = {
+  get: async (): Promise<BrandingConfig> => {
+    const { data } = await api.get<BrandingConfig>('/branding');
+    return data;
+  },
+  update: async (payload: {
+    panelName?: string;
+    logoDataUrl?: string;
+    svgCode?: string;
+    clearLogo?: boolean;
+  }): Promise<BrandingConfig> => {
+    const { data } = await api.put<BrandingConfig>('/branding', payload);
+    return data;
+  },
+  reset: async (): Promise<BrandingConfig> => {
+    const { data } = await api.delete<BrandingConfig>('/branding');
     return data;
   },
 };
