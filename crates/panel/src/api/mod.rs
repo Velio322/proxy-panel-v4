@@ -91,6 +91,7 @@ pub fn router(state: AppState) -> Router {
         .route("/install.sh", get(install_assets::install_sh))
         .route("/install-node.sh", get(install_assets::install_node_sh))
         .route("/sub/{sub_token}", get(sub::get_subscription))
+        .nest("/uploads/branding", branding::uploads_router())
         .nest("/api", openapi::router())
         .nest("/api/v1/config-transfer", config_transfer::router(state.clone()))
         .nest("/api/v1", v1);

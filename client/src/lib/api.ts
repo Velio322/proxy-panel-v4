@@ -85,7 +85,25 @@ api.interceptors.response.use(
 
 export function getApiErrorMessage(err: unknown, fallback = 'Request failed'): string {
   if (axios.isAxiosError(err)) {
-    const data = err.response?.data as { error?: string; message?: string } | undefined;
+    const data = err.response?.data as
+      | {
+          error?: string;
+          message?: string;
+          details?: Array<{ message?: string; path?: string[] }>;
+        }
+      | undefined;
+    const detailMsg = Array.isArray(data?.details)
+      ? data.details
+          .map((d) => d?.message?.trim())
+          .filter((m): m is string => Boolean(m))
+          .join('; ')
+      : '';
+    if (detailMsg) {
+      if (!data?.error || data.error === 'Validation error') {
+        return detailMsg;
+      }
+      return `${data.error}: ${detailMsg}`;
+    }
     return data?.error || data?.message || err.message || fallback;
   }
   return err instanceof Error ? err.message : fallback;

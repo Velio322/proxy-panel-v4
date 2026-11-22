@@ -6,6 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import {
   Check,
   Copy,
+  Crop,
   Download,
   ExternalLink,
   HardDrive,
@@ -25,6 +26,7 @@ import {
   Webhook,
 } from 'lucide-react';
 import { BrandMark, DEFAULT_PANEL_NAME } from '@/components/branding/BrandLogo';
+import { LogoCropDialog } from '@/components/branding/LogoCropDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -100,6 +102,8 @@ export function SettingsPage() {
   const [brandName, setBrandName] = useState(branding.panelName || DEFAULT_PANEL_NAME);
   const [logoMode, setLogoMode] = useState<'upload' | 'svg'>('upload');
   const [pendingLogoDataUrl, setPendingLogoDataUrl] = useState<string | null>(null);
+  const [rawCropSourceUrl, setRawCropSourceUrl] = useState<string | null>(null);
+  const [cropDialogOpen, setCropDialogOpen] = useState(false);
   const [pendingSvgCode, setPendingSvgCode] = useState('');
   const [clearLogoFlag, setClearLogoFlag] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -122,30 +126,50 @@ export function SettingsPage() {
     if (!file) return;
     setLogoError(null);
 
-    if (file.size > 1_048_576) {
-      setLogoError(isRu ? 'Размер файла превышает 1 МБ' : 'File size exceeds 1 MB limit');
+    const lowerName = file.name.toLowerCase();
+    const isSvgFile = lowerName.endsWith('.svg') || file.type === 'image/svg+xml';
+    const isRasterFile =
+      lowerName.endsWith('.png') ||
+      lowerName.endsWith('.webp') ||
+      lowerName.endsWith('.jpg') ||
+      lowerName.endsWith('.jpeg') ||
+      file.type === 'image/png' ||
+      file.type === 'image/webp' ||
+      file.type === 'image/jpeg';
+
+    if (!isSvgFile && !isRasterFile) {
+      setLogoError(
+        isRu
+          ? 'Допустимы только файлы .png, .jpg, .jpeg, .webp или .svg'
+          : 'Only .png, .jpg, .jpeg, .webp, or .svg files are allowed',
+      );
       return;
     }
 
-    const lowerName = file.name.toLowerCase();
-    const isAllowedExt =
-      lowerName.endsWith('.svg') || lowerName.endsWith('.png') || lowerName.endsWith('.webp');
-    const isAllowedMime =
-      file.type === 'image/svg+xml' || file.type === 'image/png' || file.type === 'image/webp';
-    if (!isAllowedExt && !isAllowedMime) {
+    const maxBytes = isSvgFile ? 2 * 1024 * 1024 : 8 * 1024 * 1024;
+    if (file.size > maxBytes) {
       setLogoError(
-        isRu ? 'Допустимы только файлы .svg, .png или .webp' : 'Only .svg, .png, or .webp files are allowed',
+        isRu
+          ? `Размер файла превышает ${isSvgFile ? '2 МБ' : '8 МБ'}`
+          : `File size exceeds ${isSvgFile ? '2 MB' : '8 MB'} limit`,
       );
       return;
     }
 
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setLogoMode('upload');
+      if (typeof reader.result !== 'string') return;
+      setLogoMode('upload');
+      setPendingSvgCode('');
+      setClearLogoFlag(false);
+      setRawCropSourceUrl(reader.result);
+
+      if (isSvgFile) {
+        // Direct apply for SVG without mandatory raster cropping, with optional crop button
         setPendingLogoDataUrl(reader.result);
-        setPendingSvgCode('');
-        setClearLogoFlag(false);
+      } else {
+        // Open Telegram-style interactive crop modal for raster images
+        setCropDialogOpen(true);
       }
     };
     reader.onerror = () => {
@@ -155,12 +179,21 @@ export function SettingsPage() {
   };
 
   const saveBrandingMut = useMutation({
-    mutationFn: (opts?: { forceClearLogo?: boolean }) => {
+    mutationFn: (opts?: { forceClearLogo?: boolean; logoDataUrlOverride?: string }) => {
       const clearLogo = opts?.forceClearLogo ?? clearLogoFlag;
+      const effectiveDataUrl =
+        opts?.logoDataUrlOverride !== undefined
+          ? opts.logoDataUrlOverride
+          : !clearLogo && logoMode === 'upload'
+            ? pendingLogoDataUrl ?? undefined
+            : undefined;
       return brandingApi.update({
         panelName: previewPanelName,
-        logoDataUrl: !clearLogo && logoMode === 'upload' ? pendingLogoDataUrl ?? undefined : undefined,
-        svgCode: !clearLogo && logoMode === 'svg' && trimmedSvgDraft ? trimmedSvgDraft : undefined,
+        logoDataUrl: effectiveDataUrl,
+        svgCode:
+          !clearLogo && !opts?.logoDataUrlOverride && logoMode === 'svg' && trimmedSvgDraft
+            ? trimmedSvgDraft
+            : undefined,
         clearLogo,
       });
     },
@@ -188,12 +221,23 @@ export function SettingsPage() {
     },
   });
 
+  const handleApplyCroppedLogo = (croppedDataUrl: string) => {
+    setLogoMode('upload');
+    setPendingLogoDataUrl(croppedDataUrl);
+    setPendingSvgCode('');
+    setClearLogoFlag(false);
+    setLogoError(null);
+    setCropDialogOpen(false);
+    saveBrandingMut.mutate({ logoDataUrlOverride: croppedDataUrl });
+  };
+
   const resetBrandingMut = useMutation({
     mutationFn: () => brandingApi.reset(),
     onSuccess: (resetRes) => {
       setBranding(resetRes);
       setBrandName(resetRes.panelName || DEFAULT_PANEL_NAME);
       setPendingLogoDataUrl(null);
+      setRawCropSourceUrl(null);
       setPendingSvgCode('');
       setClearLogoFlag(false);
       setLogoError(null);
@@ -761,28 +805,59 @@ export function SettingsPage() {
                   </div>
 
                   {logoMode === 'upload' ? (
-                    <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/90 bg-muted/20 px-4 py-6 text-center transition-colors hover:border-primary/50 hover:bg-accent/30">
-                      <Upload className="h-5 w-5 text-primary" />
-                      <div className="text-xs font-medium">
-                        {isRu
-                          ? 'Выберите .svg, .png или .webp (до 1 МБ)'
-                          : 'Choose an .svg, .png, or .webp file (max 1 MB)'}
-                      </div>
-                      {pendingLogoDataUrl && (
-                        <div className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-500 dark:text-emerald-300">
-                          <ImagePlus className="h-3 w-3" />
-                          <span>{isRu ? 'Новый файл выбран для предпросмотра' : 'New logo staged for preview'}</span>
+                    <div className="space-y-2.5">
+                      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/90 bg-muted/20 px-4 py-6 text-center transition-colors hover:border-primary/50 hover:bg-accent/30">
+                        <Upload className="h-5 w-5 text-primary" />
+                        <div className="text-xs font-medium">
+                          {isRu
+                            ? 'Выберите .png, .jpg, .webp (откроется редактор обрезки) или .svg'
+                            : 'Choose .png, .jpg, .webp (opens interactive cropper) or .svg'}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {isRu
+                            ? 'Растровые картинки автоматически кадрируются в 256×256 px (< 150 КБ)'
+                            : 'Raster images are interactively cropped to 256×256 px (< 150 KB)'}
+                        </div>
+                        {pendingLogoDataUrl && (
+                          <div className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-500 dark:text-emerald-300">
+                            <ImagePlus className="h-3 w-3" />
+                            <span>
+                              {isRu ? 'Изображение подготовлено к сохранению' : 'Logo staged for saving'}
+                            </span>
+                          </div>
+                        )}
+                        <input
+                          type="file"
+                          accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+                          onChange={handleLogoFileChange}
+                          className="sr-only"
+                        />
+                      </label>
+
+                      {(rawCropSourceUrl || previewLogoUrl) && (
+                        <div className="flex items-center justify-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1.5 text-xs"
+                            onClick={() => {
+                              if (!rawCropSourceUrl && previewLogoUrl) {
+                                setRawCropSourceUrl(previewLogoUrl);
+                              }
+                              setCropDialogOpen(true);
+                            }}
+                          >
+                            <Crop className="h-3.5 w-3.5 text-primary" />
+                            <span>
+                              {isRu ? 'Открыть в редакторе обрезки' : 'Open in Crop Editor'}
+                            </span>
+                          </Button>
                         </div>
                       )}
-                      <input
-                        type="file"
-                        accept=".svg,.png,.webp,image/svg+xml,image/png,image/webp"
-                        onChange={handleLogoFileChange}
-                        className="sr-only"
-                      />
-                    </label>
+                    </div>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       <Textarea
                         rows={5}
                         className="font-mono text-xs"
@@ -794,11 +869,30 @@ export function SettingsPage() {
                           setLogoError(null);
                         }}
                       />
-                      <p className="text-[11px] text-muted-foreground">
-                        {isRu
-                          ? 'Сервер проверяет SVG и блокирует скрипты, внешние DOCTYPE и обработчики событий (on*=).'
-                          : 'SVG markup is sanitized on save: <script>, DOCTYPE/ENTITY, and inline event handlers are rejected.'}
-                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] text-muted-foreground">
+                          {isRu
+                            ? 'Сервер проверяет SVG и блокирует скрипты, внешние DOCTYPE и обработчики событий (on*=).'
+                            : 'SVG markup is sanitized on save: <script>, DOCTYPE/ENTITY, and inline event handlers are rejected.'}
+                        </p>
+                        {trimmedSvgDraft.toLowerCase().includes('<svg') && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            onClick={() => {
+                              setRawCropSourceUrl(
+                                `data:image/svg+xml;charset=utf-8,${encodeURIComponent(trimmedSvgDraft)}`,
+                              );
+                              setCropDialogOpen(true);
+                            }}
+                          >
+                            <Crop className="h-3 w-3 text-primary" />
+                            <span>{isRu ? 'Открыть в редакторе' : 'Open in Cropper'}</span>
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -831,6 +925,7 @@ export function SettingsPage() {
                         disabled={saveBrandingMut.isPending || resetBrandingMut.isPending}
                         onClick={() => {
                           setPendingLogoDataUrl(null);
+                          setRawCropSourceUrl(null);
                           setPendingSvgCode('');
                           setLogoError(null);
                           if (branding.hasCustomLogo) {
@@ -857,6 +952,14 @@ export function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <LogoCropDialog
+              open={cropDialogOpen}
+              sourceUrl={rawCropSourceUrl ?? previewLogoUrl}
+              isRu={isRu}
+              onClose={() => setCropDialogOpen(false)}
+              onApply={handleApplyCroppedLogo}
+            />
           </TabsContent>
         )}
 

@@ -99,7 +99,7 @@ export function BrandMark({ logoUrl, panelName = DEFAULT_PANEL_NAME, size = 'md'
     return (
       <span
         className={cn(
-          'relative inline-flex shrink-0 items-center justify-center overflow-hidden border border-white/15 bg-emerald-950/35 p-1 shadow-[0_0_20px_-6px_rgba(16,185,129,0.45)]',
+          'relative inline-flex shrink-0 items-center justify-center overflow-hidden border border-white/15 bg-emerald-950/35 shadow-[0_0_20px_-6px_rgba(16,185,129,0.45)]',
           SIZE_CLASSES[size],
           className,
         )}
@@ -108,7 +108,7 @@ export function BrandMark({ logoUrl, panelName = DEFAULT_PANEL_NAME, size = 'md'
           src={logoUrl}
           alt={panelName}
           onError={() => setFailedUrl(logoUrl)}
-          className="h-full w-full object-contain"
+          className="h-full w-full object-cover"
         />
       </span>
     );
