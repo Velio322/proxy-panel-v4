@@ -106,7 +106,7 @@ struct NodeCreateArgs {
     port: i32,
 
     /// Worker HTTP API port.
-    #[arg(long, default_value_t = 2087)]
+    #[arg(long, default_value_t = 2222)]
     api_port: i32,
 
     /// Pre-shared RPC secret (16..=256 characters).

@@ -6,26 +6,32 @@
 
 ## Быстрая установка (одной строкой)
 
-Поддерживаются **Debian 11+** и **Ubuntu 20.04+** (`amd64`; для `arm64` укажите `--binary` или `--binary-url`).
-Скрипт автоматически скачивает актуальный бинарник из GitHub Releases, проверяет контрольную сумму `SHA256SUMS` и запускает интерактивный мастер выбора режима:
+Поддерживаются **Debian 12** (и Debian 11+) и **Ubuntu 22.04–24.04** (и 20.04+) на архитектурах `amd64` / `arm64`.
+Скрипт не требует заранее установленных `git`, `docker`, `curl` или компиляторов: он сам проверяет систему, ставит зависимости, настраивает UFW, выпускает SSL-сертификаты Let's Encrypt и при отсутствии готового релиза собирает бинарник через Docker.
+
+Запустите от `root` (или с `sudo`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh | sudo bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh)
 ```
+
+> При повторном запуске на уже настроенном сервере мастер предложит обновить бинарник с сохранением БД и ключей, перенастроить конфиг или отменить операцию.
 
 ---
 
-## 4 сценария развёртывания
+## Сценарии развёртывания в интерактивном меню
 
-### 1. Панель + Нода на одном сервере (`--mode both`)
+После запуска откроется меню выбора из 3 сценариев (+ обновление):
+
+### 1. Панель + локальная нода на одном сервере (`--mode both`)
 
 Подходит для запуска всей инфраструктуры на одном VPS:
-- устанавливает PostgreSQL, `mypanel3` и Caddy;
-- поднимает HAProxy SNI-мультиплексор на `:443` (HTTPS панели и Xray Reality делят порт `:443` без конфликтов);
-- устанавливает все 4 прокси-ядра (`xray`, `sing-box`, `caddy-naive`, `mita`), включает BBR и автоматически регистрирует локальную ноду в БД.
+- устанавливает PostgreSQL, `mypanel3` и Caddy + HAProxy SNI-мультиплексор на `:443` (HTTPS панели и Xray Reality работают на `:443` одновременно);
+- выпускает SSL-сертификаты Let's Encrypt, настраивает UFW (`SSH`, `80`, `443`, `8443`, `2053`);
+- устанавливает все 4 прокси-ядра (`xray`, `sing-box`, `caddy-naive`, `mita`), включает TCP BBR и автоматически регистрирует локальную ноду в БД с автогенерированным секретом на порту `2222`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh | sudo bash -s -- \
+bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) \
   --mode both \
   --domain panel.example.com \
   --email you@example.com
@@ -33,48 +39,38 @@ curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/instal
 
 ### 2. Только панель (`--mode panel`)
 
-Лёгкий управляющий сервер (control plane): PostgreSQL + `mypanel3` + Caddy HTTPS (опционально отдельный `--sub-domain`). Прокси-ядра, агент и HAProxy не устанавливаются.
+Лёгкий управляющий сервер (control plane): PostgreSQL + `mypanel3` + Caddy HTTPS + Let's Encrypt + UFW (`SSH`, `80`, `443`). Прокси-ядра, агент и HAProxy не устанавливаются.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh | sudo bash -s -- \
+bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) \
   --mode panel \
   --domain panel.example.com \
   --sub-domain sub.example.com \
   --email you@example.com
 ```
 
-### 3. Только нода (`--mode node`)
+### 3. Только нода — внешний сервер (`--mode node`)
 
 Выделенный прокси-сервер для работы под управлением основной панели:
-- режим по умолчанию `--tls-mode none` оставляет порт `:443` полностью свободным под VLESS Reality (и другие инбаунды);
-- работает как с доменом, так и с голым IP;
-- воркер-агент сам держит защищённое соединение `WSS /ws/worker` к мастер-панели.
+- запрашивает домен ноды (`node1.example.com`, для TLS/SNI), адрес/IP управляющей панели и секрет `NODE_SECRET` (из **Ноды → Добавить ноду**, порт управления **`2222`**);
+- ограничивает доступ к управляющему порту `2222` как на уровне агента (`ALLOWED_PANEL_IPS`), так и правилом UFW (`allow from <PANEL_IP> to any port 2222`), проверяет секрет постоянным по времени сравнением (`X-Node-Secret` / `Authorization: Bearer`);
+- оставляет порт `:443` свободным под VLESS Reality / Sing-box, а сертификаты Let's Encrypt для NaiveProxy / Hysteria2 / Trojan складывает в `/etc/mypanel3-node/tls/`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh | sudo bash -s -- \
+bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) \
   --mode node \
   --master-url 'https://panel.example.com' \
+  --panel-ip '<PANEL_IP>' \
   --node-domain 'node1.example.com' \
   --node-name 'EU-1' \
-  --node-secret '<SECRET>' \
+  --node-secret '<NODE_SECRET>' \
   -y
 ```
 
-### 4. Подключение новой ноды напрямую к существующей панели
+### 4. Подключение ноды из веб-интерфейса панели
 
-1. Откройте в панели **Ноды -> Добавить ноду**, введите хост/IP будущего VPS (заранее установленный агент не нужен — панель сохраняет ноду сразу) и скопируйте сгенерированную однострочную команду.
-2. Выполните команду на новом сервере:
-
-```bash
-curl -fsSL https://panel.example.com/install.sh | sudo bash -s -- \
-  --mode node \
-  --master-url 'https://panel.example.com' \
-  --node-domain 'node1.example.com' \
-  --node-name 'EU-1' \
-  --node-secret '<SECRET>'
-```
-
-Панель сама раздаёт скрипт `/install.sh` и бинарник с `GET /api/v1/nodes/self/binary` (авторизация по `X-Node-Secret`, проверка `X-Binary-Sha256`), поэтому на новой ноде не нужны Git, Rust или Node.js.
+1. Откройте в панели **Ноды → Добавить ноду**, укажите IP/домен нового VPS и порт управления `2222`.
+2. Скопируйте готовую однострочную команду (или только `NODE_SECRET` для интерактивного мастера) и выполните её на новом VPS. Панель раздаёт `/install.sh` и бинарник по `GET /api/v1/nodes/self/binary` с проверкой `X-Binary-Sha256`.
 
 ---
 
@@ -93,13 +89,13 @@ curl -fsSL https://panel.example.com/install.sh | sudo bash -s -- \
 **Обновление до актуального релиза (`--upgrade`):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh | sudo bash -s -- --upgrade
+bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) --upgrade
 ```
 
 **Удаление служб и бинарника (добавьте `--purge` для удаления конфигов и данных):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/uninstall.sh | sudo bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/uninstall.sh)
 ```
 
 ---
@@ -137,4 +133,4 @@ cd client && npm ci && npm run build && cd ..
 SQLX_OFFLINE=true cargo build --release --bin mypanel3
 ```
 
-Подробнее обо всех флагах установщика и режимах TLS — в [docs/install.md](docs/install.md).
+Подробнее обо всех флагах установщика, портах и режимах TLS — в [docs/install.md](docs/install.md).

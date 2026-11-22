@@ -316,7 +316,7 @@ async fn create(
     validate_node_host(&body.host, state.cfg.allow_private_nodes)?;
     let secret = check_secret(&body.secret)?;
     let port = body.port.unwrap_or(443);
-    let api_port = body.api_port.unwrap_or(2087);
+    let api_port = body.api_port.unwrap_or(2222);
     if !(1..=65535).contains(&port) || !(1..=65535).contains(&api_port) {
         return Err(AppError::validation("port", "Ports must be 1..=65535"));
     }
@@ -437,7 +437,7 @@ async fn update(
     .bind(body.name.unwrap_or_else(|| ex.try_get("name").unwrap_or_default()))
     .bind(host)
     .bind(body.port.unwrap_or_else(|| ex.try_get("port").unwrap_or(443)))
-    .bind(body.api_port.unwrap_or_else(|| ex.try_get("apiPort").unwrap_or(2087)))
+    .bind(body.api_port.unwrap_or_else(|| ex.try_get("apiPort").unwrap_or(2222)))
     .bind(secret)
     .bind(secret_hash)
     .bind(body.country.unwrap_or_else(|| ex.try_get("country").ok().flatten()))
@@ -774,7 +774,7 @@ fn build_install_payload(
     let mut flags = format!(
         "--mode node --master-url '{q_panel}' --node-domain '{q_host}' --node-name '{q_name}' --node-secret '{q_secret}'"
     );
-    if api_port != 2087 {
+    if api_port != 2222 {
         flags.push_str(&format!(" --api-port '{api_port}'"));
     }
 
@@ -784,7 +784,7 @@ fn build_install_payload(
          sudo bash /tmp/mypanel3-install.sh {flags}\n\
          rm -f /tmp/mypanel3-install.sh\n\n\
          # Optional TLS on worker API (:{api_port}) if node host is a domain with ports 80 & {api_port} open:\n\
-         #   append: --tls-mode port2087 --email admin@example.com\n\
+         #   append: --tls-mode port2222 --email admin@example.com\n\
          # By default (--tls-mode none), port 443 remains free for VLESS Reality and the agent connects via outbound WSS."
     );
 

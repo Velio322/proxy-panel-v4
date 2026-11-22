@@ -89,7 +89,7 @@ export function NodesPage() {
   const [name, setName] = useState('');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('443');
-  const [apiPort, setApiPort] = useState('2087');
+  const [apiPort, setApiPort] = useState('2222');
   const [secret, setSecret] = useState('');
   const [country, setCountry] = useState('');
   const [city, setCity] = useState('');
@@ -102,7 +102,7 @@ export function NodesPage() {
     setName('');
     setHost('');
     setPort('443');
-    setApiPort('2087');
+    setApiPort('2222');
     setSecret(generateNodeSecret(24));
     setCountry('');
     setCity('');
@@ -237,7 +237,7 @@ export function NodesPage() {
         name: name.trim(),
         host: host.trim(),
         port: Number(port) || 443,
-        apiPort: Number(apiPort) || 2087,
+        apiPort: Number(apiPort) || 2222,
         country: country.trim() || null,
         city: city.trim() || null,
         isp: isp.trim() || null,

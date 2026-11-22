@@ -154,7 +154,7 @@ async fn register(
             .and_then(Value::as_i64)
             .and_then(|v| i32::try_from(v).ok())
             .filter(|&p| (1..=65535).contains(&p))
-            .unwrap_or(2087)
+            .unwrap_or(2222)
     };
     let version = body
         .pointer("/system/release")

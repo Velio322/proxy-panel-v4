@@ -2,8 +2,8 @@ use anyhow::{bail, Result};
 use std::env;
 use std::path::{Path, PathBuf};
 
-/// Default HTTP port for the worker node agent API (`0.0.0.0:2087`).
-pub const DEFAULT_WORKER_PORT: u16 = 2087;
+/// Default HTTP port for the worker node agent API (`0.0.0.0:2222`).
+pub const DEFAULT_WORKER_PORT: u16 = 2222;
 /// Default listen address for the worker node agent HTTP API.
 pub const DEFAULT_WORKER_HOST: &str = "0.0.0.0";
 /// Default directory for rendered core configuration and runtime state files.
@@ -36,7 +36,7 @@ pub struct AgentConfig {
     pub node_host: String,
     /// Bind address for the worker HTTP server (`WORKER_HOST`, default `"0.0.0.0"`).
     pub worker_host: String,
-    /// Bind port for the worker HTTP server (`WORKER_PORT`, default `2087`).
+    /// Bind port for the worker HTTP server (`WORKER_PORT`, default `2222`).
     pub worker_port: u16,
     /// Directory where core configurations, access logs, and state files are persisted (`CONFIG_DIR`).
     pub config_dir: PathBuf,
@@ -60,6 +60,8 @@ pub struct AgentConfig {
     pub mtls_client_cert: Option<String>,
     /// Optional PEM-encoded client private key path or inline PEM for mTLS (`MTLS_CLIENT_KEY`).
     pub mtls_client_key: Option<String>,
+    /// Optional panel IP / CIDR allow-list (`ALLOWED_PANEL_IPS` or `PANEL_IP`). Empty allows any source IP.
+    pub allowed_panel_ips: Vec<ipnet::IpNet>,
 }
 
 impl Default for AgentConfig {
@@ -83,6 +85,7 @@ impl Default for AgentConfig {
             mtls_ca_cert: None,
             mtls_client_cert: None,
             mtls_client_key: None,
+            allowed_panel_ips: Vec::new(),
         }
     }
 }
@@ -132,7 +135,7 @@ impl AgentConfig {
         if let Some(wh) = get("WORKER_HOST") {
             cfg.worker_host = wh;
         }
-        if let Some(wp) = get("WORKER_PORT") {
+        if let Some(wp) = get("WORKER_PORT").or_else(|| get("NODE_API_PORT")) {
             let port: u16 = wp
                 .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid WORKER_PORT: {wp}"))?;
@@ -174,6 +177,25 @@ impl AgentConfig {
         cfg.mtls_ca_cert = get("MTLS_CA_CERT");
         cfg.mtls_client_cert = get("MTLS_CLIENT_CERT");
         cfg.mtls_client_key = get("MTLS_CLIENT_KEY");
+
+        if let Some(raw_ips) = get("ALLOWED_PANEL_IPS").or_else(|| get("PANEL_IP")) {
+            let mut nets = Vec::new();
+            for item in raw_ips.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                if item.eq_ignore_ascii_case("any") || item == "*" {
+                    nets.clear();
+                    break;
+                }
+                if let Ok(net) = item.parse::<ipnet::IpNet>() {
+                    nets.push(net);
+                } else if let Ok(ip) = item.parse::<std::net::IpAddr>() {
+                    let normalized = normalize_ip_addr(ip);
+                    nets.push(ipnet::IpNet::from(normalized));
+                } else {
+                    bail!("Invalid ALLOWED_PANEL_IPS / PANEL_IP entry: {item}");
+                }
+            }
+            cfg.allowed_panel_ips = nets;
+        }
 
         Ok(cfg)
     }
@@ -225,6 +247,29 @@ impl AgentConfig {
     }
 }
 
+fn normalize_ip_addr(ip: std::net::IpAddr) -> std::net::IpAddr {
+    match ip {
+        std::net::IpAddr::V6(v6) => v6
+            .to_ipv4_mapped()
+            .map(std::net::IpAddr::V4)
+            .unwrap_or(std::net::IpAddr::V6(v6)),
+        other => other,
+    }
+}
+
+/// Returns `true` when `peer` is allowed to access the node worker HTTP API.
+/// Empty allow-lists and loopback addresses (`127.0.0.1`, `::1`) are always permitted.
+pub fn is_panel_ip_allowed(allowed: &[ipnet::IpNet], peer: std::net::IpAddr) -> bool {
+    if allowed.is_empty() {
+        return true;
+    }
+    let normalized = normalize_ip_addr(peer);
+    if normalized.is_loopback() {
+        return true;
+    }
+    allowed.iter().any(|net| net.contains(&normalized))
+}
+
 fn default_hostname() -> String {
     env::var("HOSTNAME")
         .or_else(|_| env::var("COMPUTERNAME"))
@@ -232,4 +277,90 @@ fn default_hostname() -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "proxypanel-node".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn default_worker_port_is_2222() {
+        assert_eq!(DEFAULT_WORKER_PORT, 2222);
+        let cfg = AgentConfig::default();
+        assert_eq!(cfg.worker_port, 2222);
+        assert!(cfg.allowed_panel_ips.is_empty());
+    }
+
+    #[test]
+    fn from_pairs_supports_aliases_for_secret_and_port() {
+        let cfg = AgentConfig::from_pairs(&[
+            ("NODE_SECRET", "super-secret-token-123456"),
+            ("NODE_API_PORT", "2222"),
+        ])
+        .expect("valid alias pairs");
+        assert_eq!(cfg.node_secret, "super-secret-token-123456");
+        assert_eq!(cfg.worker_port, 2222);
+
+        let cfg2 = AgentConfig::from_pairs(&[
+            ("NODE_RPC_SECRET", "primary-rpc-secret-123456"),
+            ("WORKER_PORT", "2223"),
+        ])
+        .expect("valid primary pairs");
+        assert_eq!(cfg2.node_secret, "primary-rpc-secret-123456");
+        assert_eq!(cfg2.worker_port, 2223);
+    }
+
+    #[test]
+    fn from_pairs_parses_panel_ip_and_allowed_panel_ips() {
+        let single = AgentConfig::from_pairs(&[("PANEL_IP", "203.0.113.10")])
+            .expect("single PANEL_IP");
+        assert_eq!(single.allowed_panel_ips.len(), 1);
+        assert!(is_panel_ip_allowed(
+            &single.allowed_panel_ips,
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10))
+        ));
+        assert!(is_panel_ip_allowed(
+            &single.allowed_panel_ips,
+            IpAddr::V6(Ipv4Addr::new(203, 0, 113, 10).to_ipv6_mapped())
+        ));
+        assert!(is_panel_ip_allowed(
+            &single.allowed_panel_ips,
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        ));
+        assert!(is_panel_ip_allowed(
+            &single.allowed_panel_ips,
+            IpAddr::V6(Ipv6Addr::LOCALHOST)
+        ));
+        assert!(!is_panel_ip_allowed(
+            &single.allowed_panel_ips,
+            IpAddr::V4(Ipv4Addr::new(198, 51, 100, 77))
+        ));
+
+        let multi = AgentConfig::from_pairs(&[(
+            "ALLOWED_PANEL_IPS",
+            "203.0.113.10, 10.10.0.0/24, 2001:db8::1",
+        )])
+        .expect("comma-separated IP + CIDR");
+        assert_eq!(multi.allowed_panel_ips.len(), 3);
+        assert!(is_panel_ip_allowed(
+            &multi.allowed_panel_ips,
+            IpAddr::V4(Ipv4Addr::new(10, 10, 0, 42))
+        ));
+        assert!(is_panel_ip_allowed(
+            &multi.allowed_panel_ips,
+            "2001:db8::1".parse().unwrap()
+        ));
+        assert!(!is_panel_ip_allowed(
+            &multi.allowed_panel_ips,
+            IpAddr::V4(Ipv4Addr::new(10, 10, 1, 42))
+        ));
+    }
+
+    #[test]
+    fn from_pairs_rejects_invalid_panel_ip() {
+        let err = AgentConfig::from_pairs(&[("PANEL_IP", "not-an-ip")])
+            .expect_err("malformed PANEL_IP must fail");
+        assert!(err.to_string().contains("ALLOWED_PANEL_IPS"));
+    }
 }

@@ -4,7 +4,7 @@ use crate::process::ProcessManager;
 use crate::updater::{
     download_and_install_core, rollback_binary, CoreKind, UpdateCoreResult,
 };
-use axum::extract::{DefaultBodyLimit, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -16,6 +16,7 @@ use mypanel_proto::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 use subtle::ConstantTimeEq;
@@ -30,6 +31,7 @@ pub struct ApiState {
     pub pm: Arc<Mutex<ProcessManager>>,
     pub http_client: reqwest::Client,
     pub node_secret: String,
+    pub allowed_panel_ips: Arc<Vec<ipnet::IpNet>>,
     pub started_at: Instant,
 }
 
@@ -39,8 +41,15 @@ impl ApiState {
             pm,
             http_client,
             node_secret,
+            allowed_panel_ips: Arc::new(Vec::new()),
             started_at: Instant::now(),
         }
+    }
+
+    /// Restricts incoming HTTP API calls to the configured panel IPs/CIDRs (plus loopback).
+    pub fn with_allowed_panel_ips(mut self, ips: Vec<ipnet::IpNet>) -> Self {
+        self.allowed_panel_ips = Arc::new(ips);
+        self
     }
 }
 
@@ -77,6 +86,18 @@ async fn require_node_auth(
     request: axum::extract::Request,
     next: Next,
 ) -> Response {
+    if !state.allowed_panel_ips.is_empty() {
+        if let Some(ci) = request.extensions().get::<ConnectInfo<SocketAddr>>() {
+            if !crate::config::is_panel_ip_allowed(&state.allowed_panel_ips, ci.0.ip()) {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "Forbidden: panel IP not allowed" })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
     let authorized = extract_provided_secret(&headers)
         .is_some_and(|provided| constant_time_secret_match(&state.node_secret, provided));
 
@@ -346,4 +367,128 @@ pub async fn execute_core_update(
     }
 
     Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AgentConfig;
+    use axum::body::Body;
+    use axum::http::Request;
+    use std::net::{IpAddr, Ipv4Addr};
+    use tower::ServiceExt;
+
+    fn test_router(allowed_panel_ips: Vec<ipnet::IpNet>) -> (Router, String) {
+        let dir = std::env::temp_dir().join(format!("mypanel3-agent-test-{}", uuid::Uuid::new_v4()));
+        let cfg = AgentConfig::for_tests(dir);
+        let secret = cfg.node_secret.clone();
+        let pm = Arc::new(Mutex::new(ProcessManager::new(
+            cfg,
+            reqwest::Client::new(),
+        )));
+        let state = ApiState::new(pm, reqwest::Client::new(), secret.clone())
+            .with_allowed_panel_ips(allowed_panel_ips);
+        (build_router(state), secret)
+    }
+
+    #[tokio::test]
+    async fn health_is_public_and_api_requires_node_secret() {
+        let (app, secret) = test_router(Vec::new());
+
+        let resp = app
+            .clone()
+            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .header("Authorization", "Bearer wrong-secret-0123456789")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .header("Authorization", format!("Bearer {secret}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .header("X-Node-Secret", secret)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn api_enforces_allowed_panel_ips_when_configured() {
+        let allowed = vec![ipnet::IpNet::from(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10)))];
+        let (app, secret) = test_router(allowed);
+
+        let mut req_denied = Request::builder()
+            .uri("/api/status")
+            .header("X-Node-Secret", &secret)
+            .body(Body::empty())
+            .unwrap();
+        req_denied
+            .extensions_mut()
+            .insert(ConnectInfo(SocketAddr::from(([198, 51, 100, 99], 54321))));
+        let resp_denied = app.clone().oneshot(req_denied).await.unwrap();
+        assert_eq!(resp_denied.status(), StatusCode::FORBIDDEN);
+
+        let mut req_allowed = Request::builder()
+            .uri("/api/status")
+            .header("X-Node-Secret", &secret)
+            .body(Body::empty())
+            .unwrap();
+        req_allowed
+            .extensions_mut()
+            .insert(ConnectInfo(SocketAddr::from(([203, 0, 113, 10], 54321))));
+        let resp_allowed = app.clone().oneshot(req_allowed).await.unwrap();
+        assert_eq!(resp_allowed.status(), StatusCode::OK);
+
+        let mut req_loopback = Request::builder()
+            .uri("/api/status")
+            .header("Authorization", format!("Bearer {secret}"))
+            .body(Body::empty())
+            .unwrap();
+        req_loopback
+            .extensions_mut()
+            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 54321))));
+        let resp_loopback = app.oneshot(req_loopback).await.unwrap();
+        assert_eq!(resp_loopback.status(), StatusCode::OK);
+    }
 }

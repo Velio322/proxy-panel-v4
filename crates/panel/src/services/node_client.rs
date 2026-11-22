@@ -61,7 +61,7 @@ pub fn base_url(
         let h = parsed
             .host_str()
             .ok_or_else(|| AppError::bad_request("Node URL has no host"))?;
-        let port = parsed.port().unwrap_or(u16::try_from(node.api_port).unwrap_or(2087));
+        let port = parsed.port().unwrap_or(u16::try_from(node.api_port).unwrap_or(2222));
         let formatted_host = if h.contains(':') && !h.starts_with('[') {
             format!("[{h}]")
         } else {
@@ -100,6 +100,7 @@ async fn node_get(state: &AppState, node: &NodeTarget, path: &str) -> AppResult<
         .http_client
         .get(&url)
         .bearer_auth(&node.secret)
+        .header("X-Node-Secret", &node.secret)
         .timeout(Duration::from_secs(10))
         .send()
         .await
@@ -144,6 +145,7 @@ async fn node_post_with_timeout<T: serde::Serialize>(
         .http_client
         .post(&url)
         .bearer_auth(&node.secret)
+        .header("X-Node-Secret", &node.secret)
         .json(body)
         .timeout(timeout)
         .send()

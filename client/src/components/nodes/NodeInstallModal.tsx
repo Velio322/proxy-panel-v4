@@ -58,7 +58,7 @@ interface NodeInstallModalProps {
   defaultTab?: 'connect' | 'scenarios';
 }
 
-type TlsModeOption = 'none' | 'port2087' | 'auto';
+type TlsModeOption = 'none' | 'port2222' | 'auto';
 type CoresOption = 'all' | 'xray,singbox' | 'xray' | 'none';
 
 function shellSingleQuote(value: string): string {
@@ -196,7 +196,7 @@ export function NodeInstallModal({
 
   const nodeHost = cmdInfo?.host ?? initialData?.host ?? liveNode?.host ?? '';
   const nodeName = cmdInfo?.name ?? initialData?.name ?? liveNode?.name ?? '';
-  const nodeApiPort = cmdInfo?.apiPort ?? initialData?.apiPort ?? liveNode?.apiPort ?? 2087;
+  const nodeApiPort = cmdInfo?.apiPort ?? initialData?.apiPort ?? liveNode?.apiPort ?? 2222;
   const nodeSecret = cmdInfo?.secret ?? initialData?.secret ?? '';
   const isDomain =
     cmdInfo?.isDomain ??
@@ -214,7 +214,7 @@ export function NodeInstallModal({
       `--node-name '${shellSingleQuote(nodeName)}'`,
       `--node-secret '${shellSingleQuote(nodeSecret)}'`,
     ];
-    if (nodeApiPort !== 2087) {
+    if (nodeApiPort !== 2222) {
       parts.push(`--api-port '${nodeApiPort}'`);
     }
     if (tlsMode !== 'none') {
@@ -283,9 +283,9 @@ export function NodeInstallModal({
         badge: isRu ? 'Сценарий 3' : 'Scenario 3',
         title: isRu ? 'Только Нода (отдельный VPS)' : 'Node Only (Dedicated Proxy VPS)',
         subtitle: isRu
-          ? 'По умолчанию --tls-mode none: порт 443 полностью свободен под VLESS Reality! Агент сам держит защищённый WSS к панели и качает бинарник с неё же.'
-          : 'Default --tls-mode none keeps :443 100% free for VLESS Reality. Worker agent pairs over outbound WSS and pulls the binary directly from the panel.',
-        ports: isRu ? '443 (VLESS), 8443 (Naive), 2053 (Mieru)' : '443 (VLESS), 8443 (Naive), 2053 (Mieru)',
+          ? 'По умолчанию --tls-mode none: порт 443 полностью свободен под VLESS Reality! Агент слушает порт управления 2222 и держит WSS к панели.'
+          : 'Default --tls-mode none keeps :443 100% free for VLESS Reality. Worker agent listens on port 2222 and pairs over outbound WSS.',
+        ports: isRu ? '2222 (API), 443 (VLESS), 8443 (Naive), 2053 (Mieru)' : '2222 (API), 443 (VLESS), 8443 (Naive), 2053 (Mieru)',
         command: `curl -fsSL '${shellSingleQuote(panelUrl)}/install.sh' | sudo bash -s -- --mode node --master-url '${shellSingleQuote(panelUrl)}' --node-domain 203.0.113.10 --node-name EU-1 --node-secret '<SECRET_FROM_PANEL>'`,
       },
       {
@@ -293,9 +293,9 @@ export function NodeInstallModal({
         badge: isRu ? 'Сценарий 4' : 'Scenario 4',
         title: isRu ? 'Подключение новой ноды к работающей панели' : 'Attach New Node to Running Panel',
         subtitle: isRu
-          ? '1) Создайте ноду в UI панели (ошибки недоступности больше нет). 2) Скопируйте однострочник. 3) Выполните на чистом VPS — бинарник, ядра и конфиги встанут автоматически.'
-          : '1) Add the node in Panel UI (unreachable nodes are allowed). 2) Copy the generated 1-liner. 3) Run on a fresh VPS — binary, cores and inbounds auto-sync.',
-        ports: 'Outbound WSS -> Panel :443',
+          ? '1) Создайте ноду в UI панели (порт 2222). 2) Скопируйте команду или NODE_SECRET. 3) Выполните на чистом VPS — бинарник, ядра и конфиги встанут автоматически.'
+          : '1) Add the node in Panel UI (port 2222). 2) Copy the generated 1-liner or NODE_SECRET. 3) Run on a fresh VPS — binary, cores and inbounds auto-sync.',
+        ports: '2222 (API) + Outbound WSS -> Panel :443',
         command: customCommand || `curl -fsSL '${shellSingleQuote(panelUrl)}/install.sh' | sudo bash -s -- --mode node --master-url '${shellSingleQuote(panelUrl)}' --node-domain <NODE_IP_OR_DOMAIN> --node-name <NAME> --node-secret '<SECRET>'`,
       },
     ],
@@ -431,11 +431,11 @@ export function NodeInstallModal({
                   <span className="text-[11px] text-muted-foreground">
                     {isDomain
                       ? isRu
-                        ? 'Домен: доступен порт 2087 TLS при необходимости'
-                        : 'Domain host: port 2087 TLS optional'
+                        ? 'Домен: доступен порт 2222 TLS при необходимости'
+                        : 'Domain host: port 2222 TLS optional'
                       : isRu
-                        ? 'IP-хост: используется WSS без входящего TLS'
-                        : 'IP host: uses outbound WSS (port 443 free)'}
+                        ? 'IP-хост: используется WSS и HTTP API :' + nodeApiPort
+                        : 'IP host: uses outbound WSS & HTTP API :' + nodeApiPort}
                   </span>
                 </div>
 
@@ -449,13 +449,13 @@ export function NodeInstallModal({
                     >
                       <option value="none">
                         {isRu
-                          ? 'none — WSS туннель (:443 свободен под Reality)'
-                          : 'none — WSS tunnel (:443 free for Reality)'}
+                          ? `none — WSS + API :${nodeApiPort} (:443 свободен)`
+                          : `none — WSS + API :${nodeApiPort} (:443 free)`}
                       </option>
-                      <option value="port2087" disabled={!isDomain}>
+                      <option value="port2222" disabled={!isDomain}>
                         {isRu
-                          ? 'port2087 — Caddy TLS :2087 (нужен домен + :80)'
-                          : 'port2087 — Caddy TLS :2087 (domain + :80)'}
+                          ? `port2222 — Caddy TLS :${nodeApiPort} (нужен домен + :80)`
+                          : `port2222 — Caddy TLS :${nodeApiPort} (domain + :80)`}
                       </option>
                       <option value="auto" disabled={!isDomain}>
                         {isRu
@@ -550,15 +550,38 @@ export function NodeInstallModal({
                 <div className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
                   <div className="flex items-center gap-1 font-medium text-foreground">
                     <Shield className="h-3 w-3 text-primary" />
-                    <span>{isRu ? 'Секрет ноды' : 'Node Secret'}</span>
+                    <span>{isRu ? `Порт API / Секрет` : `API Port / Secret`}</span>
                   </div>
-                  <div className="mt-0.5 truncate font-mono">{nodeSecret ? `${nodeSecret.slice(0, 8)}…` : '—'}</div>
+                  <div className="mt-0.5 truncate font-mono">
+                    :{nodeApiPort} • {nodeSecret ? `${nodeSecret.slice(0, 8)}…` : '—'}
+                  </div>
                 </div>
               </div>
+
+              {nodeSecret && (
+                <CopySnippetBox
+                  label={
+                    isRu
+                      ? `Секрет ноды (NODE_SECRET) для интерактивного мастера (порт управления: ${nodeApiPort})`
+                      : `Node Secret (NODE_SECRET) for interactive installer (management port: ${nodeApiPort})`
+                  }
+                  value={nodeSecret}
+                  isRu={isRu}
+                />
+              )}
             </TabsContent>
           )}
 
           <TabsContent value="scenarios" className="space-y-3">
+            <CopySnippetBox
+              label={
+                isRu
+                  ? 'Интерактивный установщик с GitHub (одной строкой на чистом VPS)'
+                  : 'Interactive GitHub One-Liner (fresh VPS)'
+              }
+              value="bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh)"
+              isRu={isRu}
+            />
             {scenarioTemplates.map((sc) => (
               <div
                 key={sc.id}

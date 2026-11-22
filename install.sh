@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# mypanel3 (ProxyPanel v4) idempotent installer for Debian 11+ / Ubuntu 20.04+ (amd64 / arm64)
-# Supports 4 scenarios:
-#   1) Panel + Node all-in-one (--mode both) with HAProxy SNI-mux on :443
-#   2) Panel only (--mode panel)
-#   3) Node only (--mode node) — leaves :443 free for VLESS Reality by default
-#   4) Connecting a new node to an existing panel (auto-downloads mypanel3 binary & pairs via WSS)
+# mypanel3 (ProxyPanel v4) — единый интерактивный и идемпотентный установщик
+# Поддерживаемые ОС: Debian 12 (и 11+), Ubuntu 22.04–24.04 (и 20.04+) [amd64 / arm64]
+# Режимы развертывания:
+#   1) Панель + локальная нода на одном сервере (--mode both)
+#   2) Только панель (--mode panel)
+#   3) Только нода — внешний сервер (--mode node, порт управления 2222, :443 свободен)
+#   4) Обновление существующей установки (--upgrade)
 
 BIN_DEST="/usr/local/bin/mypanel3"
 ETC_DIR="/etc/mypanel3"
@@ -30,16 +31,22 @@ SNI_MUX="auto"
 TLS_MODE="auto"
 TLS_MODE_EXPLICIT="false"
 TLS_CERTS_DOMAIN=""
+TLS_CERTS_DOMAIN_EXPLICIT="false"
 ADMIN_USER="admin"
+ADMIN_USER_EXPLICIT="false"
 ADMIN_PASS=""
 GEN_ADMIN_PASS="false"
 MASTER_URL=""
+PANEL_IP=""
 NODE_DOMAIN=""
 NODE_NAME=""
 NODE_SECRET=""
-API_PORT="2087"
+API_PORT="2222"
+API_PORT_EXPLICIT="false"
 CORES_SPEC="all"
 ENABLE_BBR="auto"
+CONFIGURE_UFW="true"
+RECONFIGURE="false"
 NON_INTERACTIVE="false"
 UPGRADE_ONLY="false"
 BINARY_PATH=""
@@ -48,76 +55,175 @@ ANSWERS_FILE=""
 GITHUB_REPO="${GITHUB_REPO:-Velio322/proxy-panel-v4}"
 
 ARCH=""
+OS_NAME=""
 PUBLIC_IP=""
-AGENT_WORKER_PORT="2087"
+AGENT_WORKER_PORT="2222"
 AGENT_WORKER_HOST="0.0.0.0"
 
+PANEL_STATUS="not-installed"
+AGENT_STATUS="not-installed"
+LOCAL_NODE_STATUS="not-configured"
+UFW_STATUS="skipped"
+
+TMP_DIRS=()
+make_tmp_dir() {
+    local d=""
+    d="$(mktemp -d)"
+    TMP_DIRS+=("$d")
+    printf '%s' "$d"
+}
+
+cleanup_tmp() {
+    if [[ ${#TMP_DIRS[@]} -gt 0 ]]; then
+        local d=""
+        for d in "${TMP_DIRS[@]}"; do
+            [[ -n "$d" && -d "$d" ]] && rm -rf "$d" || true
+        done
+    fi
+}
+trap cleanup_tmp EXIT
+
+C_RESET=""
+C_BOLD=""
+C_DIM=""
+C_RED=""
+C_GREEN=""
+C_YELLOW=""
+C_BLUE=""
+C_CYAN=""
+
+init_colors() {
+    if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]; then
+        C_RESET=$'\033[0m'
+        C_BOLD=$'\033[1m'
+        C_DIM=$'\033[2m'
+        C_RED=$'\033[31m'
+        C_GREEN=$'\033[32m'
+        C_YELLOW=$'\033[33m'
+        C_BLUE=$'\033[34m'
+        C_CYAN=$'\033[36m'
+    fi
+}
+
 log() {
-    printf '[mypanel3] %s\n' "$*"
+    printf '%s[mypanel3]%s %s\n' "$C_CYAN" "$C_RESET" "$*"
+}
+
+ok() {
+    printf '%s[OK]%s %s\n' "$C_GREEN" "$C_RESET" "$*"
+}
+
+step() {
+    printf '\n%s%s==> %s%s\n' "$C_BOLD" "$C_BLUE" "$*" "$C_RESET"
 }
 
 warn() {
-    printf '[mypanel3] WARNING: %s\n' "$*" >&2
+    printf '%s[WARN]%s %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2
 }
 
 die() {
-    printf '[mypanel3] ERROR: %s\n' "$*" >&2
+    printf '%s[ERROR]%s %s\n' "$C_RED" "$C_RESET" "$*" >&2
     exit 1
+}
+
+print_banner() {
+    printf '%s%s' "$C_BOLD" "$C_CYAN"
+    cat <<'EOF'
+╔══════════════════════════════════════════════════════════════════════╗
+║   ProxyPanel v4 (mypanel3) — Установщик панели и нод                ║
+EOF
+    printf '╚══════════════════════════════════════════════════════════════════════╝%s\n' "$C_RESET"
+    if [[ -n "$OS_NAME" || -n "$ARCH" || -n "$PUBLIC_IP" ]]; then
+        printf '%s  Система: %s | Архитектура: %s | IP: %s%s\n\n' \
+            "$C_DIM" "${OS_NAME:-unknown}" "${ARCH:-unknown}" "${PUBLIC_IP:-unknown}" "$C_RESET"
+    fi
 }
 
 usage() {
     cat <<'EOF'
-Usage: sudo ./install.sh [OPTIONS]
+Использование: sudo bash install.sh [ПАРАМЕТРЫ]
 
-Topologies:
-  --mode <both|panel|node>      Installation topology:
-                                  both  - Panel + Node on one server (HAProxy SNI mux on :443)
-                                  panel - Control panel + PostgreSQL + Caddy only
-                                  node  - Node worker agent + proxy cores only (:443 kept free)
-  --upgrade                     Upgrade binary, run migrations, and restart services
-  --binary <PATH>               Path to prebuilt mypanel3 binary
-  --binary-url <URL>            HTTP(S) URL to download mypanel3 binary
+Режимы развертывания:
+  --mode <both|panel|node>      Сценарий установки:
+                                  both  — Панель + локальная нода на одном сервере
+                                  panel — Только управляющая панель + PostgreSQL + Caddy
+                                  node  — Только нода (агент + прокси-ядра, :443 свободен)
+  --upgrade                     Обновить бинарник, выполнить миграции и перезапустить службы
+  --reconfigure                 Принудительно перезаписать конфиги при повторном запуске
+  --binary <PATH>               Путь к локальному бинарнику mypanel3
+  --binary-url <URL>            Прямой URL для скачивания бинарника mypanel3
 
-Panel options:
-  --domain <DOMAIN>             Panel public domain (e.g. panel.example.com)
-  --sub-domain <DOMAIN>         Optional separate subscription domain (e.g. sub.example.com)
-  --email, --admin-email <ADDR> ACME / admin email address
-  --proxy <caddy|none>          Reverse proxy for panel (default: caddy)
-  --sni-mux / --no-sni-mux      In --mode both, share :443 between Panel HTTPS & Xray Reality via HAProxy
-                                (default: enabled when --domain is set and --proxy=caddy)
-  --admin-user <USER>           Initial admin username (default: admin)
-  --admin-pass <PASS>           Initial admin password (min 12 chars)
-  --gen-admin-pass              Generate a random admin password
+Параметры панели:
+  --domain <DOMAIN>             Домен панели (например, panel.example.com)
+  --sub-domain <DOMAIN>         Отдельный домен для подписок (опционально)
+  --email, --admin-email <ADDR> Email для Let's Encrypt и администратора
+  --proxy <caddy|none>          Reverse proxy для панели (по умолчанию: caddy)
+  --sni-mux / --no-sni-mux      В режиме both: делить :443 между панелью и Reality через HAProxy
+  --admin-user <USER>           Логин администратора (по умолчанию: admin)
+  --admin-pass <PASS>           Пароль администратора (минимум 12 символов)
+  --gen-admin-pass              Сгенерировать случайный пароль администратора
 
-Node options:
-  --master-url <URL>            Master panel URL (for --mode node, e.g. https://panel.example.com)
-  --node-domain <DOMAIN|IP>     Node public domain or IPv4/IPv6 (auto-detected if omitted)
-  --node-name <NAME>            Human-readable node name (default: hostname)
-  --node-secret <SECRET>        Node RPC secret from Panel (Nodes -> Add node)
-  --api-port <PORT>             Worker API port (default: 2087)
-  --tls-mode <none|port2087|auto|internal>
-                                Node Worker-API transport (default for node: none on :2087, :443 free;
-                                'port2087' uses Caddy HTTPS on :2087 -> loopback; 'auto'/'internal' uses :443)
-  --tls-certs-domain <DOMAIN>   Issue Let's Encrypt certbot files into /etc/mypanel3-node/tls
-  --cores <all|list|none>       Comma-separated cores: xray,singbox,naive,mieru (default: all)
-  --skip-cores                  Alias for --cores none
-  --bbr / --no-bbr              Configure fq + BBR sysctl tuning (default: enabled for node/both)
+Параметры ноды:
+  --master-url, --panel-url <URL|DOMAIN>
+                                Адрес управляющей панели (например, https://panel.example.com)
+  --panel-ip <IP[,CIDR...]>     IP/CIDR управляющей панели (для UFW и привязки порта агента)
+  --node-domain <DOMAIN|IP>     Домен или публичный IPv4/IPv6 ноды
+  --node-name <NAME>            Отображаемое имя ноды (по умолчанию: hostname)
+  --node-secret <SECRET>        Секрет ноды NODE_SECRET (16–256 символов из веб-интерфейса панели)
+  --api-port <PORT>             Порт управления нодой (по умолчанию: 2222)
+  --tls-mode <none|port2222|auto|internal>
+                                Транспорт API ноды (по умолчанию для node: none на :2222, :443 свободен;
+                                port2222/port2087 — Caddy HTTPS на порту API -> loopback)
+  --tls-certs-domain <DOMAIN>   Выпустить Let's Encrypt сертификаты в /etc/mypanel3-node/tls
+  --cores <all|list|none>       Прокси-ядра: xray,singbox,naive,mieru (по умолчанию: all)
+  --skip-cores                  Синоним --cores none
+  --bbr / --no-bbr              Настройка fq + TCP BBR (по умолчанию включено для node/both)
+  --no-ufw                      Не изменять правила UFW
 
-Automation:
-  --answers <FILE|->            Read wizard answers line-by-line from file or stdin
-  -y, --yes, --non-interactive  Non-interactive mode (use flags/defaults, auto-gen passwords)
-  -h, --help                    Show this help message
+Автоматизация:
+  --answers <FILE|->            Читать ответы мастера построчно из файла или stdin
+  -y, --yes, --non-interactive  Неинтерактивный режим (значения по умолчанию, авто-пароли)
+  -h, --help                    Показать эту справку
 EOF
 }
 
+trim_ws() {
+    local v="$1"
+    v="${v#"${v%%[![:space:]]*}"}"
+    v="${v%"${v##*[![:space:]]}"}"
+    printf '%s' "$v"
+}
+
 normalize_master_url() {
-    local u="$1"
+    local u=""
+    u="$(trim_ws "$1")"
     u="${u%/}"
     u="${u%/ws/worker}"
+    if [[ -z "$u" ]]; then
+        return 0
+    fi
     if [[ "$u" == wss://* ]]; then
         u="https://${u#wss://}"
     elif [[ "$u" == ws://* ]]; then
         u="http://${u#ws://}"
+    elif [[ "$u" != https://* ]] && [[ "$u" != http://* ]]; then
+        u="https://${u}"
+    fi
+    printf '%s' "$u"
+}
+
+extract_host_from_url() {
+    local u="$1"
+    u="${u#https://}"
+    u="${u#http://}"
+    u="${u#wss://}"
+    u="${u#ws://}"
+    u="${u%%/*}"
+    if [[ "$u" == \[*\]* ]]; then
+        u="${u#\[}"
+        u="${u%%\]*}"
+    else
+        u="${u%%:*}"
     fi
     printf '%s' "$u"
 }
@@ -126,27 +232,27 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --mode)
-                [[ $# -ge 2 ]] || die "--mode requires a value"
+                [[ $# -ge 2 ]] || die "--mode требует значение"
                 MODE="$2"
                 shift 2
                 ;;
             --domain)
-                [[ $# -ge 2 ]] || die "--domain requires a value"
+                [[ $# -ge 2 ]] || die "--domain требует значение"
                 DOMAIN="$2"
                 shift 2
                 ;;
             --sub-domain)
-                [[ $# -ge 2 ]] || die "--sub-domain requires a value"
+                [[ $# -ge 2 ]] || die "--sub-domain требует значение"
                 SUB_DOMAIN="$2"
                 shift 2
                 ;;
             --email|--admin-email)
-                [[ $# -ge 2 ]] || die "$1 requires a value"
+                [[ $# -ge 2 ]] || die "$1 требует значение"
                 EMAIL="$2"
                 shift 2
                 ;;
             --proxy)
-                [[ $# -ge 2 ]] || die "--proxy requires a value"
+                [[ $# -ge 2 ]] || die "--proxy требует значение"
                 PROXY_MODE="$2"
                 shift 2
                 ;;
@@ -159,23 +265,25 @@ parse_args() {
                 shift
                 ;;
             --tls-mode)
-                [[ $# -ge 2 ]] || die "--tls-mode requires a value"
+                [[ $# -ge 2 ]] || die "--tls-mode требует значение"
                 TLS_MODE="$2"
                 TLS_MODE_EXPLICIT="true"
                 shift 2
                 ;;
             --tls-certs-domain)
-                [[ $# -ge 2 ]] || die "--tls-certs-domain requires a value"
+                [[ $# -ge 2 ]] || die "--tls-certs-domain требует значение"
                 TLS_CERTS_DOMAIN="$2"
+                TLS_CERTS_DOMAIN_EXPLICIT="true"
                 shift 2
                 ;;
             --admin-user)
-                [[ $# -ge 2 ]] || die "--admin-user requires a value"
+                [[ $# -ge 2 ]] || die "--admin-user требует значение"
                 ADMIN_USER="$2"
+                ADMIN_USER_EXPLICIT="true"
                 shift 2
                 ;;
             --admin-pass)
-                [[ $# -ge 2 ]] || die "--admin-pass requires a value"
+                [[ $# -ge 2 ]] || die "--admin-pass требует значение"
                 ADMIN_PASS="$2"
                 shift 2
                 ;;
@@ -184,36 +292,42 @@ parse_args() {
                 shift
                 ;;
             --master-url|--panel-url)
-                [[ $# -ge 2 ]] || die "$1 requires a value"
+                [[ $# -ge 2 ]] || die "$1 требует значение"
                 MASTER_URL="$(normalize_master_url "$2")"
                 shift 2
                 ;;
+            --panel-ip)
+                [[ $# -ge 2 ]] || die "--panel-ip требует значение"
+                PANEL_IP="$2"
+                shift 2
+                ;;
             --node-domain|--node-host)
-                [[ $# -ge 2 ]] || die "$1 requires a value"
+                [[ $# -ge 2 ]] || die "$1 требует значение"
                 NODE_DOMAIN="$2"
                 shift 2
                 ;;
             --node-name)
-                [[ $# -ge 2 ]] || die "--node-name requires a value"
+                [[ $# -ge 2 ]] || die "--node-name требует значение"
                 NODE_NAME="$2"
                 shift 2
                 ;;
             --node-secret)
-                [[ $# -ge 2 ]] || die "--node-secret requires a value"
+                [[ $# -ge 2 ]] || die "--node-secret требует значение"
                 NODE_SECRET="$2"
                 shift 2
                 ;;
             --node-id)
-                [[ $# -ge 2 ]] || die "--node-id requires a value"
+                [[ $# -ge 2 ]] || die "--node-id требует значение"
                 shift 2
                 ;;
             --api-port)
-                [[ $# -ge 2 ]] || die "--api-port requires a value"
+                [[ $# -ge 2 ]] || die "--api-port требует значение"
                 API_PORT="$2"
+                API_PORT_EXPLICIT="true"
                 shift 2
                 ;;
             --cores)
-                [[ $# -ge 2 ]] || die "--cores requires a value"
+                [[ $# -ge 2 ]] || die "--cores требует значение"
                 CORES_SPEC="$2"
                 shift 2
                 ;;
@@ -229,8 +343,16 @@ parse_args() {
                 ENABLE_BBR="false"
                 shift
                 ;;
+            --no-ufw)
+                CONFIGURE_UFW="false"
+                shift
+                ;;
+            --reconfigure)
+                RECONFIGURE="true"
+                shift
+                ;;
             --answers)
-                [[ $# -ge 2 ]] || die "--answers requires a value"
+                [[ $# -ge 2 ]] || die "--answers требует значение"
                 ANSWERS_FILE="$2"
                 shift 2
                 ;;
@@ -239,12 +361,12 @@ parse_args() {
                 shift
                 ;;
             --binary)
-                [[ $# -ge 2 ]] || die "--binary requires a value"
+                [[ $# -ge 2 ]] || die "--binary требует значение"
                 BINARY_PATH="$2"
                 shift 2
                 ;;
             --binary-url)
-                [[ $# -ge 2 ]] || die "--binary-url requires a value"
+                [[ $# -ge 2 ]] || die "--binary-url требует значение"
                 BINARY_URL="$2"
                 shift 2
                 ;;
@@ -256,8 +378,11 @@ parse_args() {
                 usage
                 exit 0
                 ;;
+            --)
+                shift
+                ;;
             *)
-                die "Unknown option: $1 (use --help for usage)"
+                die "Неизвестный параметр: $1 (используйте --help)"
                 ;;
         esac
     done
@@ -269,7 +394,7 @@ init_answers_fd() {
         if [[ "$ANSWERS_FILE" == "-" ]]; then
             exec 3<&0
         else
-            [[ -f "$ANSWERS_FILE" ]] || die "Answers file not found: $ANSWERS_FILE"
+            [[ -f "$ANSWERS_FILE" ]] || die "Файл ответов не найден: $ANSWERS_FILE"
             exec 3<"$ANSWERS_FILE"
         fi
         ANSWERS_FD="3"
@@ -283,6 +408,7 @@ prompt_line() {
 
     if [[ -n "$ANSWERS_FD" ]]; then
         IFS= read -r -u "$ANSWERS_FD" result || result="$default_val"
+        result="$(trim_ws "$result")"
         printf '%s' "${result:-$default_val}"
         return
     fi
@@ -293,15 +419,16 @@ prompt_line() {
     fi
 
     if [[ -n "$default_val" ]]; then
-        printf '%s [%s]: ' "$prompt_text" "$default_val" >&2
+        printf '%s%s%s [%s]: ' "$C_BOLD" "$prompt_text" "$C_RESET" "$default_val" >&2
     else
-        printf '%s: ' "$prompt_text" >&2
+        printf '%s%s%s: ' "$C_BOLD" "$prompt_text" "$C_RESET" >&2
     fi
     if [[ ! -t 0 ]] && [[ -r /dev/tty ]]; then
         IFS= read -r result </dev/tty || result=""
     else
         IFS= read -r result || result=""
     fi
+    result="$(trim_ws "$result")"
     printf '%s' "${result:-$default_val}"
 }
 
@@ -311,7 +438,7 @@ prompt_secret() {
 
     if [[ -n "$ANSWERS_FD" ]]; then
         IFS= read -r -u "$ANSWERS_FD" result || result=""
-        printf '%s' "$result"
+        printf '%s' "$(trim_ws "$result")"
         return
     fi
 
@@ -320,43 +447,81 @@ prompt_secret() {
         return
     fi
 
-    printf '%s: ' "$prompt_text" >&2
+    printf '%s%s%s: ' "$C_BOLD" "$prompt_text" "$C_RESET" >&2
     if [[ ! -t 0 ]] && [[ -r /dev/tty ]]; then
         IFS= read -r -s result </dev/tty || result=""
     else
         IFS= read -r -s result || result=""
     fi
     printf '\n' >&2
-    printf '%s' "$result"
+    printf '%s' "$(trim_ws "$result")"
+}
+
+prompt_confirm() {
+    local prompt_text="$1"
+    local default_yes="${2:-Y}"
+    local hint="Y/n"
+    [[ "$default_yes" != "Y" ]] && hint="y/N"
+
+    if [[ "$NON_INTERACTIVE" == "true" ]] || [[ -n "$ANSWERS_FD" ]]; then
+        [[ "$default_yes" == "Y" ]]
+        return
+    fi
+
+    local ans=""
+    printf '%s%s [%s]: %s' "$C_YELLOW" "$prompt_text" "$hint" "$C_RESET" >&2
+    if [[ ! -t 0 ]] && [[ -r /dev/tty ]]; then
+        IFS= read -r ans </dev/tty || ans=""
+    else
+        IFS= read -r ans || ans=""
+    fi
+    ans="$(trim_ws "$ans")"
+    if [[ -z "$ans" ]]; then
+        [[ "$default_yes" == "Y" ]]
+        return
+    fi
+    case "$ans" in
+        y|Y|yes|YES|д|Д|да|ДА) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 check_root() {
     if [[ "$(id -u)" -ne 0 ]]; then
-        die "Please run as root (e.g. sudo ./install.sh)"
+        printf '%s[ERROR]%s Скрипт должен запускаться с правами root.\n' "$C_RED" "$C_RESET" >&2
+        printf 'Выполните:\n  sudo bash <(curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh)\n' "$GITHUB_REPO" >&2
+        exit 1
     fi
 }
 
 check_os_and_arch() {
-    [[ -f /etc/os-release ]] || die "Cannot detect OS (/etc/os-release missing)"
+    [[ -f /etc/os-release ]] || die "Не удалось определить ОС (/etc/os-release отсутствует)"
     local os_id=""
     local os_ver=""
+    local pretty=""
     os_id="$(sed -nE 's/^ID="?([^"]+)"?/\1/p' /etc/os-release | head -n 1)"
     os_ver="$(sed -nE 's/^VERSION_ID="?([^"]+)"?/\1/p' /etc/os-release | head -n 1)"
+    pretty="$(sed -nE 's/^PRETTY_NAME="?([^"]+)"?/\1/p' /etc/os-release | head -n 1)"
     os_ver="${os_ver:-0}"
+    OS_NAME="${pretty:-${os_id} ${os_ver}}"
 
     case "$os_id" in
         debian)
             if [[ "${os_ver%%.*}" -lt 11 ]]; then
-                die "Debian 11+ is required (found $os_ver)"
+                die "Требуется Debian 11+ (рекомендуется Debian 12; обнаружен $os_ver)"
+            elif [[ "${os_ver%%.*}" -lt 12 ]]; then
+                warn "Обнаружен Debian $os_ver (официально поддерживается Debian 12+); продолжаем."
             fi
             ;;
         ubuntu)
             if [[ "${os_ver%%.*}" -lt 20 ]]; then
-                die "Ubuntu 20.04+ is required (found $os_ver)"
+                die "Требуется Ubuntu 20.04+ (рекомендуется Ubuntu 22.04–24.04; обнаружена $os_ver)"
+            elif [[ "${os_ver%%.*}" -lt 22 ]]; then
+                warn "Обнаружена Ubuntu $os_ver (рекомендуется Ubuntu 22.04–24.04); продолжаем."
             fi
             ;;
         *)
-            warn "Untested OS '$os_id'; continuing anyway"
+            warn "Нетестированная ОС '$os_id'; продолжаем на ваш страх и риск."
             ;;
     esac
 
@@ -365,11 +530,20 @@ check_os_and_arch() {
     case "$arch" in
         x86_64|amd64) ARCH="amd64" ;;
         aarch64|arm64) ARCH="arm64" ;;
-        *) die "Unsupported architecture: $arch (supported: amd64, arm64)" ;;
+        *) die "Неподдерживаемая архитектура: $arch (поддерживаются: amd64, arm64)" ;;
     esac
 
     if ! command -v systemctl >/dev/null 2>&1; then
-        die "systemd is required (systemctl not found)"
+        die "Требуется systemd (команда systemctl не найдена)"
+    fi
+}
+
+ensure_curl() {
+    if ! command -v curl >/dev/null 2>&1; then
+        log "Устанавливаю curl..."
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends ca-certificates curl
     fi
 }
 
@@ -379,7 +553,9 @@ detect_public_ipv4() {
         return
     fi
     local ip=""
-    ip="$(curl -4fsS --max-time 4 https://api.ipify.org 2>/dev/null || curl -4fsS --max-time 4 https://ifconfig.me 2>/dev/null || true)"
+    if command -v curl >/dev/null 2>&1; then
+        ip="$(curl -4fsS --max-time 4 https://api.ipify.org 2>/dev/null || curl -4fsS --max-time 4 https://ifconfig.me 2>/dev/null || true)"
+    fi
     if [[ ! "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
         ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}' || true)"
     fi
@@ -392,7 +568,7 @@ detect_public_ipv4() {
 
 is_ip_addr() {
     local v="$1"
-    if [[ "$v" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    if [[ "$v" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$ ]]; then
         return 0
     fi
     if [[ "$v" == *:* ]]; then
@@ -406,6 +582,84 @@ validate_domain() {
     [[ "$d" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]
 }
 
+validate_port() {
+    local p="$1"
+    [[ "$p" =~ ^[0-9]+$ ]] && [[ "$p" -ge 1 ]] && [[ "$p" -le 65535 ]]
+}
+
+validate_node_secret() {
+    local s="$1"
+    [[ "${#s}" -ge 16 ]] && [[ "${#s}" -le 256 ]] && [[ ! "$s" =~ [[:space:]] ]]
+}
+
+resolve_domain_a() {
+    local fqdn="$1"
+    local ips=""
+    if command -v dig >/dev/null 2>&1; then
+        ips="$(dig +short A "$fqdn" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+    fi
+    if [[ -z "$ips" ]] && command -v getent >/dev/null 2>&1; then
+        ips="$(getent ahostsv4 "$fqdn" 2>/dev/null | awk '{print $1}' | sort -u || true)"
+    fi
+    if [[ -z "$ips" ]] && command -v host >/dev/null 2>&1; then
+        ips="$(host -t A "$fqdn" 2>/dev/null | awk '/has address/ {print $4}' || true)"
+    fi
+    printf '%s' "$ips"
+}
+
+check_dns_record() {
+    local fqdn="$1"
+    [[ -n "$fqdn" ]] || return 0
+    if is_ip_addr "$fqdn"; then
+        return 0
+    fi
+
+    local resolved=""
+    resolved="$(resolve_domain_a "$fqdn")"
+    local pub_ip=""
+    pub_ip="$(detect_public_ipv4)"
+    local local_ips=""
+    local_ips="$(hostname -I 2>/dev/null || true)"
+
+    if [[ -z "$resolved" ]]; then
+        warn "DNS A-запись для '$fqdn' не найдена (текущий IP сервера: ${pub_ip:-неизвестен})."
+        return 1
+    fi
+
+    local matched="false"
+    local r=""
+    while IFS= read -r r; do
+        [[ -n "$r" ]] || continue
+        if [[ -n "$pub_ip" && "$r" == "$pub_ip" ]] || printf '%s\n' "$local_ips" | tr ' ' '\n' | grep -qx "$r"; then
+            matched="true"
+            break
+        fi
+    done <<< "$resolved"
+
+    local resolved_csv=""
+    resolved_csv="$(printf '%s\n' "$resolved" | paste -sd ',' -)"
+
+    if [[ "$matched" == "true" ]]; then
+        ok "DNS A-запись '$fqdn' -> ${resolved_csv} совпадает с IP сервера"
+        return 0
+    fi
+
+    warn "DNS A-запись '$fqdn' указывает на ${resolved_csv}, а IP этого сервера: ${pub_ip:-$local_ips}."
+    return 1
+}
+
+prompt_dns_warn_continue() {
+    local fqdn="$1"
+    if ! check_dns_record "$fqdn"; then
+        if [[ "$NON_INTERACTIVE" != "true" ]] && [[ -z "$ANSWERS_FD" ]]; then
+            if ! prompt_confirm "DNS ещё не указывает на этот сервер (выпуск SSL может не пройти). Продолжить всё равно?" "Y"; then
+                log "Установка остановлена пользователем. Обновите DNS A-запись и запустите скрипт повторно."
+                exit 0
+            fi
+        fi
+    fi
+}
+
 ensure_swap() {
     local mem_kb=0
     local swap_kb=0
@@ -414,7 +668,7 @@ ensure_swap() {
     local total_mb=$(( (mem_kb + swap_kb) / 1024 ))
 
     if [[ "$total_mb" -lt 1900 ]] && [[ ! -f /swapfile ]]; then
-        log "Total RAM+swap is ${total_mb}MB (<2G); creating 2G /swapfile..."
+        log "ОЗУ+swap = ${total_mb}MB (<2G); создаю файл подкачки 2G (/swapfile)..."
         if fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none; then
             chmod 0600 /swapfile
             if mkswap /swapfile >/dev/null 2>&1 && swapon /swapfile 2>/dev/null; then
@@ -422,7 +676,7 @@ ensure_swap() {
                     printf '/swapfile none swap sw 0 0\n' >> /etc/fstab
                 fi
             else
-                warn "Could not activate /swapfile (container environment?); continuing"
+                warn "Не удалось активировать /swapfile (возможно, контейнер); продолжаем."
                 rm -f /swapfile
             fi
         fi
@@ -433,14 +687,14 @@ configure_bbr() {
     if [[ "$ENABLE_BBR" != "true" ]]; then
         return 0
     fi
-    log "Applying TCP BBR + fq sysctl tuning (/etc/sysctl.d/99-mypanel3.conf)..."
+    log "Применяю TCP BBR + fq (/etc/sysctl.d/99-mypanel3.conf)..."
     cat > /etc/sysctl.d/99-mypanel3.conf <<'EOF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 EOF
-    sysctl --system >/dev/null 2>&1 || warn "sysctl --system reported warnings (normal in some containers)"
+    sysctl --system >/dev/null 2>&1 || warn "sysctl --system вернул предупреждения (нормально для части контейнеров)"
 }
 
 check_port_free() {
@@ -470,55 +724,40 @@ check_port_free() {
         if systemctl is-active --quiet haproxy 2>/dev/null && [[ "$port" == "443" ]]; then
             return 0
         fi
-        die "Port ${port}/tcp is already in use. Stop the conflicting service and re-run."
-    fi
-}
-
-check_dns_record() {
-    local fqdn="$1"
-    [[ -n "$fqdn" ]] || return 0
-    if is_ip_addr "$fqdn"; then
-        return 0
-    fi
-    if ! command -v dig >/dev/null 2>&1; then
-        return 0
-    fi
-    local resolved=""
-    resolved="$(dig +short A "$fqdn" | head -n 1 || true)"
-    if [[ -z "$resolved" ]]; then
-        warn "DNS A record for '$fqdn' did not resolve; TLS issuance may fail."
-        return 0
-    fi
-    local local_ips=""
-    local_ips="$(hostname -I 2>/dev/null || true)"
-    if ! printf '%s\n' "$local_ips" | tr ' ' '\n' | grep -qx "$resolved"; then
-        warn "DNS A record for '$fqdn' ($resolved) does not match local IPs ($local_ips)."
+        die "Порт ${port}/tcp уже занят другим процессом. Освободите порт и повторите запуск."
     fi
 }
 
 download_binary_from_panel_or_url() {
     local url="$1"
     local secret_hdr="${2:-}"
+    local allow_fallback="${3:-false}"
     local tmp_dir=""
-    tmp_dir="$(mktemp -d)"
+    tmp_dir="$(make_tmp_dir)"
     local bin_tmp="${tmp_dir}/mypanel3"
     local hdr_tmp="${tmp_dir}/headers.txt"
 
-    log "Downloading mypanel3 binary (${ARCH})..."
+    log "Загрузка бинарника mypanel3 (${ARCH})..."
     local curl_args=(-fsSL -D "$hdr_tmp" -o "$bin_tmp")
     if [[ -n "$secret_hdr" ]]; then
         curl_args+=(-H "X-Node-Secret: ${secret_hdr}")
     fi
 
     if ! curl "${curl_args[@]}" "$url"; then
-        rm -rf "$tmp_dir"
-        die "Failed to download mypanel3 binary from $url"
+        if [[ "$allow_fallback" == "true" ]]; then
+            warn "Не удалось скачать бинарник с $url"
+            return 1
+        fi
+        die "Не удалось скачать бинарник mypanel3 с $url"
     fi
 
-    [[ -s "$bin_tmp" ]] || {
-        rm -rf "$tmp_dir"
-        die "Downloaded mypanel3 binary is empty"
-    }
+    if [[ ! -s "$bin_tmp" ]]; then
+        if [[ "$allow_fallback" == "true" ]]; then
+            warn "Скачанный файл с $url пуст"
+            return 1
+        fi
+        die "Скачанный бинарник mypanel3 пуст"
+    fi
 
     local expected_sha=""
     expected_sha="$(grep -i '^x-binary-sha256:' "$hdr_tmp" 2>/dev/null | head -n 1 | awk '{print $2}' | tr -d '\r\n' || true)"
@@ -526,15 +765,18 @@ download_binary_from_panel_or_url() {
         local actual_sha=""
         actual_sha="$(sha256sum "$bin_tmp" | awk '{print $1}')"
         if [[ "$actual_sha" != "$expected_sha" ]]; then
-            rm -rf "$tmp_dir"
-            die "SHA-256 verification failed for mypanel3 binary (expected $expected_sha, got $actual_sha)"
+            if [[ "$allow_fallback" == "true" ]]; then
+                warn "Контрольная сумма SHA-256 не совпала ($expected_sha != $actual_sha)"
+                return 1
+            fi
+            die "Ошибка проверки SHA-256 бинарника (ожидалось $expected_sha, получено $actual_sha)"
         fi
-        log "Binary SHA-256 verified (${expected_sha:0:16}...)."
+        ok "SHA-256 бинарника проверен (${expected_sha:0:16}...)."
     fi
 
     install -m 0755 "$bin_tmp" "$BIN_DEST"
-    rm -rf "$tmp_dir"
     BINARY_PATH="$BIN_DEST"
+    return 0
 }
 
 download_binary_from_github_release() {
@@ -543,14 +785,14 @@ download_binary_from_github_release() {
     local bin_url="${base_url}/${asset_name}"
     local sums_url="${base_url}/SHA256SUMS"
     local tmp_dir=""
-    tmp_dir="$(mktemp -d)"
+    tmp_dir="$(make_tmp_dir)"
     local bin_tmp="${tmp_dir}/mypanel3"
     local sums_tmp="${tmp_dir}/SHA256SUMS"
 
-    log "Downloading ${asset_name} from GitHub Releases (${GITHUB_REPO})..."
+    log "Загрузка ${asset_name} из GitHub Releases (${GITHUB_REPO})..."
     if ! curl -fsSL -o "$bin_tmp" "$bin_url" || [[ ! -s "$bin_tmp" ]]; then
-        rm -rf "$tmp_dir"
-        die "Failed to download ${asset_name} from ${bin_url}. Pass --binary <PATH> or --binary-url <URL>."
+        warn "Готовый бинарник ${asset_name} не найден в GitHub Releases (${bin_url})."
+        return 1
     fi
 
     if curl -fsSL -o "$sums_tmp" "$sums_url" 2>/dev/null; then
@@ -560,26 +802,64 @@ download_binary_from_github_release() {
             local actual_sha=""
             actual_sha="$(sha256sum "$bin_tmp" | awk '{print $1}')"
             if [[ "$actual_sha" != "$expected_sha" ]]; then
-                rm -rf "$tmp_dir"
-                die "SHA-256 verification failed for ${asset_name} (expected ${expected_sha}, got ${actual_sha})"
+                warn "Ошибка SHA-256 для ${asset_name} (${expected_sha} != ${actual_sha})."
+                return 1
             fi
-            log "Release SHA-256 verified (${expected_sha:0:16}...)."
+            ok "SHA-256 релиза подтвержден (${expected_sha:0:16}...)."
         fi
     fi
 
     install -m 0755 "$bin_tmp" "$BIN_DEST"
-    rm -rf "$tmp_dir"
     BINARY_PATH="$BIN_DEST"
+    return 0
+}
+
+ensure_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        log "Устанавливаю Docker Engine (для сборки из исходников)..."
+        curl -fsSL https://get.docker.com | sh
+    fi
+    systemctl enable --now docker
+}
+
+build_binary_with_docker() {
+    log "Сборка бинарника mypanel3 из исходников через Docker..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -qq --no-install-recommends git
+    ensure_docker
+
+    local src_dir=""
+    src_dir="$(make_tmp_dir)"
+    local repo_url="https://github.com/${GITHUB_REPO}.git"
+    log "Клонирую ${repo_url}..."
+    git clone --depth 1 "$repo_url" "$src_dir" || die "Не удалось клонировать ${repo_url}"
+
+    local image_tag="mypanel3-builder:install"
+    log "Собираю Docker-образ (Rust + Node.js — это может занять несколько минут)..."
+    docker build -t "$image_tag" "$src_dir" || die "Ошибка сборки Docker-образа mypanel3"
+
+    local cid=""
+    cid="$(docker create "$image_tag")"
+    docker cp "${cid}:/usr/local/bin/mypanel3" "${src_dir}/mypanel3-built" || {
+        docker rm -f "$cid" >/dev/null 2>&1 || true
+        die "Не удалось извлечь бинарник mypanel3 из контейнера"
+    }
+    docker rm -f "$cid" >/dev/null 2>&1 || true
+    docker image rm "$image_tag" >/dev/null 2>&1 || true
+
+    install -m 0755 "${src_dir}/mypanel3-built" "$BIN_DEST"
+    BINARY_PATH="$BIN_DEST"
+    ok "Бинарник mypanel3 собран через Docker и установлен в $BIN_DEST"
 }
 
 resolve_binary() {
     if [[ -n "$BINARY_PATH" ]]; then
-        [[ -x "$BINARY_PATH" ]] || die "Binary not found or not executable: $BINARY_PATH"
+        [[ -x "$BINARY_PATH" ]] || die "Бинарник не найден или не исполняемый: $BINARY_PATH"
         return 0
     fi
 
     if [[ -n "$BINARY_URL" ]]; then
-        download_binary_from_panel_or_url "$BINARY_URL" "$NODE_SECRET"
+        download_binary_from_panel_or_url "$BINARY_URL" "$NODE_SECRET" "false"
         return 0
     fi
 
@@ -598,37 +878,43 @@ resolve_binary() {
 
     if [[ "$MODE" == "node" ]] && [[ -n "$MASTER_URL" ]] && [[ -n "$NODE_SECRET" ]]; then
         local auto_url="${MASTER_URL%/}/api/v1/nodes/self/binary?arch=${ARCH}"
-        download_binary_from_panel_or_url "$auto_url" "$NODE_SECRET"
-        return 0
+        if download_binary_from_panel_or_url "$auto_url" "$NODE_SECRET" "true"; then
+            return 0
+        fi
+        warn "Перехожу к загрузке бинарника с GitHub Releases..."
     fi
 
-    if [[ "$UPGRADE_ONLY" != "true" ]] && [[ -x "$BIN_DEST" ]]; then
+    if [[ "$UPGRADE_ONLY" != "true" ]] && [[ "$RECONFIGURE" != "true" ]] && [[ -x "$BIN_DEST" ]]; then
         BINARY_PATH="$BIN_DEST"
         return 0
     fi
 
-    download_binary_from_github_release
+    if download_binary_from_github_release; then
+        return 0
+    fi
+
+    build_binary_with_docker
 }
 
 install_binary() {
     resolve_binary
     if [[ "$BINARY_PATH" != "$BIN_DEST" ]]; then
-        log "Installing binary from $BINARY_PATH to $BIN_DEST"
+        log "Устанавливаю бинарник из $BINARY_PATH в $BIN_DEST"
         install -m 0755 "$BINARY_PATH" "$BIN_DEST"
     fi
 }
 
 install_base_packages() {
-    log "Installing base packages..."
+    log "Устанавливаю системные зависимости (curl, gnupg, ufw, dnsutils, jq и др.)..."
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
     apt-get install -y -qq --no-install-recommends \
-        ca-certificates curl gnupg lsb-release openssl unzip xz-utils tar dnsutils iproute2 jq
+        ca-certificates curl gnupg lsb-release openssl unzip xz-utils tar dnsutils iproute2 jq ufw
 }
 
 install_postgres() {
     if ! command -v psql >/dev/null 2>&1; then
-        log "Installing PostgreSQL..."
+        log "Устанавливаю PostgreSQL..."
         export DEBIAN_FRONTEND=noninteractive
         apt-get install -y -qq --no-install-recommends postgresql postgresql-client
     fi
@@ -637,7 +923,8 @@ install_postgres() {
 
 install_caddy() {
     if ! command -v caddy >/dev/null 2>&1; then
-        log "Installing Caddy..."
+        log "Устанавливаю Caddy..."
+        export DEBIAN_FRONTEND=noninteractive
         apt-get install -y -qq --no-install-recommends debian-keyring debian-archive-keyring apt-transport-https
         local keyring="/usr/share/keyrings/caddy-stable-archive-keyring.gpg"
         curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
@@ -653,7 +940,7 @@ install_caddy() {
 
 install_haproxy() {
     if ! command -v haproxy >/dev/null 2>&1; then
-        log "Installing HAProxy for :443 SNI multiplexing..."
+        log "Устанавливаю HAProxy для SNI-мультиплексирования :443..."
         export DEBIAN_FRONTEND=noninteractive
         apt-get install -y -qq --no-install-recommends haproxy
     fi
@@ -672,52 +959,50 @@ install_proxy_cores() {
     mkdir -p /usr/local/bin /usr/local/share/xray "$NODE_DATA_DIR"
 
     if should_install_core "xray" && [[ ! -x /usr/local/bin/xray ]]; then
-        log "Installing Xray-core..."
+        log "Устанавливаю Xray-core..."
         local xray_arch="64"
         [[ "$ARCH" == "arm64" ]] && xray_arch="arm64-v8a"
         local tmp_dir=""
-        tmp_dir="$(mktemp -d)"
+        tmp_dir="$(make_tmp_dir)"
         if curl -fsSL "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${xray_arch}.zip" -o "${tmp_dir}/xray.zip"; then
             unzip -q "${tmp_dir}/xray.zip" -d "${tmp_dir}/xray"
             install -m 0755 "${tmp_dir}/xray/xray" /usr/local/bin/xray
             [[ -f "${tmp_dir}/xray/geoip.dat" ]] && install -m 0644 "${tmp_dir}/xray/geoip.dat" /usr/local/share/xray/geoip.dat
             [[ -f "${tmp_dir}/xray/geosite.dat" ]] && install -m 0644 "${tmp_dir}/xray/geosite.dat" /usr/local/share/xray/geosite.dat
         else
-            warn "Failed to download Xray-core; install /usr/local/bin/xray manually if needed."
+            warn "Не удалось скачать Xray-core; при необходимости установите /usr/local/bin/xray вручную."
         fi
-        rm -rf "$tmp_dir"
     fi
 
     if should_install_core "singbox" && [[ ! -x /usr/local/bin/sing-box ]]; then
-        log "Installing sing-box..."
+        log "Устанавливаю sing-box..."
         local sb_ver=""
         sb_ver="$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep -oE '"tag_name":\s*"v[^"]+"' | head -n 1 | sed -E 's/.*"v([^"]+)".*/\1/' || true)"
         if [[ -n "$sb_ver" ]]; then
             local tmp_dir=""
-            tmp_dir="$(mktemp -d)"
+            tmp_dir="$(make_tmp_dir)"
             local sb_tar="sing-box-${sb_ver}-linux-${ARCH}.tar.gz"
             if curl -fsSL "https://github.com/SagerNet/sing-box/releases/download/v${sb_ver}/${sb_tar}" -o "${tmp_dir}/sb.tar.gz"; then
                 tar -xzf "${tmp_dir}/sb.tar.gz" -C "$tmp_dir"
                 install -m 0755 "${tmp_dir}/sing-box-${sb_ver}-linux-${ARCH}/sing-box" /usr/local/bin/sing-box
             else
-                warn "Failed to download sing-box; install /usr/local/bin/sing-box manually if needed."
+                warn "Не удалось скачать sing-box; при необходимости установите /usr/local/bin/sing-box вручную."
             fi
-            rm -rf "$tmp_dir"
         else
-            warn "Could not resolve latest sing-box release; skipping."
+            warn "Не удалось определить последнюю версию sing-box; пропускаю."
         fi
     fi
 
     if should_install_core "naive" && [[ ! -x /usr/local/bin/caddy-naive ]]; then
         if [[ "$ARCH" != "amd64" ]]; then
-            warn "NaiveProxy upstream does not publish prebuilt linux/${ARCH} binaries; skipping caddy-naive."
+            warn "NaiveProxy не публикует готовые бинарники для linux/${ARCH}; пропускаю caddy-naive."
         else
-            log "Installing NaiveProxy (caddy-forwardproxy)..."
+            log "Устанавливаю NaiveProxy (caddy-forwardproxy)..."
             local naive_url=""
             naive_url="$(curl -fsSL https://api.github.com/repos/klzgrad/forwardproxy/releases/latest | grep -oE '"browser_download_url":\s*"[^"]+caddy[^"]*\.tar\.(xz|gz)"' | head -n 1 | sed -E 's/.*"(https:[^"]+)".*/\1/' || true)"
             if [[ -n "$naive_url" ]]; then
                 local tmp_dir=""
-                tmp_dir="$(mktemp -d)"
+                tmp_dir="$(make_tmp_dir)"
                 if curl -fsSL "$naive_url" -o "${tmp_dir}/naive.tar.xz"; then
                     tar -xf "${tmp_dir}/naive.tar.xz" -C "$tmp_dir"
                     local naive_bin=""
@@ -725,25 +1010,24 @@ install_proxy_cores() {
                     if [[ -n "$naive_bin" ]]; then
                         install -m 0755 "$naive_bin" /usr/local/bin/caddy-naive
                     else
-                        warn "Could not locate caddy binary inside NaiveProxy archive."
+                        warn "Бинарник caddy не найден внутри архива NaiveProxy."
                     fi
                 else
-                    warn "Failed to download NaiveProxy archive."
+                    warn "Не удалось скачать архив NaiveProxy."
                 fi
-                rm -rf "$tmp_dir"
             else
-                warn "Could not resolve latest NaiveProxy release URL; skipping."
+                warn "Не удалось определить URL релиза NaiveProxy; пропускаю."
             fi
         fi
     fi
 
     if should_install_core "mieru" && [[ ! -x /usr/local/bin/mita ]]; then
-        log "Installing Mieru server (mita)..."
+        log "Устанавливаю Mieru server (mita)..."
         local mita_url=""
         mita_url="$(curl -fsSL https://api.github.com/repos/enfein/mieru/releases/latest | grep -oE "\"browser_download_url\":\s*\"https://[^\"]*mita_[^\"]*_linux_${ARCH}\\.tar\\.gz\"" | head -n 1 | sed -E 's/.*"(https:[^"]+)".*/\1/' || true)"
         if [[ -n "$mita_url" ]]; then
             local tmp_dir=""
-            tmp_dir="$(mktemp -d)"
+            tmp_dir="$(make_tmp_dir)"
             if curl -fsSL "$mita_url" -o "${tmp_dir}/mita.tar.gz"; then
                 tar -xzf "${tmp_dir}/mita.tar.gz" -C "$tmp_dir"
                 local mita_bin=""
@@ -751,15 +1035,99 @@ install_proxy_cores() {
                 if [[ -n "$mita_bin" ]]; then
                     install -m 0755 "$mita_bin" /usr/local/bin/mita
                 else
-                    warn "Could not locate mita binary inside Mieru archive."
+                    warn "Бинарник mita не найден внутри архива Mieru."
                 fi
             else
-                warn "Failed to download Mieru archive."
+                warn "Не удалось скачать архив Mieru."
             fi
-            rm -rf "$tmp_dir"
         else
-            warn "Could not resolve latest Mieru release URL; skipping."
+            warn "Не удалось определить URL релиза Mieru; пропускаю."
         fi
+    fi
+}
+
+detect_ssh_ports() {
+    local ports=""
+    if [[ -f /etc/ssh/sshd_config ]]; then
+        ports="$(grep -hiE '^[[:space:]]*Port[[:space:]]+[0-9]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' || true)"
+    fi
+    if command -v ss >/dev/null 2>&1; then
+        local ss_ports=""
+        ss_ports="$(ss -H -ltnp 2>/dev/null | awk '/sshd/ {print $4}' | sed -nE 's/.*:([0-9]+)$/\1/p' || true)"
+        ports="${ports}"$'\n'"${ss_ports}"
+    fi
+    ports="$(printf '%s\n' "$ports" | grep -E '^[0-9]+$' | sort -nu || true)"
+    if [[ -z "$ports" ]]; then
+        ports="22"
+    fi
+    printf '%s' "$ports"
+}
+
+configure_firewall() {
+    if [[ "$CONFIGURE_UFW" != "true" ]]; then
+        UFW_STATUS="disabled (--no-ufw)"
+        return 0
+    fi
+    if ! command -v ufw >/dev/null 2>&1; then
+        warn "ufw не найден; пропускаю настройку фаервола."
+        UFW_STATUS="unavailable"
+        return 0
+    fi
+
+    log "Настраиваю UFW фаервол (SSH + порты режима ${MODE})..."
+    local ssh_ports=""
+    ssh_ports="$(detect_ssh_ports)"
+    local sp=""
+    while IFS= read -r sp; do
+        [[ -n "$sp" ]] || continue
+        ufw allow "${sp}/tcp" comment 'ssh' >/dev/null 2>&1 || true
+    done <<< "$ssh_ports"
+
+    if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
+        if [[ "$PROXY_MODE" == "caddy" ]] && [[ -n "$DOMAIN" ]]; then
+            ufw allow 80/tcp comment 'mypanel3-acme' >/dev/null 2>&1 || true
+            ufw allow 443/tcp comment 'mypanel3-https' >/dev/null 2>&1 || true
+            ufw allow 443/udp comment 'mypanel3-http3' >/dev/null 2>&1 || true
+        else
+            ufw allow 3000/tcp comment 'mypanel3-http' >/dev/null 2>&1 || true
+        fi
+    fi
+
+    if [[ "$MODE" == "both" ]]; then
+        ufw allow 8443/tcp comment 'mypanel3-naive-tcp' >/dev/null 2>&1 || true
+        ufw allow 8443/udp comment 'mypanel3-naive-udp' >/dev/null 2>&1 || true
+        ufw allow 2053/tcp comment 'mypanel3-mieru-tcp' >/dev/null 2>&1 || true
+        ufw allow 2053/udp comment 'mypanel3-mieru-udp' >/dev/null 2>&1 || true
+    fi
+
+    if [[ "$MODE" == "node" ]]; then
+        ufw allow 80/tcp comment 'mypanel3-node-acme' >/dev/null 2>&1 || true
+        ufw allow 443/tcp comment 'mypanel3-node-proxy-tcp' >/dev/null 2>&1 || true
+        ufw allow 443/udp comment 'mypanel3-node-proxy-udp' >/dev/null 2>&1 || true
+        ufw allow 8443/tcp comment 'mypanel3-naive-tcp' >/dev/null 2>&1 || true
+        ufw allow 8443/udp comment 'mypanel3-naive-udp' >/dev/null 2>&1 || true
+        ufw allow 2053/tcp comment 'mypanel3-mieru-tcp' >/dev/null 2>&1 || true
+        ufw allow 2053/udp comment 'mypanel3-mieru-udp' >/dev/null 2>&1 || true
+
+        if [[ -n "$PANEL_IP" ]]; then
+            local ip_entry=""
+            IFS=',' read -ra _panel_entries <<< "$PANEL_IP"
+            for ip_entry in "${_panel_entries[@]}"; do
+                ip_entry="$(trim_ws "$ip_entry")"
+                [[ -n "$ip_entry" ]] || continue
+                ufw allow from "$ip_entry" to any port "$API_PORT" proto tcp comment 'mypanel3-panel' >/dev/null 2>&1 || true
+            done
+        else
+            ufw allow "${API_PORT}/tcp" comment 'mypanel3-agent' >/dev/null 2>&1 || true
+        fi
+    fi
+
+    if ufw --force enable >/dev/null 2>&1; then
+        UFW_STATUS="active (SSH: $(printf '%s' "$ssh_ports" | paste -sd ',' -))"
+        ok "UFW включен (${UFW_STATUS})."
+    else
+        warn "Не удалось включить UFW (возможно, недостаточно прав ядра в контейнере); продолжаю."
+        UFW_STATUS="unavailable"
     fi
 }
 
@@ -833,14 +1201,20 @@ write_panel_env() {
             sub_url="$api_url"
         fi
     else
+        local pub=""
+        pub="$(detect_public_ipv4)"
+        if [[ -n "$pub" ]]; then
+            api_url="http://${pub}:3000"
+            frontend_url="http://${pub}:3000"
+        fi
         sub_url="$api_url"
-        cors_origins="$api_url"
+        cors_origins="${api_url},http://127.0.0.1:3000"
     fi
 
     cat > "$PANEL_ENV" <<EOF
 DATABASE_URL=${DATABASE_URL}
 DB_MAX_CONNECTIONS=10
-API_HOST=127.0.0.1
+API_HOST=$( [[ "$PROXY_MODE" == "caddy" && -n "$DOMAIN" ]] && echo "127.0.0.1" || echo "0.0.0.0" )
 API_PORT=3000
 API_URL=${api_url}
 SUB_URL=${sub_url}
@@ -874,7 +1248,10 @@ write_node_env() {
     install -d -m 0750 -o root -g root "$ETC_DIR" "$NODE_DATA_DIR"
 
     local secret="$NODE_SECRET"
-    if [[ -z "$secret" ]]; then
+    if [[ -z "$secret" ]] && [[ "$MODE" == "both" ]]; then
+        secret="$(read_existing_env "$NODE_ENV_FILE" "NODE_RPC_SECRET")"
+    fi
+    if [[ -z "$secret" ]] && [[ "$RECONFIGURE" != "true" ]]; then
         secret="$(read_existing_env "$NODE_ENV_FILE" "NODE_RPC_SECRET")"
     fi
     if [[ -z "$secret" ]]; then
@@ -884,7 +1261,7 @@ write_node_env() {
 
     local effective_master="$MASTER_URL"
     local effective_node_host="$NODE_DOMAIN"
-    local effective_node_name="${NODE_NAME:-$(hostname -f 2>/dev/null || hostname)}"
+    local effective_node_name="${NODE_NAME:-$(hostname -s 2>/dev/null || hostname)}"
 
     if [[ "$MODE" == "both" ]]; then
         effective_master="http://127.0.0.1:3000"
@@ -893,28 +1270,43 @@ write_node_env() {
         if [[ -z "$effective_node_host" ]]; then
             if [[ -n "$TLS_CERTS_DOMAIN" ]]; then
                 effective_node_host="$TLS_CERTS_DOMAIN"
+            elif [[ -n "$DOMAIN" ]]; then
+                effective_node_host="$DOMAIN"
             else
                 effective_node_host="$(detect_public_ipv4)"
                 effective_node_host="${effective_node_host:-127.0.0.1}"
             fi
         fi
+        if [[ -z "$PANEL_IP" ]]; then
+            local pub=""
+            pub="$(detect_public_ipv4)"
+            local local_csv=""
+            local_csv="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9a-fA-F:.]+$' || true)"
+            local combined_ips="127.0.0.1"$'\n'"::1"
+            [[ -n "$pub" ]] && combined_ips="${combined_ips}"$'\n'"${pub}"
+            [[ -n "$local_csv" ]] && combined_ips="${combined_ips}"$'\n'"${local_csv}"
+            PANEL_IP="$(printf '%s\n' "$combined_ips" | awk 'NF && !seen[$0]++' | paste -sd ',' -)"
+        fi
     else
         if [[ -z "$effective_node_host" ]]; then
             effective_node_host="$(detect_public_ipv4)"
-            [[ -n "$effective_node_host" ]] || die "Could not determine node host; pass --node-domain <DOMAIN|IP>"
+            [[ -n "$effective_node_host" ]] || die "Не удалось определить адрес ноды; укажите --node-domain <DOMAIN|IP>"
         fi
         case "$TLS_MODE" in
             none)
                 AGENT_WORKER_HOST="0.0.0.0"
                 AGENT_WORKER_PORT="$API_PORT"
                 ;;
-            port2087)
+            port2222|port2087)
                 AGENT_WORKER_HOST="127.0.0.1"
                 AGENT_WORKER_PORT="$((API_PORT + 1))"
                 ;;
             auto|internal)
                 AGENT_WORKER_HOST="127.0.0.1"
                 AGENT_WORKER_PORT="$API_PORT"
+                ;;
+            *)
+                die "Недопустимый --tls-mode '$TLS_MODE' (ожидается none, port2222, auto или internal)"
                 ;;
         esac
     fi
@@ -925,10 +1317,13 @@ write_node_env() {
     cat > "$NODE_ENV_FILE" <<EOF
 MASTER_URL=${effective_master}
 NODE_RPC_SECRET=${secret}
+NODE_SECRET=${secret}
 NODE_HOST=${effective_node_host}
 NODE_NAME=${effective_node_name}
 WORKER_HOST=${AGENT_WORKER_HOST}
 WORKER_PORT=${AGENT_WORKER_PORT}
+ALLOWED_PANEL_IPS=${PANEL_IP}
+PANEL_IP=${PANEL_IP}
 CONFIG_DIR=${NODE_DATA_DIR}
 XRAY_BIN=/usr/local/bin/xray
 SINGBOX_BIN=/usr/local/bin/sing-box
@@ -974,8 +1369,6 @@ write_certbot_deploy_hook() {
 }
 
 configure_sni_mux_both() {
-    # All-in-one SNI-mux topology: HAProxy on <PUBLIC_IP>:443 routes panel domains -> Caddy :9443,
-    # and default backend (Reality SNI) -> Xray 127.0.0.1:443. Caddy holds :80 for ACME webroot.
     install_caddy
     install_haproxy
     export DEBIAN_FRONTEND=noninteractive
@@ -983,7 +1376,7 @@ configure_sni_mux_both() {
 
     local pub_ip=""
     pub_ip="$(detect_public_ipv4)"
-    [[ -n "$pub_ip" ]] || die "Could not detect public IPv4 for HAProxy :443 bind (use --no-sni-mux if local only)"
+    [[ -n "$pub_ip" ]] || die "Не удалось определить публичный IPv4 для HAProxy :443 (используйте --no-sni-mux)"
 
     install -d -m 0755 /etc/caddy "$CADDY_CERTS_DIR" /var/www/acme /var/log/caddy
 
@@ -997,7 +1390,6 @@ configure_sni_mux_both() {
         fi
     fi
 
-    # Stage 1: Temporary HTTP-only Caddyfile for ACME webroot challenges
     : > "$CADDY_FILE"
     {
         if [[ -n "$EMAIL" ]]; then
@@ -1034,9 +1426,9 @@ EOF
 
     for d in "${all_domains[@]}"; do
         if [[ ! -f "/etc/letsencrypt/live/${d}/fullchain.pem" ]]; then
-            log "Issuing Let's Encrypt certificate via ACME webroot for ${d}..."
+            log "Выпуск сертификата Let's Encrypt для ${d}..."
             certbot certonly --webroot -w /var/www/acme --non-interactive --agree-tos "${email_args[@]}" -d "$d" \
-                || die "Certbot certificate issuance failed for ${d}. Ensure DNS A record -> ${pub_ip} and port 80/tcp is open."
+                || die "Не удалось выпустить сертификат для ${d}. Проверьте DNS A-запись -> ${pub_ip} и открытый порт 80/tcp."
         fi
     done
 
@@ -1044,7 +1436,6 @@ EOF
     is_ip_addr "$inbound_tls" && inbound_tls=""
     write_certbot_deploy_hook "${all_domains[*]}" "$inbound_tls"
 
-    # Stage 2: Full Caddyfile (HTTP ACME + HTTPS panel on 127.0.0.1:9443)
     : > "$CADDY_FILE"
     {
         printf '{\n'
@@ -1108,7 +1499,6 @@ EOF
     chown -R caddy:caddy /var/log/caddy
     systemctl reload caddy || systemctl restart caddy
 
-    # Write HAProxy SNI multiplexer
     local sni_acls=""
     sni_acls="    acl is_panel req.ssl_sni -i ${DOMAIN}"
     if [[ -n "$SUB_DOMAIN" ]] && [[ "$SUB_DOMAIN" != "$DOMAIN" ]]; then
@@ -1159,7 +1549,7 @@ write_caddy_config() {
     {
         printf '{\n'
         [[ -n "$EMAIL" ]] && [[ "$TLS_MODE" != "internal" ]] && printf '\temail %s\n' "$EMAIL"
-        if [[ "$MODE" == "node" ]] && [[ "$TLS_MODE" == "port2087" ]]; then
+        if [[ "$MODE" == "node" ]] && { [[ "$TLS_MODE" == "port2222" ]] || [[ "$TLS_MODE" == "port2087" ]]; }; then
             printf '\thttps_port %s\n' "$API_PORT"
         fi
         printf '}\n\n'
@@ -1209,7 +1599,7 @@ EOF
         if [[ "$TLS_MODE" == "internal" ]]; then
             node_tls_directive=$'\ttls internal\n'
         fi
-        if [[ "$TLS_MODE" == "port2087" ]]; then
+        if [[ "$TLS_MODE" == "port2222" ]] || [[ "$TLS_MODE" == "port2087" ]]; then
             cat >> "$CADDY_FILE" <<EOF
 https://${NODE_DOMAIN}:${API_PORT} {
 	reverse_proxy 127.0.0.1:${AGENT_WORKER_PORT} {
@@ -1250,15 +1640,20 @@ EOF
 issue_inbound_tls_certs() {
     [[ -n "$TLS_CERTS_DOMAIN" ]] || return 0
     if is_ip_addr "$TLS_CERTS_DOMAIN"; then
-        warn "--tls-certs-domain '${TLS_CERTS_DOMAIN}' is an IP address; skipping Let's Encrypt cert issuance."
+        warn "Адрес '${TLS_CERTS_DOMAIN}' является IP; выпуск Let's Encrypt пропущен."
         return 0
     fi
     if [[ "$MODE" == "both" ]] && [[ "$SNI_MUX" == "true" ]]; then
-        # Already issued cleanly via Caddy ACME webroot in configure_sni_mux_both
         return 0
     fi
 
-    log "Issuing Let's Encrypt certificate for inbound TLS (${TLS_CERTS_DOMAIN})..."
+    if [[ "$TLS_CERTS_DOMAIN_EXPLICIT" != "true" ]] && ! check_dns_record "$TLS_CERTS_DOMAIN"; then
+        warn "Пропускаю авто-выпуск Let's Encrypt для ${TLS_CERTS_DOMAIN}, так как DNS ещё не смотрит на этот сервер."
+        warn "После обновления DNS выполните: certbot certonly --standalone -d ${TLS_CERTS_DOMAIN}"
+        return 0
+    fi
+
+    log "Выпускаю сертификат Let's Encrypt для прокси-ядер (${TLS_CERTS_DOMAIN})..."
     export DEBIAN_FRONTEND=noninteractive
     apt-get install -y -qq --no-install-recommends certbot
     install -d -m 0750 "$NODE_TLS_DIR"
@@ -1275,7 +1670,7 @@ issue_inbound_tls_certs() {
             stopped_caddy="true"
         fi
         certbot certonly --standalone --preferred-challenges http --non-interactive --agree-tos "${email_args[@]}" -d "$TLS_CERTS_DOMAIN" \
-            || warn "Certbot standalone issuance failed for ${TLS_CERTS_DOMAIN}; ensure port 80/tcp is open."
+            || warn "Certbot не смог выпустить сертификат для ${TLS_CERTS_DOMAIN}; проверьте порт 80/tcp."
         if [[ "$stopped_caddy" == "true" ]]; then
             systemctl start caddy
         fi
@@ -1283,6 +1678,7 @@ issue_inbound_tls_certs() {
 
     if [[ -f "/etc/letsencrypt/live/${TLS_CERTS_DOMAIN}/fullchain.pem" ]]; then
         write_certbot_deploy_hook "" "$TLS_CERTS_DOMAIN"
+        ok "Сертификаты ноды сохранены в ${NODE_TLS_DIR}/"
     fi
 }
 
@@ -1346,14 +1742,14 @@ EOF
 }
 
 bootstrap_admin() {
-    if [[ -f "$ADMIN_CREDS_FILE" ]] && [[ -z "$ADMIN_PASS" ]] && [[ "$GEN_ADMIN_PASS" != "true" ]]; then
+    if [[ "$RECONFIGURE" != "true" ]] && [[ -f "$ADMIN_CREDS_FILE" ]] && [[ -z "$ADMIN_PASS" ]] && [[ "$GEN_ADMIN_PASS" != "true" ]]; then
         "$BIN_DEST" --env-file "$PANEL_ENV" admin create --username "$ADMIN_USER" --if-missing >/dev/null || true
         return 0
     fi
 
     local pass="$ADMIN_PASS"
     if [[ -z "$pass" ]]; then
-        pass="$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9!@#%^&*_-' | head -c 20)"
+        pass="$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9!@#%^&*_-' | head -c 20)"
     fi
 
     local email_flag=()
@@ -1361,11 +1757,16 @@ bootstrap_admin() {
         email_flag=("--email" "$EMAIL")
     fi
 
+    local extra_flags=("--if-missing")
+    if [[ "$RECONFIGURE" == "true" ]]; then
+        extra_flags=()
+    fi
+
     "$BIN_DEST" --env-file "$PANEL_ENV" admin create \
         --username "$ADMIN_USER" \
         --password "$pass" \
         "${email_flag[@]}" \
-        --if-missing
+        "${extra_flags[@]}"
 
     cat > "$ADMIN_CREDS_FILE" <<EOF
 username=${ADMIN_USER}
@@ -1390,9 +1791,9 @@ register_local_node_in_db() {
     [[ -n "$secret" ]] || return 0
     host="${host:-127.0.0.1}"
     name="${name:-local}"
-    api_p="${api_p:-2087}"
+    api_p="${api_p:-2222}"
 
-    log "Registering local node '${name}' (${host}, apiPort=${api_p}) in panel database..."
+    log "Регистрирую локальную ноду '${name}' (${host}, apiPort=${api_p}) в БД панели..."
     "$BIN_DEST" --env-file "$PANEL_ENV" node create \
         --name "$name" \
         --host "$host" \
@@ -1400,12 +1801,67 @@ register_local_node_in_db() {
         --api-port "$api_p" \
         --secret "$secret" \
         --if-missing
+    LOCAL_NODE_STATUS="registered (host=${host}, port=${api_p})"
+}
+
+check_existing_installation() {
+    if [[ -n "$MODE" ]] || [[ "$UPGRADE_ONLY" == "true" ]] || [[ "$RECONFIGURE" == "true" ]] || [[ "$NON_INTERACTIVE" == "true" ]] || [[ -n "$ANSWERS_FD" ]]; then
+        return 0
+    fi
+    local has_panel="false"
+    local has_node="false"
+    [[ -f "$PANEL_ENV" ]] && has_panel="true"
+    [[ -f "$NODE_ENV_FILE" ]] && has_node="true"
+
+    if [[ "$has_panel" != "true" ]] && [[ "$has_node" != "true" ]]; then
+        return 0
+    fi
+
+    local installed_desc=""
+    if [[ "$has_panel" == "true" ]] && [[ "$has_node" == "true" ]]; then
+        installed_desc="Панель + Нода"
+    elif [[ "$has_panel" == "true" ]]; then
+        installed_desc="Только Панель"
+    else
+        installed_desc="Только Нода"
+    fi
+
+    printf '%sОбнаружена существующая установка (%s):%s\n' "$C_YELLOW" "$installed_desc" "$C_RESET" >&2
+    printf '  1) Обновить бинарник и перезапустить службы (конфиги и БД сохранятся)\n' >&2
+    printf '  2) Переустановить / перезаписать конфигурацию\n' >&2
+    printf '  3) Отменить\n' >&2
+    local existing_choice=""
+    existing_choice="$(prompt_line "Выберите действие (1-3)" "1")"
+    case "$existing_choice" in
+        1)
+            UPGRADE_ONLY="true"
+            run_upgrade
+            exit 0
+            ;;
+        2)
+            RECONFIGURE="true"
+            ;;
+        3)
+            log "Установка отменена."
+            exit 0
+            ;;
+        *)
+            die "Неверный выбор: $existing_choice"
+            ;;
+    esac
 }
 
 run_wizard() {
+    check_existing_installation
+
     if [[ -z "$MODE" ]]; then
+        printf '%sВыберите сценарий установки:%s\n' "$C_BOLD" "$C_RESET" >&2
+        printf '  1) Установить панель и локальную ноду на один сервер\n' >&2
+        printf '  2) Установить только панель\n' >&2
+        printf '  3) Установить только ноду\n' >&2
+        printf '  4) Обновить существующую установку\n' >&2
         local choice=""
-        choice="$(prompt_line "Select scenario: 1) Panel + Node (all-in-one)  2) Panel only  3) Node only (pair with panel)  4) Upgrade existing" "1")"
+        choice="$(prompt_line "Ваш выбор (1-4)" "1")"
         case "$choice" in
             1|both) MODE="both" ;;
             2|panel) MODE="panel" ;;
@@ -1415,59 +1871,85 @@ run_wizard() {
                 run_upgrade
                 exit 0
                 ;;
-            *) die "Invalid topology choice: $choice" ;;
+            *) die "Некорректный выбор сценария: $choice" ;;
         esac
     fi
 
     case "$MODE" in
         panel|node|both) ;;
-        *) die "Invalid --mode '$MODE' (expected both, panel, or node)" ;;
+        *) die "Недопустимый --mode '$MODE' (ожидается both, panel или node)" ;;
     esac
 
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
         if [[ "$PROXY_MODE" != "none" ]] && [[ -z "$DOMAIN" ]]; then
-            DOMAIN="$(prompt_line "Panel domain (e.g. panel.example.com, leave empty for plain HTTP :3000)" "")"
+            DOMAIN="$(prompt_line "Домен панели (например, panel.example.com; Enter — без домена, HTTP :3000)" "")"
             if [[ -z "$DOMAIN" ]]; then
                 PROXY_MODE="none"
             fi
         fi
-        if [[ -n "$DOMAIN" ]] && ! validate_domain "$DOMAIN"; then
-            die "Invalid panel domain: $DOMAIN"
+        if [[ -n "$DOMAIN" ]]; then
+            validate_domain "$DOMAIN" || die "Некорректный домен панели: $DOMAIN"
+            if [[ "$PROXY_MODE" == "caddy" ]]; then
+                prompt_dns_warn_continue "$DOMAIN"
+            fi
         fi
+
         if [[ "$PROXY_MODE" != "none" ]] && [[ -z "$SUB_DOMAIN" ]] && [[ "$NON_INTERACTIVE" != "true" ]]; then
-            SUB_DOMAIN="$(prompt_line "Optional separate subscription domain (leave empty to share panel domain)" "")"
+            SUB_DOMAIN="$(prompt_line "Отдельный домен для подписок (необязательно, Enter — общий с панелью)" "")"
         fi
-        if [[ -n "$SUB_DOMAIN" ]] && ! validate_domain "$SUB_DOMAIN"; then
-            die "Invalid subscription domain: $SUB_DOMAIN"
+        if [[ -n "$SUB_DOMAIN" ]]; then
+            validate_domain "$SUB_DOMAIN" || die "Некорректный домен подписок: $SUB_DOMAIN"
+            prompt_dns_warn_continue "$SUB_DOMAIN"
         fi
+
         if [[ "$PROXY_MODE" != "none" ]] && [[ "$TLS_MODE" == "auto" ]] && [[ -z "$EMAIL" ]]; then
-            EMAIL="$(prompt_line "ACME / admin email" "")"
+            EMAIL="$(prompt_line "Email для Let's Encrypt и администратора (необязательно)" "")"
         fi
-        if [[ -z "$ADMIN_PASS" ]] && [[ "$GEN_ADMIN_PASS" != "true" ]] && [[ "$NON_INTERACTIVE" != "true" ]] && [[ ! -f "$ADMIN_CREDS_FILE" ]]; then
+
+        if [[ "$ADMIN_USER_EXPLICIT" != "true" ]] && [[ "$NON_INTERACTIVE" != "true" ]] && { [[ "$RECONFIGURE" == "true" ]] || [[ ! -f "$ADMIN_CREDS_FILE" ]]; }; then
+            ADMIN_USER="$(prompt_line "Логин администратора" "$ADMIN_USER")"
+            [[ -n "$ADMIN_USER" ]] || die "Логин администратора не может быть пустым"
+        fi
+
+        if [[ -z "$ADMIN_PASS" ]] && [[ "$GEN_ADMIN_PASS" != "true" ]] && [[ "$NON_INTERACTIVE" != "true" ]] && { [[ "$RECONFIGURE" == "true" ]] || [[ ! -f "$ADMIN_CREDS_FILE" ]]; }; then
             local p1=""
             local p2=""
-            p1="$(prompt_secret "Admin password (min 12 chars, leave empty to auto-generate)")"
+            p1="$(prompt_secret "Пароль администратора (мин. 12 символов, Enter — сгенерировать автоматически)")"
             if [[ -n "$p1" ]]; then
-                [[ "${#p1}" -ge 12 ]] || die "Admin password must be at least 12 characters"
+                [[ "${#p1}" -ge 12 ]] || die "Пароль администратора должен содержать не менее 12 символов"
                 if [[ -z "$ANSWERS_FD" ]]; then
-                    p2="$(prompt_secret "Confirm admin password")"
-                    [[ "$p1" == "$p2" ]] || die "Admin passwords do not match"
+                    p2="$(prompt_secret "Повторите пароль администратора")"
+                    [[ "$p1" == "$p2" ]] || die "Пароли не совпадают"
                 fi
                 ADMIN_PASS="$p1"
             else
                 GEN_ADMIN_PASS="true"
             fi
         elif [[ -n "$ADMIN_PASS" ]] && [[ "${#ADMIN_PASS}" -lt 12 ]]; then
-            die "Admin password must be at least 12 characters"
+            die "Пароль администратора должен содержать не менее 12 символов"
         fi
 
-        if [[ "$MODE" == "both" ]] && [[ -z "$NODE_DOMAIN" ]] && [[ "$NON_INTERACTIVE" != "true" ]]; then
+        if [[ "$MODE" == "both" ]] && [[ -z "$NODE_DOMAIN" ]]; then
             local det_ip=""
             det_ip="$(detect_public_ipv4)"
-            NODE_DOMAIN="$(prompt_line "Node public domain or IP for proxy clients" "${det_ip:-$DOMAIN}")"
+            local default_node_dom="${DOMAIN:-$det_ip}"
+            if [[ "$NON_INTERACTIVE" != "true" ]]; then
+                NODE_DOMAIN="$(prompt_line "Домен или IP локальной ноды (может совпадать с доменом панели)" "$default_node_dom")"
+            else
+                NODE_DOMAIN="$default_node_dom"
+            fi
+        fi
+        if [[ "$MODE" == "both" ]] && [[ -n "$NODE_DOMAIN" ]] && ! is_ip_addr "$NODE_DOMAIN"; then
+            validate_domain "$NODE_DOMAIN" || die "Некорректный домен ноды: $NODE_DOMAIN"
+            if [[ "$NODE_DOMAIN" != "$DOMAIN" ]] && [[ "$NODE_DOMAIN" != "$SUB_DOMAIN" ]]; then
+                prompt_dns_warn_continue "$NODE_DOMAIN"
+            fi
+            if [[ "$TLS_CERTS_DOMAIN_EXPLICIT" != "true" ]] && [[ -z "$TLS_CERTS_DOMAIN" ]]; then
+                TLS_CERTS_DOMAIN="$NODE_DOMAIN"
+            fi
         fi
         if [[ "$MODE" == "both" ]] && [[ -z "$NODE_NAME" ]] && [[ "$NON_INTERACTIVE" != "true" ]]; then
-            NODE_NAME="$(prompt_line "Local node display name" "$(hostname -s 2>/dev/null || hostname)")"
+            NODE_NAME="$(prompt_line "Имя локальной ноды" "$(hostname -s 2>/dev/null || hostname)")"
         fi
     fi
 
@@ -1475,25 +1957,79 @@ run_wizard() {
         if [[ "$TLS_MODE_EXPLICIT" != "true" ]]; then
             TLS_MODE="none"
         fi
-        if [[ -z "$MASTER_URL" ]]; then
-            MASTER_URL="$(normalize_master_url "$(prompt_line "Master panel URL (e.g. https://panel.example.com)" "")")"
-        fi
-        [[ -n "$MASTER_URL" ]] || die "--master-url is required for --mode node"
 
         if [[ -z "$NODE_DOMAIN" ]]; then
             local det_ip=""
             det_ip="$(detect_public_ipv4)"
-            NODE_DOMAIN="$(prompt_line "This node's public domain or IP" "$det_ip")"
+            NODE_DOMAIN="$(prompt_line "Домен этой ноды (например, node1.example.com) или IP" "$det_ip")"
         fi
-        [[ -n "$NODE_DOMAIN" ]] || die "--node-domain is required for --mode node"
+        [[ -n "$NODE_DOMAIN" ]] || die "Необходимо указать домен или IP ноды (--node-domain)"
+        if ! is_ip_addr "$NODE_DOMAIN"; then
+            validate_domain "$NODE_DOMAIN" || die "Некорректный домен ноды: $NODE_DOMAIN"
+            prompt_dns_warn_continue "$NODE_DOMAIN"
+            if [[ "$TLS_CERTS_DOMAIN_EXPLICIT" != "true" ]] && [[ -z "$TLS_CERTS_DOMAIN" ]]; then
+                TLS_CERTS_DOMAIN="$NODE_DOMAIN"
+            fi
+        fi
+
+        if [[ -z "$MASTER_URL" ]] && [[ -z "$PANEL_IP" ]]; then
+            local panel_input=""
+            panel_input="$(prompt_line "IP-адрес или домен управляющей панели (например, https://panel.example.com или 203.0.113.10)" "")"
+            [[ -n "$panel_input" ]] || die "Необходимо указать IP или адрес управляющей панели"
+            if is_ip_addr "$panel_input"; then
+                PANEL_IP="$panel_input"
+                if [[ "$NON_INTERACTIVE" != "true" ]]; then
+                    local opt_url=""
+                    opt_url="$(prompt_line "URL панели для обратного WSS (например, https://panel.example.com; Enter — только прямой порт ${API_PORT})" "")"
+                    [[ -n "$opt_url" ]] && MASTER_URL="$(normalize_master_url "$opt_url")"
+                fi
+            else
+                MASTER_URL="$(normalize_master_url "$panel_input")"
+                local panel_host=""
+                panel_host="$(extract_host_from_url "$MASTER_URL")"
+                if [[ -n "$panel_host" ]] && ! is_ip_addr "$panel_host"; then
+                    local resolved_panel_ips=""
+                    resolved_panel_ips="$(resolve_domain_a "$panel_host" | paste -sd ',' - || true)"
+                    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+                        if [[ -n "$resolved_panel_ips" ]]; then
+                            local ip_ans=""
+                            ip_ans="$(prompt_line "IP панели для ограничения доступа к порту ${API_PORT} ('any' — без привязки к IP)" "$resolved_panel_ips")"
+                            if [[ "$ip_ans" != "any" ]] && [[ "$ip_ans" != "*" ]]; then
+                                PANEL_IP="$ip_ans"
+                            fi
+                        else
+                            PANEL_IP="$(prompt_line "IP панели для ограничения доступа к порту ${API_PORT} (Enter — принимать с любого IP по секрету)" "")"
+                        fi
+                    fi
+                elif is_ip_addr "$panel_host"; then
+                    PANEL_IP="$panel_host"
+                fi
+            fi
+        elif [[ -n "$MASTER_URL" ]]; then
+            local panel_host=""
+            panel_host="$(extract_host_from_url "$MASTER_URL")"
+            if [[ -z "$PANEL_IP" ]] && is_ip_addr "$panel_host"; then
+                PANEL_IP="$panel_host"
+            fi
+        fi
 
         if [[ -z "$NODE_SECRET" ]]; then
-            NODE_SECRET="$(prompt_secret "Node RPC secret (from Panel -> Nodes -> Add node)")"
+            NODE_SECRET="$(prompt_secret "Секрет ноды (NODE_SECRET из панели, 16–256 символов)")"
         fi
-        [[ -n "$NODE_SECRET" ]] || die "--node-secret is required for --mode node"
+        [[ -n "$NODE_SECRET" ]] || die "Необходимо указать секрет ноды (--node-secret)"
+        validate_node_secret "$NODE_SECRET" || die "Секрет ноды должен быть длиной от 16 до 256 символов без пробелов"
 
-        if is_ip_addr "$NODE_DOMAIN" && { [[ "$TLS_MODE" == "auto" ]] || [[ "$TLS_MODE" == "port2087" ]]; }; then
-            warn "Node host '${NODE_DOMAIN}' is an IP address; switching --tls-mode to 'none' (port :${API_PORT}, port 443 free)."
+        if [[ "$API_PORT_EXPLICIT" != "true" ]] && [[ "$NON_INTERACTIVE" != "true" ]]; then
+            API_PORT="$(prompt_line "Порт управления нодой" "$API_PORT")"
+        fi
+        validate_port "$API_PORT" || die "Некорректный порт управления: $API_PORT"
+
+        if [[ -z "$NODE_NAME" ]] && [[ "$NON_INTERACTIVE" != "true" ]]; then
+            NODE_NAME="$(prompt_line "Имя ноды" "$(hostname -s 2>/dev/null || hostname)")"
+        fi
+
+        if is_ip_addr "$NODE_DOMAIN" && { [[ "$TLS_MODE" == "auto" ]] || [[ "$TLS_MODE" == "port2222" ]] || [[ "$TLS_MODE" == "port2087" ]]; }; then
+            warn "Адрес ноды '${NODE_DOMAIN}' является IP; переключаю --tls-mode на 'none' (порт :${API_PORT}, :443 свободен)."
             TLS_MODE="none"
         fi
     fi
@@ -1516,28 +2052,29 @@ run_wizard() {
 }
 
 run_upgrade() {
-    log "Running upgrade..."
-    command -v curl >/dev/null 2>&1 || install_base_packages
+    step "Обновление mypanel3"
+    ensure_curl
     install_binary
     if [[ -f "$PANEL_ENV" ]]; then
-        log "Running database migrations..."
+        log "Применяю миграции базы данных..."
         "$BIN_DEST" --env-file "$PANEL_ENV" migrate
     fi
     if systemctl list-unit-files | grep -q '^mypanel3\.service'; then
         systemctl restart mypanel3
+        ok "Служба mypanel3 перезапущена"
     fi
     if systemctl list-unit-files | grep -q '^mypanel3-agent\.service'; then
         systemctl restart mypanel3-agent
+        ok "Служба mypanel3-agent перезапущена"
     fi
-    log "Upgrade complete."
+    ok "Обновление завершено."
 }
 
 verify_installation() {
-    local ok=true
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
-        log "Verifying panel health endpoint (http://127.0.0.1:3000/api/health)..."
+        log "Проверяю доступность панели (http://127.0.0.1:3000/api/health)..."
         local ready="false"
-        for _ in $(seq 1 15); do
+        for _ in $(seq 1 20); do
             if curl -fsS http://127.0.0.1:3000/api/health 2>/dev/null | grep -q '"ok"'; then
                 ready="true"
                 break
@@ -1545,10 +2082,11 @@ verify_installation() {
             sleep 1
         done
         if [[ "$ready" == "true" ]]; then
-            log "Panel healthcheck: OK"
+            PANEL_STATUS="ONLINE (active)"
+            ok "Панель отвечает и готова к работе"
         else
-            warn "Panel did not report ready within 15s (check: journalctl -u mypanel3 -n 50)"
-            ok=false
+            PANEL_STATUS="DEGRADED (check journalctl -u mypanel3)"
+            warn "Панель не ответила за 20с (проверьте: journalctl -u mypanel3 -n 50)"
         fi
     fi
 
@@ -1556,81 +2094,126 @@ verify_installation() {
         local check_port="$AGENT_WORKER_PORT"
         local node_sec=""
         node_sec="$(read_existing_env "$NODE_ENV_FILE" "NODE_RPC_SECRET")"
-        log "Verifying node worker agent (http://127.0.0.1:${check_port}/api/status)..."
+        log "Проверяю агент ноды (http://127.0.0.1:${check_port}/api/status)..."
         local agent_ready="false"
         for _ in $(seq 1 15); do
-            if curl -fsS -H "Authorization: Bearer ${node_sec}" "http://127.0.0.1:${check_port}/api/status" >/dev/null 2>&1; then
+            if curl -fsS \
+                -H "Authorization: Bearer ${node_sec}" \
+                -H "X-Node-Secret: ${node_sec}" \
+                "http://127.0.0.1:${check_port}/api/status" >/dev/null 2>&1; then
                 agent_ready="true"
                 break
             fi
             sleep 1
         done
         if [[ "$agent_ready" == "true" ]]; then
-            log "Node worker agent: OK"
+            AGENT_STATUS="active (порт ${API_PORT} готов к приёму команд)"
+            ok "Агент ноды активен и готов к приёму команд"
         else
-            warn "Node agent did not report ready within 15s (check: journalctl -u mypanel3-agent -n 50)"
-            ok=false
+            AGENT_STATUS="degraded (check journalctl -u mypanel3-agent)"
+            warn "Агент ноды не ответил за 15с (проверьте: journalctl -u mypanel3-agent -n 50)"
         fi
     fi
-
-    [[ "$ok" == "true" ]] || true
 }
 
 print_summary() {
-    printf '\n'
-    log "Installation complete (${MODE})."
-    printf '------------------------------------------------------------\n'
+    local panel_url=""
+    if [[ "$PROXY_MODE" == "caddy" ]] && [[ -n "$DOMAIN" ]]; then
+        panel_url="https://${DOMAIN}"
+    else
+        local pub=""
+        pub="$(detect_public_ipv4)"
+        panel_url="http://${pub:-127.0.0.1}:3000"
+    fi
+
+    printf '\n%s%s' "$C_BOLD" "$C_GREEN"
+    printf '╔══════════════════════════════════════════════════════════════════════╗\n'
+    case "$MODE" in
+        both)  printf '║  ✓ Установка завершена: Панель + Локальная Нода                      ║\n' ;;
+        panel) printf '║  ✓ Установка завершена: Только Панель                                ║\n' ;;
+        node)  printf '║  ✓ Установка завершена: Внешняя Нода                                 ║\n' ;;
+    esac
+    printf '╠══════════════════════════════════════════════════════════════════════╣%s\n' "$C_RESET"
+
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
-        if [[ "$PROXY_MODE" == "caddy" ]] && [[ -n "$DOMAIN" ]]; then
-            printf '  Panel URL:        https://%s\n' "$DOMAIN"
-            if [[ -n "$SUB_DOMAIN" ]]; then
-                printf '  Subscription URL: https://%s\n' "$SUB_DOMAIN"
-            fi
-        else
-            printf '  Panel URL:        http://127.0.0.1:3000\n'
+        printf '%s║%s  %sURL панели:%s          %s%s%s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_CYAN" "$panel_url" "$C_RESET"
+        if [[ -n "$SUB_DOMAIN" ]] && [[ "$PROXY_MODE" == "caddy" ]]; then
+            printf '%s║%s  %sURL подписок:%s        https://%s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$SUB_DOMAIN"
         fi
-        printf '  Credentials file: %s\n' "$ADMIN_CREDS_FILE"
         if [[ -f "$ADMIN_CREDS_FILE" ]]; then
-            local u p
+            local u="" p=""
             u="$(grep '^username=' "$ADMIN_CREDS_FILE" | cut -d'=' -f2- || true)"
             p="$(grep '^password=' "$ADMIN_CREDS_FILE" | cut -d'=' -f2- || true)"
-            printf '  Admin login:      %s / %s\n' "$u" "$p"
+            printf '%s║%s  %sЛогин админа:%s        %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$u"
+            printf '%s║%s  %sПароль админа:%s       %s%s%s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_YELLOW" "$p" "$C_RESET"
         fi
-        printf '  Panel env:        %s\n' "$PANEL_ENV"
+        printf '%s║%s  %sСтатус панели:%s       %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$PANEL_STATUS"
+        printf '%s║%s  %sКонфиг панели:%s       %s (учётные данные: %s)\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$PANEL_ENV" "$ADMIN_CREDS_FILE"
     fi
+
     if [[ "$MODE" == "node" ]] || [[ "$MODE" == "both" ]]; then
         local node_sec=""
         node_sec="$(read_existing_env "$NODE_ENV_FILE" "NODE_RPC_SECRET")"
-        printf '  Node env:         %s\n' "$NODE_ENV_FILE"
-        printf '  Node host/name:   %s (%s)\n' "$NODE_DOMAIN" "$NODE_NAME"
-        printf '  Agent API port:   %s (tls-mode=%s)\n' "$AGENT_WORKER_PORT" "$TLS_MODE"
-        if [[ "$MODE" == "both" ]]; then
-            if [[ "$SNI_MUX" == "true" ]]; then
-                printf '  SNI Multiplexer:  HAProxy %s:443 -> Panel (Caddy :9443) + Xray (:443)\n' "${PUBLIC_IP}"
-            fi
-            printf '  Local node:       Auto-registered in DB (host=%s, apiPort=%s, secret=%s)\n' \
-                "$NODE_DOMAIN" "$AGENT_WORKER_PORT" "$node_sec"
-        else
-            printf '  Master Panel:     %s (connecting over outbound WSS)\n' "$MASTER_URL"
-            printf '  Port 443 status:  %s\n' "$( [[ "$TLS_MODE" == "none" || "$TLS_MODE" == "port2087" ]] && echo 'FREE for VLESS Reality / proxy inbounds' || echo 'Used by Caddy' )"
+        printf '%s║%s  %sСтатус службы ноды:%s  %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$AGENT_STATUS"
+        printf '%s║%s  %sДомен / Хост ноды:%s   %s (%s)\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_DOMAIN" "$NODE_NAME"
+        printf '%s║%s  %sПорт управления:%s     %s/tcp (tls-mode=%s)\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$API_PORT" "$TLS_MODE"
+        if [[ -n "$PANEL_IP" ]]; then
+            printf '%s║%s  %sРазрешённый IP панели:%s %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$PANEL_IP"
         fi
-        printf '  Proxy cores:\n'
+        if [[ -n "$MASTER_URL" ]] && [[ "$MODE" == "node" ]]; then
+            printf '%s║%s  %sУправляющая панель:%s  %s (WSS /ws/worker)\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$MASTER_URL"
+        fi
+        if [[ "$MODE" == "both" ]]; then
+            printf '%s║%s  %sЛокальная нода в БД:%s %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$LOCAL_NODE_STATUS"
+            if [[ "$SNI_MUX" == "true" ]]; then
+                printf '%s║%s  %sSNI Multiplexer:%s     HAProxy %s:443 -> Caddy :9443 + Xray :443\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "${PUBLIC_IP}"
+            fi
+        fi
+        if [[ -f "${NODE_TLS_DIR}/fullchain.pem" ]]; then
+            printf '%s║%s  %sTLS-сертификаты:%s     %s/{fullchain.pem,privkey.pem}\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_TLS_DIR"
+        fi
+        printf '%s║%s  %sПрокси-ядра:%s         ' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET"
+        local b=""
         for b in xray sing-box caddy-naive mita; do
             if [[ -x "/usr/local/bin/${b}" ]]; then
-                printf '    - %-12s /usr/local/bin/%s [OK]\n' "$b" "$b"
+                printf '%s[OK] ' "$b"
             else
-                printf '    - %-12s not installed\n' "$b"
+                printf '%s[нет] ' "$b"
             fi
         done
+        printf '\n'
+        printf '%s║%s  %sКонфиг ноды:%s         %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_ENV_FILE"
+        if [[ "$MODE" == "both" ]]; then
+            printf '%s║%s  %sСекрет лок. ноды:%s    %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$node_sec"
+        fi
     fi
-    printf '  Logs:             journalctl -u mypanel3 -f | journalctl -u mypanel3-agent -f\n'
-    printf '------------------------------------------------------------\n\n'
+
+    printf '%s║%s  %sФаервол UFW:%s         %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$UFW_STATUS"
+
+    if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
+        printf '%s╠══════════════════════════════════════════════════════════════════════╣\n' "$C_GREEN"
+        printf '║%s  %sПодключение внешней ноды:%s\n' "$C_RESET" "$C_BOLD" "$C_RESET"
+        printf '%s║%s  1. Откройте %s%s%s -> Ноды -> Добавить ноду (порт %s2222%s).\n' "$C_GREEN" "$C_RESET" "$C_CYAN" "$panel_url" "$C_RESET" "$C_BOLD" "$C_RESET"
+        printf '%s║%s  2. Скопируйте %sNODE_SECRET%s и на новом VPS выполните:\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET"
+        printf '%s║%s     bash <(curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh)\n' "$C_GREEN" "$C_RESET" "$GITHUB_REPO"
+        printf '%s║%s     и выберите пункт 3 («Установить только ноду»).\n' "$C_GREEN" "$C_RESET"
+    else
+        printf '%s╠══════════════════════════════════════════════════════════════════════╣\n' "$C_GREEN"
+        printf '║%s  %s✓ Нода запущена и готова принимать команды от панели на порту %s!%s\n' "$C_RESET" "$C_GREEN" "$API_PORT" "$C_RESET"
+    fi
+
+    printf '%s║%s  %sЛоги:%s                journalctl -u mypanel3 -f | journalctl -u mypanel3-agent -f\n' "$C_GREEN" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf '%s╚══════════════════════════════════════════════════════════════════════╝%s\n\n' "$C_GREEN" "$C_RESET"
 }
 
 main() {
+    init_colors
     parse_args "$@"
     check_root
     check_os_and_arch
+    ensure_curl
+    detect_public_ipv4 >/dev/null || true
+    print_banner
 
     if [[ "$UPGRADE_ONLY" == "true" ]]; then
         run_upgrade
@@ -1639,12 +2222,17 @@ main() {
 
     init_answers_fd
     run_wizard
+
+    step "1/6 Подготовка системы и пакетов"
     ensure_swap
     install_base_packages
-    install_binary
     configure_bbr
 
+    step "2/6 Установка бинарника mypanel3"
+    install_binary
+
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
+        step "3/6 Проверка портов, PostgreSQL и миграции"
         check_port_free 5432 postgres
         check_port_free 3000 mypanel3
         if [[ "$PROXY_MODE" == "caddy" ]] && [[ -n "$DOMAIN" ]]; then
@@ -1653,34 +2241,38 @@ main() {
                 check_port_free 9443 caddy
             fi
             check_port_free 443 caddy
-            check_dns_record "$DOMAIN"
-            [[ -n "$SUB_DOMAIN" ]] && check_dns_record "$SUB_DOMAIN"
         fi
         install_postgres
         ensure_panel_user_and_dirs
         setup_postgres_db
         write_panel_env
-        log "Running database migrations..."
+        log "Применяю миграции базы данных..."
         "$BIN_DEST" --env-file "$PANEL_ENV" migrate
         bootstrap_admin
+    else
+        step "3/6 Проверка конфигурации ноды"
     fi
 
     if [[ "$MODE" == "node" ]] || [[ "$MODE" == "both" ]]; then
+        step "4/6 Установка прокси-ядер и конфигурации ноды"
         install_proxy_cores
         write_node_env
         check_port_free "$AGENT_WORKER_PORT" mypanel3
         if [[ "$MODE" == "node" ]]; then
-            if [[ "$TLS_MODE" == "port2087" ]]; then
+            if [[ "$TLS_MODE" == "port2222" ]] || [[ "$TLS_MODE" == "port2087" ]]; then
                 check_port_free 80 caddy
                 check_port_free "$API_PORT" caddy
-                check_dns_record "$NODE_DOMAIN"
             elif [[ "$TLS_MODE" == "auto" ]] || [[ "$TLS_MODE" == "internal" ]]; then
                 check_port_free 80 caddy
                 check_port_free 443 caddy
-                check_dns_record "$NODE_DOMAIN"
             fi
         fi
+    else
+        step "4/6 Пропуск установки прокси-ядер (режим panel)"
     fi
+
+    step "5/6 Настройка фаервола (UFW) и TLS / Reverse Proxy"
+    configure_firewall
 
     if [[ "$MODE" == "both" ]] && [[ "$SNI_MUX" == "true" ]] && [[ -n "$DOMAIN" ]]; then
         configure_sni_mux_both
@@ -1696,14 +2288,17 @@ main() {
         issue_inbound_tls_certs
     fi
 
+    step "6/6 Запуск служб systemd и проверка"
     register_local_node_in_db
     install_systemd_units
 
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
         systemctl enable --now mypanel3
+        systemctl restart mypanel3
     fi
     if [[ "$MODE" == "node" ]] || [[ "$MODE" == "both" ]]; then
         systemctl enable --now mypanel3-agent
+        systemctl restart mypanel3-agent
     fi
 
     verify_installation

@@ -86,12 +86,17 @@ pub async fn run(cfg: AgentConfig) -> Result<()> {
         tracing::warn!(error = %err, "Cold-start desired_config.json restore failed");
     }
 
-    let state = api::ApiState::new(pm.clone(), http_client.clone(), cfg.node_secret.clone());
+    let state = api::ApiState::new(pm.clone(), http_client.clone(), cfg.node_secret.clone())
+        .with_allowed_panel_ips(cfg.allowed_panel_ips.clone());
     let router = api::build_router(state);
 
     let bind_addr = format!("{}:{}", cfg.worker_host, cfg.worker_port);
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-    tracing::info!(addr = %bind_addr, "mypanel-agent HTTP API listening");
+    tracing::info!(
+        addr = %bind_addr,
+        allowed_panel_ips = cfg.allowed_panel_ips.len(),
+        "mypanel-agent HTTP API listening"
+    );
 
     let cancel = CancellationToken::new();
     let master_handle = if !cfg.master_url.is_empty() {
@@ -109,11 +114,14 @@ pub async fn run(cfg: AgentConfig) -> Result<()> {
 
     let server_cancel = cancel.clone();
     let server_task = tokio::spawn(async move {
-        let _ = axum::serve(listener, router)
-            .with_graceful_shutdown(async move {
-                server_cancel.cancelled().await;
-            })
-            .await;
+        let _ = axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
+            server_cancel.cancelled().await;
+        })
+        .await;
     });
 
     wait_for_shutdown_signal().await;
