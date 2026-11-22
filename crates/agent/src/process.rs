@@ -557,11 +557,49 @@ impl ProcessManager {
                         vec![
                             ("MITA_CONFIG_JSON_FILE".to_string(), path_str.clone()),
                             ("MITA_LOG_NO_TIMESTAMP".to_string(), "true".to_string()),
-                            ("MIERU_CONF_FILE".to_string(), path_str),
+                            ("MIERU_CONF_FILE".to_string(), path_str.clone()),
                         ],
                     )
                     .await?;
                 self.mieru_procs.insert(ib.id.clone(), child);
+
+                // Wait briefly for /var/run/mita/mita.sock to be ready, then run
+                // `mita replace config <path>` and `mita reload` so Mieru hashes user passwords
+                // into `hashedPassword` and removes any deleted users from its state.
+                let sock_path = Path::new("/var/run/mita/mita.sock");
+                for _ in 0..40 {
+                    if tokio::fs::metadata(sock_path).await.is_ok() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                let mut replace_cmd = Command::new(&self.config.mieru_bin);
+                replace_cmd
+                    .args(["replace", "config", &path_str])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                if let Ok(Ok(out)) =
+                    tokio::time::timeout(Duration::from_secs(5), replace_cmd.output()).await
+                {
+                    if !out.status.success() {
+                        let err_msg = String::from_utf8_lossy(&out.stderr);
+                        self.logs
+                            .push(
+                                "mieru",
+                                "warn",
+                                format!("mita replace config exited with {}: {}", out.status, err_msg.trim()),
+                            )
+                            .await;
+                    }
+                }
+                let mut reload_cmd = Command::new(&self.config.mieru_bin);
+                reload_cmd
+                    .args(["reload"])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                let _ = tokio::time::timeout(Duration::from_secs(5), reload_cmd.output()).await;
             }
         }
 
@@ -841,7 +879,7 @@ impl ProcessManager {
                 continue;
             };
             let mut cmd = Command::new(&self.config.mieru_bin);
-            cmd.args(["get", "metrics", "--format", "json"])
+            cmd.args(["get", "metrics"])
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())

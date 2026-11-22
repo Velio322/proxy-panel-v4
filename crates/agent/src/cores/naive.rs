@@ -138,6 +138,9 @@ pub fn generate_caddyfile(
         format!("  tls {}", caddy_token(&email)?)
     };
 
+    let proto = str_or_empty(&inbound.settings, "proto").to_ascii_lowercase();
+    let enable_h3 = matches!(proto.as_str(), "quic" | "both" | "h3");
+
     let mut out = String::new();
     out.push_str("{\n");
     out.push_str("  admin off\n");
@@ -146,13 +149,26 @@ pub fn generate_caddyfile(
     }
     out.push_str("  order forward_proxy before file_server\n");
     out.push_str("  servers {\n");
-    out.push_str("    protocols h1 h2 h3\n");
+    if enable_h3 {
+        out.push_str("    protocols h1 h2 h3\n");
+    } else {
+        out.push_str("    protocols h1 h2\n");
+    }
+    out.push_str("    timeouts {\n");
+    out.push_str("      read_body   0s\n");
+    out.push_str("      read_header 30s\n");
+    out.push_str("      write       0s\n");
+    out.push_str("      idle        5m\n");
+    out.push_str("    }\n");
     out.push_str("  }\n");
     out.push_str("}\n\n");
 
     out.push_str(&format!(":{}, {} {{\n", inbound.port, q_domain));
     out.push_str(&format!("  bind {q_listen}\n"));
     out.push_str(&format!("{tls_line}\n\n"));
+    if !enable_h3 {
+        out.push_str("  header -Alt-Svc\n\n");
+    }
 
     out.push_str("  log {\n");
     out.push_str(&format!("    output file {q_log_path} {{\n"));
@@ -177,6 +193,10 @@ pub fn generate_caddyfile(
     if probe_resistance {
         out.push_str("    probe_resistance\n");
     }
+    out.push_str("    acl {\n");
+    out.push_str("      deny 127.0.0.0/8 ::1/128 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 localhost\n");
+    out.push_str("      allow all\n");
+    out.push_str("    }\n");
     if !warp_upstream.is_empty() {
         out.push_str(&format!("    upstream {}\n", caddy_token(warp_upstream)?));
     }

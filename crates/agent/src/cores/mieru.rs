@@ -1,7 +1,18 @@
 use crate::cores::{extract_protocol_users, safe_id, str_or_empty, validate_inbound, CoreUser};
 use mypanel_proto::{InboundConfig, Protocol};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+
+/// Computes Mieru's `hashedPassword` (`hex(SHA-256(password || 0x00 || username))`),
+/// matching `github.com/enfein/mieru/v3/pkg/cipher.HashPassword`.
+pub fn hash_mieru_password(username: &str, password: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(username.as_bytes());
+    hex::encode(hasher.finalize())
+}
 
 /// Returns `<CONFIG_DIR>/mieru-<safe_id>.json`.
 pub fn mieru_config_path(config_dir: &Path, inbound_id: &str) -> Result<PathBuf, String> {
@@ -93,9 +104,11 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<Value, String> {
     let user_vals: Vec<Value> = users
         .into_iter()
         .map(|u| {
+            let hashed = hash_mieru_password(&u.name, &u.password);
             json!({
                 "name": u.name,
-                "password": u.password
+                "password": u.password,
+                "hashedPassword": hashed
             })
         })
         .collect();
@@ -109,10 +122,18 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<Value, String> {
         }
     };
 
+    let mtu = inbound
+        .settings
+        .get("mtu")
+        .and_then(Value::as_u64)
+        .filter(|&m| (1280..=1500).contains(&m))
+        .unwrap_or(1400);
+
     Ok(json!({
         "portBindings": bindings,
         "users": user_vals,
-        "loggingLevel": logging_level
+        "loggingLevel": logging_level,
+        "mtu": mtu
     }))
 }
 

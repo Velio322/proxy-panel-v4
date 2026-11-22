@@ -1911,38 +1911,35 @@ pub fn mieru_link(e: &SubEntry) -> Result<String, SubError> {
         .filter(|s| !s.is_empty())
         .unwrap_or(&e.tag);
 
-    let mut params: Vec<(&'static str, String)> = vec![("profile", profile.to_string())];
-    if let Some(bindings) = cfg
-        .pointer("/profiles/0/servers/0/portBindings")
-        .and_then(Value::as_array)
-    {
-        for b in bindings {
-            let port_spec = b
-                .get("portRange")
-                .and_then(Value::as_str)
-                .map(ToString::to_string)
-                .or_else(|| b.get("port").and_then(Value::as_u64).map(|p| p.to_string()));
-            let proto = b
-                .get("protocol")
-                .and_then(Value::as_str)
-                .unwrap_or("TCP");
-            if let Some(ps) = port_spec {
-                params.push(("port", ps));
-                params.push(("protocol", proto.to_string()));
-            }
-        }
-    }
-    if params.len() == 1 {
-        params.push(("port", e.port.to_string()));
-        params.push(("protocol", "TCP".to_string()));
-    }
+    let mut params: Vec<(&'static str, String)> = vec![
+        ("profile", profile.to_string()),
+        ("mtu", "1400".to_string()),
+        ("multiplexing", "MULTIPLEXING_LOW".to_string()),
+    ];
+    let transport = e
+        .mieru_transport
+        .as_deref()
+        .unwrap_or("tcp")
+        .trim()
+        .to_ascii_lowercase();
+    let link_proto = if transport == "udp" { "UDP" } else { "TCP" };
+    let port_spec = e
+        .mieru_port_range
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| e.port.to_string());
+    params.push(("port", port_spec));
+    params.push(("protocol", link_proto.to_string()));
     let qs = form_urlencode(&params);
 
     Ok(format!(
-        "mierus://{}:{}@{}?{qs}",
+        "mierus://{}:{}@{}?{qs}#{}",
         encode_uri_component(&e.username),
         encode_uri_component(&e.password),
         bracket_host(domain),
+        encode_uri_component(profile),
     ))
 }
 
