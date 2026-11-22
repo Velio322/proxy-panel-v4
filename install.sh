@@ -64,6 +64,12 @@ PANEL_STATUS="not-installed"
 AGENT_STATUS="not-installed"
 LOCAL_NODE_STATUS="not-configured"
 UFW_STATUS="skipped"
+PANEL_VERIFIED="false"
+NODE_VERIFIED="false"
+NODE_VERIFY_ERRORS=()
+NODE_PANEL_LINK_STATUS="not-checked"
+PANEL_CHECK_ERROR=""
+PANEL_CHECK_REASON=""
 
 TMP_DIRS=()
 make_tmp_dir() {
@@ -173,7 +179,7 @@ usage() {
   --api-port <PORT>             Порт управления нодой (по умолчанию: 2222)
   --tls-mode <none|port2222|auto|internal>
                                 Транспорт API ноды (по умолчанию для node: none на :2222, :443 свободен;
-                                port2222/port2087 — Caddy HTTPS на порту API -> loopback)
+                                port2222 — Caddy HTTPS на порту API -> loopback)
   --tls-certs-domain <DOMAIN>   Выпустить Let's Encrypt сертификаты в /etc/mypanel3-node/tls
   --cores <all|list|none>       Прокси-ядра: xray,singbox,naive,mieru (по умолчанию: all)
   --skip-cores                  Синоним --cores none
@@ -192,6 +198,10 @@ trim_ws() {
     v="${v#"${v%%[![:space:]]*}"}"
     v="${v%"${v##*[![:space:]]}"}"
     printf '%s' "$v"
+}
+
+sanitize_secret() {
+    printf '%s' "$1" | tr -d '[:space:]'
 }
 
 normalize_master_url() {
@@ -313,7 +323,7 @@ parse_args() {
                 ;;
             --node-secret)
                 [[ $# -ge 2 ]] || die "--node-secret требует значение"
-                NODE_SECRET="$2"
+                NODE_SECRET="$(sanitize_secret "$2")"
                 shift 2
                 ;;
             --node-id)
@@ -486,6 +496,82 @@ prompt_confirm() {
     esac
 }
 
+prompt_node_secret_visible() {
+    local allow_keep_current="${1:-false}"
+
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        NODE_SECRET="$(sanitize_secret "$NODE_SECRET")"
+        [[ -n "$NODE_SECRET" ]] || die "Необходимо указать секрет ноды (--node-secret)"
+        validate_node_secret "$NODE_SECRET" || die "Секрет ноды должен быть длиной от 16 до 256 печатных ASCII-символов без пробелов"
+        return 0
+    fi
+
+    while true; do
+        local raw_val=""
+        if [[ -n "$ANSWERS_FD" ]]; then
+            if ! IFS= read -r -u "$ANSWERS_FD" raw_val; then
+                die "Недостаточно строк в --answers для секрета ноды (NODE_SECRET)"
+            fi
+        else
+            if [[ "$allow_keep_current" == "true" ]] && validate_node_secret "$NODE_SECRET"; then
+                printf '%sСекрет ноды (NODE_SECRET из панели, ввод видимый; Enter — оставить текущий [%s симв.]): %s' \
+                    "$C_BOLD" "${#NODE_SECRET}" "$C_RESET" >&2
+            else
+                printf '%sСекрет ноды (NODE_SECRET из панели, 16–256 симв., ввод видимый): %s' \
+                    "$C_BOLD" "$C_RESET" >&2
+            fi
+            if [[ ! -t 0 ]] && [[ -r /dev/tty ]]; then
+                IFS= read -r raw_val </dev/tty || raw_val=""
+            else
+                IFS= read -r raw_val || raw_val=""
+            fi
+        fi
+
+        local raw_no_cr="${raw_val%$'\r'}"
+        local cleaned=""
+        cleaned="$(sanitize_secret "$raw_val")"
+
+        if [[ -n "$cleaned" ]] && [[ "$cleaned" != "$raw_no_cr" ]]; then
+            warn "Из введённого секрета автоматически удалены пробелы/переносы строк."
+        fi
+
+        if [[ -z "$cleaned" ]]; then
+            if [[ "$allow_keep_current" == "true" ]] && validate_node_secret "$NODE_SECRET"; then
+                ok "Оставлен текущий секрет ноды (длина: ${#NODE_SECRET} симв.)."
+                return 0
+            fi
+            warn "Секрет ноды не может быть пустым. Скопируйте NODE_SECRET из веб-интерфейса панели (Ноды -> Добавить ноду) и вставьте снова."
+            continue
+        fi
+
+        if [[ "${#cleaned}" -lt 16 ]]; then
+            warn "Секрет ноды слишком короткий (${#cleaned} симв., минимум 16). Проверьте, что токен не обрезался при вставке."
+            continue
+        fi
+
+        if [[ "${#cleaned}" -gt 256 ]]; then
+            warn "Секрет ноды слишком длинный (${#cleaned} симв., максимум 256). Проверьте, что токен не вставился дважды."
+            continue
+        fi
+
+        if ! validate_node_secret "$cleaned"; then
+            warn "Секрет ноды содержит недопустимые символы (допускаются только печатные ASCII-символы без пробелов)."
+            continue
+        fi
+
+        if is_likely_duplicated_secret "$cleaned" && [[ -z "$ANSWERS_FD" ]]; then
+            warn "Внимание: первая и вторая половины токена совпадают (длина ${#cleaned} симв.) — возможно, он вставился из буфера дважды!"
+            if ! prompt_confirm "Всё равно использовать именно этот токен?" "N"; then
+                continue
+            fi
+        fi
+
+        NODE_SECRET="$cleaned"
+        ok "Секрет ноды принят (длина: ${#NODE_SECRET} симв.)."
+        return 0
+    done
+}
+
 check_root() {
     if [[ "$(id -u)" -ne 0 ]]; then
         printf '%s[ERROR]%s Скрипт должен запускаться с правами root.\n' "$C_RED" "$C_RESET" >&2
@@ -589,7 +675,24 @@ validate_port() {
 
 validate_node_secret() {
     local s="$1"
-    [[ "${#s}" -ge 16 ]] && [[ "${#s}" -le 256 ]] && [[ ! "$s" =~ [[:space:]] ]]
+    [[ -n "$s" ]] || return 1
+    [[ "${#s}" -ge 16 ]] && [[ "${#s}" -le 256 ]] || return 1
+    [[ ! "$s" =~ [[:space:]] ]] || return 1
+    local ascii_only=""
+    ascii_only="$(printf '%s' "$s" | LC_ALL=C tr -dc '!-~')"
+    [[ "$ascii_only" == "$s" ]]
+}
+
+is_likely_duplicated_secret() {
+    local s="$1"
+    local len="${#s}"
+    if [[ "$len" -ge 32 ]] && (( len % 2 == 0 )); then
+        local half=$(( len / 2 ))
+        if [[ "${s:0:half}" == "${s:half:half}" ]]; then
+            return 0
+        fi
+    fi
+    return 1
 }
 
 resolve_domain_a() {
@@ -1297,7 +1400,7 @@ write_node_env() {
                 AGENT_WORKER_HOST="0.0.0.0"
                 AGENT_WORKER_PORT="$API_PORT"
                 ;;
-            port2222|port2087)
+            port2222)
                 AGENT_WORKER_HOST="127.0.0.1"
                 AGENT_WORKER_PORT="$((API_PORT + 1))"
                 ;;
@@ -1549,7 +1652,7 @@ write_caddy_config() {
     {
         printf '{\n'
         [[ -n "$EMAIL" ]] && [[ "$TLS_MODE" != "internal" ]] && printf '\temail %s\n' "$EMAIL"
-        if [[ "$MODE" == "node" ]] && { [[ "$TLS_MODE" == "port2222" ]] || [[ "$TLS_MODE" == "port2087" ]]; }; then
+        if [[ "$MODE" == "node" ]] && [[ "$TLS_MODE" == "port2222" ]]; then
             printf '\thttps_port %s\n' "$API_PORT"
         fi
         printf '}\n\n'
@@ -1599,7 +1702,7 @@ EOF
         if [[ "$TLS_MODE" == "internal" ]]; then
             node_tls_directive=$'\ttls internal\n'
         fi
-        if [[ "$TLS_MODE" == "port2222" ]] || [[ "$TLS_MODE" == "port2087" ]]; then
+        if [[ "$TLS_MODE" == "port2222" ]]; then
             cat >> "$CADDY_FILE" <<EOF
 https://${NODE_DOMAIN}:${API_PORT} {
 	reverse_proxy 127.0.0.1:${AGENT_WORKER_PORT} {
@@ -1980,7 +2083,7 @@ run_wizard() {
                 PANEL_IP="$panel_input"
                 if [[ "$NON_INTERACTIVE" != "true" ]]; then
                     local opt_url=""
-                    opt_url="$(prompt_line "URL панели для обратного WSS (например, https://panel.example.com; Enter — только прямой порт ${API_PORT})" "")"
+                    opt_url="$(prompt_line "URL панели для проверки NODE_SECRET и WSS (например, https://panel.example.com или http://${PANEL_IP}:3000; Enter — пропустить)" "")"
                     [[ -n "$opt_url" ]] && MASTER_URL="$(normalize_master_url "$opt_url")"
                 fi
             else
@@ -2013,11 +2116,19 @@ run_wizard() {
             fi
         fi
 
-        if [[ -z "$NODE_SECRET" ]]; then
-            NODE_SECRET="$(prompt_secret "Секрет ноды (NODE_SECRET из панели, 16–256 символов)")"
+        if [[ -n "$NODE_SECRET" ]]; then
+            NODE_SECRET="$(sanitize_secret "$NODE_SECRET")"
+            if ! validate_node_secret "$NODE_SECRET"; then
+                warn "Переданный --node-secret некорректен (длина ${#NODE_SECRET} симв.; требуется 16–256 печатных ASCII-символов без пробелов)."
+                if [[ "$NON_INTERACTIVE" == "true" ]]; then
+                    die "Некорректный --node-secret"
+                fi
+                NODE_SECRET=""
+            fi
         fi
-        [[ -n "$NODE_SECRET" ]] || die "Необходимо указать секрет ноды (--node-secret)"
-        validate_node_secret "$NODE_SECRET" || die "Секрет ноды должен быть длиной от 16 до 256 символов без пробелов"
+        if [[ -z "$NODE_SECRET" ]]; then
+            prompt_node_secret_visible "false"
+        fi
 
         if [[ "$API_PORT_EXPLICIT" != "true" ]] && [[ "$NON_INTERACTIVE" != "true" ]]; then
             API_PORT="$(prompt_line "Порт управления нодой" "$API_PORT")"
@@ -2028,7 +2139,7 @@ run_wizard() {
             NODE_NAME="$(prompt_line "Имя ноды" "$(hostname -s 2>/dev/null || hostname)")"
         fi
 
-        if is_ip_addr "$NODE_DOMAIN" && { [[ "$TLS_MODE" == "auto" ]] || [[ "$TLS_MODE" == "port2222" ]] || [[ "$TLS_MODE" == "port2087" ]]; }; then
+        if is_ip_addr "$NODE_DOMAIN" && { [[ "$TLS_MODE" == "auto" ]] || [[ "$TLS_MODE" == "port2222" ]]; }; then
             warn "Адрес ноды '${NODE_DOMAIN}' является IP; переключаю --tls-mode на 'none' (порт :${API_PORT}, :443 свободен)."
             TLS_MODE="none"
         fi
@@ -2070,6 +2181,333 @@ run_upgrade() {
     ok "Обновление завершено."
 }
 
+check_node_port_listening() {
+    local node_sec="$1"
+    if ! systemctl is-active --quiet mypanel3-agent 2>/dev/null; then
+        NODE_VERIFY_ERRORS+=("Служба mypanel3-agent не запущена (проверьте: journalctl -u mypanel3-agent -n 40)")
+        return 1
+    fi
+
+    local check_port="$AGENT_WORKER_PORT"
+    log "Проверяю локальный агент ноды (http://127.0.0.1:${check_port}/api/status)..."
+    local agent_ready="false"
+    local _i=0
+    for _i in $(seq 1 15); do
+        if curl -fsS \
+            -H "Authorization: Bearer ${node_sec}" \
+            -H "X-Node-Secret: ${node_sec}" \
+            "http://127.0.0.1:${check_port}/api/status" >/dev/null 2>&1; then
+            agent_ready="true"
+            break
+        fi
+        sleep 1
+    done
+
+    if [[ "$agent_ready" != "true" ]]; then
+        NODE_VERIFY_ERRORS+=("Агент ноды не отвечает на http://127.0.0.1:${check_port}/api/status (проверьте: journalctl -u mypanel3-agent -n 40)")
+        return 1
+    fi
+
+    if command -v ss >/dev/null 2>&1; then
+        local listen_socks=""
+        listen_socks="$(ss -H -ltn "sport = :${API_PORT}" 2>/dev/null || true)"
+        if [[ -z "$listen_socks" ]]; then
+            NODE_VERIFY_ERRORS+=("Порт управления ${API_PORT}/tcp не слушается (ss -H -ltn 'sport = :${API_PORT}' пуст)")
+            return 1
+        fi
+    fi
+
+    ok "Агент ноды активен и слушает порт управления ${API_PORT}/tcp"
+    return 0
+}
+
+check_node_ufw_rule() {
+    if ! command -v ufw >/dev/null 2>&1; then
+        return 0
+    fi
+    local ufw_out=""
+    ufw_out="$(ufw status 2>/dev/null || true)"
+    if ! printf '%s\n' "$ufw_out" | grep -qiE '^Status:[[:space:]]*active'; then
+        return 0
+    fi
+
+    local port_rules=""
+    port_rules="$(printf '%s\n' "$ufw_out" | grep -E "^[[:space:]]*${API_PORT}(/tcp)?([[:space:]]+\(v6\))?[[:space:]]+ALLOW([[:space:]]+IN)?([[:space:]]|$)" || true)"
+    if [[ -z "$port_rules" ]]; then
+        NODE_VERIFY_ERRORS+=("Порт управления ${API_PORT}/tcp закрыт в UFW")
+        return 1
+    fi
+
+    if [[ -n "$PANEL_IP" ]]; then
+        if ! printf '%s\n' "$port_rules" | grep -qE '[[:space:]]Anywhere([[:space:]]|$)'; then
+            local ip_entry=""
+            local missing_ips=()
+            IFS=',' read -ra _chk_panel_entries <<< "$PANEL_IP"
+            for ip_entry in "${_chk_panel_entries[@]}"; do
+                ip_entry="$(trim_ws "$ip_entry")"
+                [[ -n "$ip_entry" ]] || continue
+                local match_ip="${ip_entry%/32}"
+                match_ip="${match_ip%/128}"
+                if ! printf '%s\n' "$port_rules" | grep -Fq "$match_ip"; then
+                    missing_ips+=("$ip_entry")
+                fi
+            done
+            if [[ ${#missing_ips[@]} -gt 0 ]]; then
+                local missing_csv=""
+                missing_csv="$(printf '%s,' "${missing_ips[@]}")"
+                missing_csv="${missing_csv%,}"
+                NODE_VERIFY_ERRORS+=("В UFW нет правила ALLOW на порт ${API_PORT}/tcp для IP панели (${missing_csv})")
+                return 1
+            fi
+        fi
+    fi
+
+    ok "Порт управления ${API_PORT}/tcp открыт в UFW"
+    return 0
+}
+
+check_panel_register_handshake() {
+    local master_url="$1"
+    local node_sec="$2"
+    local node_name="${3:-node}"
+    local node_host="${4:-127.0.0.1}"
+    local api_port="${5:-2222}"
+
+    PANEL_CHECK_ERROR=""
+    PANEL_CHECK_REASON=""
+
+    if [[ -z "$master_url" ]]; then
+        PANEL_CHECK_REASON="skipped"
+        PANEL_CHECK_ERROR="URL управляющей панели (MASTER_URL) не задан — проверка NODE_SECRET на панели не выполнена"
+        return 2
+    fi
+
+    local reg_url="${master_url%/}/api/v1/nodes/self/register"
+    local payload=""
+    if command -v jq >/dev/null 2>&1; then
+        payload="$(jq -n \
+            --arg token "$node_sec" \
+            --arg name "$node_name" \
+            --arg host "$node_host" \
+            --argjson port 443 \
+            --argjson apiPort "$api_port" \
+            '{token: $token, name: $name, host: $host, port: $port, apiPort: $apiPort}')"
+    else
+        local esc_sec="${node_sec//\\/\\\\}"
+        esc_sec="${esc_sec//\"/\\\"}"
+        local esc_name="${node_name//\\/\\\\}"
+        esc_name="${esc_name//\"/\\\"}"
+        local esc_host="${node_host//\\/\\\\}"
+        esc_host="${esc_host//\"/\\\"}"
+        payload="{\"token\":\"${esc_sec}\",\"name\":\"${esc_name}\",\"host\":\"${esc_host}\",\"port\":443,\"apiPort\":${api_port}}"
+    fi
+
+    local tmp_dir=""
+    tmp_dir="$(make_tmp_dir)"
+    local resp_file="${tmp_dir}/register_resp.json"
+    local err_file="${tmp_dir}/register_err.txt"
+    local http_code="000"
+    local curl_rc=0
+
+    log "Проверяю связь и NODE_SECRET с управляющей панелью (${reg_url})..."
+    http_code="$(curl --silent --show-error --connect-timeout 8 --max-time 12 \
+        -o "$resp_file" -w '%{http_code}' \
+        -H 'Content-Type: application/json' \
+        -X POST --data "$payload" \
+        "$reg_url" 2>"$err_file")" || curl_rc=$?
+
+    local curl_err=""
+    if [[ -s "$err_file" ]]; then
+        curl_err="$(tr '\n' ' ' < "$err_file" | sed 's/[[:space:]]\+/ /g' || true)"
+        curl_err="$(trim_ws "$curl_err")"
+    fi
+
+    if [[ "$curl_rc" -ne 0 ]]; then
+        PANEL_CHECK_REASON="unreachable"
+        case "$curl_rc" in
+            6)  PANEL_CHECK_ERROR="DNS error: не удалось разрешить домен панели (${master_url})" ;;
+            7)  PANEL_CHECK_ERROR="Connection refused to panel (${master_url})" ;;
+            28) PANEL_CHECK_ERROR="Connection timed out to panel (${master_url})" ;;
+            35|51|58|60)
+                PANEL_CHECK_ERROR="TLS/SSL handshake error with panel (${master_url}): ${curl_err:-curl ${curl_rc}}" ;;
+            *)  PANEL_CHECK_ERROR="Panel unreachable (${master_url}, curl exit ${curl_rc}): ${curl_err:-connection failed}" ;;
+        esac
+        return 1
+    fi
+
+    local api_err=""
+    local reg_id=""
+    if command -v jq >/dev/null 2>&1 && [[ -s "$resp_file" ]]; then
+        api_err="$(jq -r '.error // .message // empty' "$resp_file" 2>/dev/null || true)"
+        reg_id="$(jq -r '.nodeId // empty' "$resp_file" 2>/dev/null || true)"
+    fi
+    if [[ -z "$api_err" ]] && [[ -s "$resp_file" ]]; then
+        api_err="$(head -c 180 "$resp_file" | tr '\n' ' ' || true)"
+        api_err="$(trim_ws "$api_err")"
+    fi
+
+    case "$http_code" in
+        200|201)
+            PANEL_CHECK_REASON="ok"
+            NODE_PANEL_LINK_STATUS="connected (${master_url}${reg_id:+, nodeId=${reg_id}})"
+            ok "Панель подтвердила NODE_SECRET и приняла регистрацию ноды (HTTP ${http_code}${reg_id:+, nodeId=${reg_id}})"
+            return 0
+            ;;
+        401|403)
+            PANEL_CHECK_REASON="invalid_secret"
+            PANEL_CHECK_ERROR="Invalid NODE_SECRET — панель отклонила секрет ноды (HTTP ${http_code}${api_err:+: ${api_err}})"
+            return 1
+            ;;
+        404)
+            PANEL_CHECK_REASON="http_error"
+            PANEL_CHECK_ERROR="Panel API endpoint not found (HTTP 404 на ${reg_url}) — проверьте URL панели"
+            return 1
+            ;;
+        *)
+            PANEL_CHECK_REASON="http_error"
+            PANEL_CHECK_ERROR="Panel API error (HTTP ${http_code}${api_err:+: ${api_err}})"
+            return 1
+            ;;
+    esac
+}
+
+check_agent_ws_logs() {
+    local since_ts="$1"
+    [[ -n "$MASTER_URL" ]] || return 0
+    command -v journalctl >/dev/null 2>&1 || return 0
+
+    sleep 2
+    local logs=""
+    logs="$(journalctl -u mypanel3-agent --since "$since_ts" -n 30 --no-pager 2>/dev/null || true)"
+    if printf '%s' "$logs" | grep -qiE '401 Unauthorized|Invalid node secret'; then
+        PANEL_CHECK_REASON="invalid_secret"
+        PANEL_CHECK_ERROR="Invalid NODE_SECRET — WebSocket /ws/worker отклонён панелью (401 Unauthorized)"
+        NODE_VERIFY_ERRORS+=("$PANEL_CHECK_ERROR")
+        return 1
+    fi
+    if printf '%s' "$logs" | grep -qi 'WS connect failed'; then
+        local ws_line=""
+        ws_line="$(printf '%s\n' "$logs" | grep -i 'WS connect failed' | tail -n 1 || true)"
+        warn "Предупреждение WebSocket /ws/worker (HTTP-регистрация при этом прошла): ${ws_line}"
+    fi
+    return 0
+}
+
+verify_external_node() {
+    while true; do
+        NODE_VERIFY_ERRORS=()
+        NODE_VERIFIED="false"
+        local node_sec=""
+        node_sec="$(read_existing_env "$NODE_ENV_FILE" "NODE_RPC_SECRET")"
+        local check_since=""
+        check_since="$(date '+%Y-%m-%d %H:%M:%S')"
+
+        check_node_port_listening "$node_sec" || true
+        check_node_ufw_rule || true
+
+        local hs_rc=0
+        check_panel_register_handshake "$MASTER_URL" "$node_sec" "$NODE_NAME" "$NODE_DOMAIN" "$API_PORT" || hs_rc=$?
+        if [[ "$hs_rc" -eq 0 ]]; then
+            check_agent_ws_logs "$check_since" || true
+        else
+            NODE_VERIFY_ERRORS+=("$PANEL_CHECK_ERROR")
+        fi
+
+        if [[ ${#NODE_VERIFY_ERRORS[@]} -eq 0 ]]; then
+            NODE_VERIFIED="true"
+            AGENT_STATUS="active (порт ${API_PORT} открыт, связь с панелью подтверждена)"
+            return 0
+        fi
+
+        AGENT_STATUS="verification failed"
+        NODE_PANEL_LINK_STATUS="FAILED (${PANEL_CHECK_ERROR:-ошибка проверки})"
+
+        printf '\n%s%s╔══════════════════════════════════════════════════════════════════════╗\n' "$C_BOLD" "$C_RED" >&2
+        printf '║  ✗ Проверка связи ноды с панелью НЕ ПРОЙДЕНА                         ║\n' >&2
+        printf '╠══════════════════════════════════════════════════════════════════════╣%s\n' "$C_RESET" >&2
+        local err_item=""
+        for err_item in "${NODE_VERIFY_ERRORS[@]}"; do
+            printf '%s║%s  %s• %s%s\n' "$C_RED" "$C_RESET" "$C_RED" "$err_item" "$C_RESET" >&2
+        done
+        printf '%s╚══════════════════════════════════════════════════════════════════════╝%s\n\n' "$C_RED" "$C_RESET" >&2
+
+        if [[ "$NON_INTERACTIVE" == "true" ]] || [[ -n "$ANSWERS_FD" ]]; then
+            return 1
+        fi
+
+        local default_fix="3"
+        case "$PANEL_CHECK_REASON" in
+            invalid_secret) default_fix="1" ;;
+            unreachable|skipped|http_error) default_fix="2" ;;
+        esac
+
+        printf '%sИсправить параметры и повторить проверку без перезапуска установки:%s\n' "$C_BOLD" "$C_RESET" >&2
+        printf '  1) Ввести NODE_SECRET заново (видимый ввод) и повторить проверку\n' >&2
+        printf '  2) Изменить URL/IP панели и/или NODE_SECRET и повторить проверку\n' >&2
+        printf '  3) Перезапустить агент / переприменить UFW и повторить проверку\n' >&2
+        printf '  4) Завершить сейчас и исправить вручную позже\n' >&2
+
+        local fix_choice=""
+        fix_choice="$(prompt_line "Выберите действие (1-4)" "$default_fix")"
+        case "$fix_choice" in
+            1)
+                prompt_node_secret_visible "false"
+                write_node_env
+                systemctl restart mypanel3-agent || warn "Не удалось перезапустить mypanel3-agent; проверяю состояние..."
+                ;;
+            2)
+                local new_url=""
+                new_url="$(prompt_line "URL управляющей панели (например, https://panel.example.com)" "$MASTER_URL")"
+                MASTER_URL="$(normalize_master_url "$new_url")"
+
+                local default_panel_ip="$PANEL_IP"
+                if [[ -n "$MASTER_URL" ]]; then
+                    local ph=""
+                    ph="$(extract_host_from_url "$MASTER_URL")"
+                    if [[ -n "$ph" ]] && is_ip_addr "$ph"; then
+                        default_panel_ip="$ph"
+                    elif [[ -n "$ph" ]]; then
+                        local resolved_ips=""
+                        resolved_ips="$(resolve_domain_a "$ph" | paste -sd ',' - || true)"
+                        [[ -n "$resolved_ips" ]] && default_panel_ip="$resolved_ips"
+                    fi
+                fi
+                local ip_ans=""
+                ip_ans="$(prompt_line "IP панели для UFW и ALLOWED_PANEL_IPS ('any' — без привязки к IP)" "${default_panel_ip:-any}")"
+                if [[ "$ip_ans" == "any" ]] || [[ "$ip_ans" == "*" ]]; then
+                    PANEL_IP=""
+                else
+                    PANEL_IP="$ip_ans"
+                fi
+
+                if [[ "$PANEL_CHECK_REASON" == "invalid_secret" ]]; then
+                    prompt_node_secret_visible "false"
+                else
+                    prompt_node_secret_visible "true"
+                fi
+
+                write_node_env
+                if [[ "$CONFIGURE_UFW" == "true" ]]; then
+                    configure_firewall
+                fi
+                systemctl restart mypanel3-agent || warn "Не удалось перезапустить mypanel3-agent; проверяю состояние..."
+                ;;
+            3)
+                if [[ "$CONFIGURE_UFW" == "true" ]]; then
+                    configure_firewall
+                fi
+                systemctl restart mypanel3-agent || warn "Не удалось перезапустить mypanel3-agent; проверяю состояние..."
+                ;;
+            4)
+                return 1
+                ;;
+            *)
+                warn "Неизвестный выбор '$fix_choice'; повторяю проверку..."
+                ;;
+        esac
+    done
+}
+
 verify_installation() {
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
         log "Проверяю доступность панели (http://127.0.0.1:3000/api/health)..."
@@ -2082,37 +2520,33 @@ verify_installation() {
             sleep 1
         done
         if [[ "$ready" == "true" ]]; then
+            PANEL_VERIFIED="true"
             PANEL_STATUS="ONLINE (active)"
             ok "Панель отвечает и готова к работе"
         else
+            PANEL_VERIFIED="false"
             PANEL_STATUS="DEGRADED (check journalctl -u mypanel3)"
             warn "Панель не ответила за 20с (проверьте: journalctl -u mypanel3 -n 50)"
         fi
     fi
 
-    if [[ "$MODE" == "node" ]] || [[ "$MODE" == "both" ]]; then
-        local check_port="$AGENT_WORKER_PORT"
+    if [[ "$MODE" == "both" ]]; then
         local node_sec=""
         node_sec="$(read_existing_env "$NODE_ENV_FILE" "NODE_RPC_SECRET")"
-        log "Проверяю агент ноды (http://127.0.0.1:${check_port}/api/status)..."
-        local agent_ready="false"
-        for _ in $(seq 1 15); do
-            if curl -fsS \
-                -H "Authorization: Bearer ${node_sec}" \
-                -H "X-Node-Secret: ${node_sec}" \
-                "http://127.0.0.1:${check_port}/api/status" >/dev/null 2>&1; then
-                agent_ready="true"
-                break
-            fi
-            sleep 1
-        done
-        if [[ "$agent_ready" == "true" ]]; then
+        NODE_VERIFY_ERRORS=()
+        if check_node_port_listening "$node_sec"; then
+            NODE_VERIFIED="true"
             AGENT_STATUS="active (порт ${API_PORT} готов к приёму команд)"
-            ok "Агент ноды активен и готов к приёму команд"
         else
+            NODE_VERIFIED="false"
             AGENT_STATUS="degraded (check journalctl -u mypanel3-agent)"
-            warn "Агент ноды не ответил за 15с (проверьте: journalctl -u mypanel3-agent -n 50)"
+            local e=""
+            for e in "${NODE_VERIFY_ERRORS[@]}"; do
+                warn "$e"
+            done
         fi
+    elif [[ "$MODE" == "node" ]]; then
+        verify_external_node || true
     fi
 }
 
@@ -2126,53 +2560,76 @@ print_summary() {
         panel_url="http://${pub:-127.0.0.1}:3000"
     fi
 
-    printf '\n%s%s' "$C_BOLD" "$C_GREEN"
-    printf '╔══════════════════════════════════════════════════════════════════════╗\n'
+    local overall_ok="true"
     case "$MODE" in
-        both)  printf '║  ✓ Установка завершена: Панель + Локальная Нода                      ║\n' ;;
-        panel) printf '║  ✓ Установка завершена: Только Панель                                ║\n' ;;
-        node)  printf '║  ✓ Установка завершена: Внешняя Нода                                 ║\n' ;;
+        panel) [[ "$PANEL_VERIFIED" == "true" ]] || overall_ok="false" ;;
+        node)  [[ "$NODE_VERIFIED" == "true" ]] || overall_ok="false" ;;
+        both)  { [[ "$PANEL_VERIFIED" == "true" ]] && [[ "$NODE_VERIFIED" == "true" ]]; } || overall_ok="false" ;;
     esac
+
+    local bc="$C_GREEN"
+    if [[ "$overall_ok" != "true" ]]; then
+        bc="$C_YELLOW"
+    fi
+
+    printf '\n%s%s' "$C_BOLD" "$bc"
+    printf '╔══════════════════════════════════════════════════════════════════════╗\n'
+    if [[ "$overall_ok" == "true" ]]; then
+        case "$MODE" in
+            both)  printf '║  ✓ Установка завершена: Панель + Локальная Нода                      ║\n' ;;
+            panel) printf '║  ✓ Установка завершена: Только Панель                                ║\n' ;;
+            node)  printf '║  ✓ Установка завершена: Внешняя Нода                                 ║\n' ;;
+        esac
+    else
+        case "$MODE" in
+            both)  printf '║  ⚠ Установка завершена с предупреждениями: Панель + Нода             ║\n' ;;
+            panel) printf '║  ⚠ Установка завершена с предупреждениями: Панель                    ║\n' ;;
+            node)  printf '║  ⚠ Внешняя нода установлена, но ПРОВЕРКА СВЯЗИ НЕ ПРОЙДЕНА!          ║\n' ;;
+        esac
+    fi
     printf '╠══════════════════════════════════════════════════════════════════════╣%s\n' "$C_RESET"
 
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
-        printf '%s║%s  %sURL панели:%s          %s%s%s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_CYAN" "$panel_url" "$C_RESET"
+        printf '%s║%s  %sURL панели:%s          %s%s%s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_CYAN" "$panel_url" "$C_RESET"
         if [[ -n "$SUB_DOMAIN" ]] && [[ "$PROXY_MODE" == "caddy" ]]; then
-            printf '%s║%s  %sURL подписок:%s        https://%s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$SUB_DOMAIN"
+            printf '%s║%s  %sURL подписок:%s        https://%s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$SUB_DOMAIN"
         fi
         if [[ -f "$ADMIN_CREDS_FILE" ]]; then
             local u="" p=""
             u="$(grep '^username=' "$ADMIN_CREDS_FILE" | cut -d'=' -f2- || true)"
             p="$(grep '^password=' "$ADMIN_CREDS_FILE" | cut -d'=' -f2- || true)"
-            printf '%s║%s  %sЛогин админа:%s        %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$u"
-            printf '%s║%s  %sПароль админа:%s       %s%s%s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_YELLOW" "$p" "$C_RESET"
+            printf '%s║%s  %sЛогин админа:%s        %s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$u"
+            printf '%s║%s  %sПароль админа:%s       %s%s%s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_YELLOW" "$p" "$C_RESET"
         fi
-        printf '%s║%s  %sСтатус панели:%s       %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$PANEL_STATUS"
-        printf '%s║%s  %sКонфиг панели:%s       %s (учётные данные: %s)\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$PANEL_ENV" "$ADMIN_CREDS_FILE"
+        printf '%s║%s  %sСтатус панели:%s       %s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$PANEL_STATUS"
+        printf '%s║%s  %sКонфиг панели:%s       %s (учётные данные: %s)\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$PANEL_ENV" "$ADMIN_CREDS_FILE"
     fi
 
     if [[ "$MODE" == "node" ]] || [[ "$MODE" == "both" ]]; then
         local node_sec=""
         node_sec="$(read_existing_env "$NODE_ENV_FILE" "NODE_RPC_SECRET")"
-        printf '%s║%s  %sСтатус службы ноды:%s  %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$AGENT_STATUS"
-        printf '%s║%s  %sДомен / Хост ноды:%s   %s (%s)\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_DOMAIN" "$NODE_NAME"
-        printf '%s║%s  %sПорт управления:%s     %s/tcp (tls-mode=%s)\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$API_PORT" "$TLS_MODE"
+        printf '%s║%s  %sСтатус службы ноды:%s  %s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$AGENT_STATUS"
+        printf '%s║%s  %sДомен / Хост ноды:%s   %s (%s)\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_DOMAIN" "$NODE_NAME"
+        printf '%s║%s  %sПорт управления:%s     %s/tcp (tls-mode=%s)\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$API_PORT" "$TLS_MODE"
         if [[ -n "$PANEL_IP" ]]; then
-            printf '%s║%s  %sРазрешённый IP панели:%s %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$PANEL_IP"
+            printf '%s║%s  %sРазрешённый IP панели:%s %s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$PANEL_IP"
         fi
-        if [[ -n "$MASTER_URL" ]] && [[ "$MODE" == "node" ]]; then
-            printf '%s║%s  %sУправляющая панель:%s  %s (WSS /ws/worker)\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$MASTER_URL"
+        if [[ "$MODE" == "node" ]]; then
+            if [[ -n "$MASTER_URL" ]]; then
+                printf '%s║%s  %sУправляющая панель:%s  %s (WSS /ws/worker)\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$MASTER_URL"
+            fi
+            printf '%s║%s  %sСвязь с панелью:%s     %s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_PANEL_LINK_STATUS"
         fi
         if [[ "$MODE" == "both" ]]; then
-            printf '%s║%s  %sЛокальная нода в БД:%s %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$LOCAL_NODE_STATUS"
+            printf '%s║%s  %sЛокальная нода в БД:%s %s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$LOCAL_NODE_STATUS"
             if [[ "$SNI_MUX" == "true" ]]; then
-                printf '%s║%s  %sSNI Multiplexer:%s     HAProxy %s:443 -> Caddy :9443 + Xray :443\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "${PUBLIC_IP}"
+                printf '%s║%s  %sSNI Multiplexer:%s     HAProxy %s:443 -> Caddy :9443 + Xray :443\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "${PUBLIC_IP}"
             fi
         fi
         if [[ -f "${NODE_TLS_DIR}/fullchain.pem" ]]; then
-            printf '%s║%s  %sTLS-сертификаты:%s     %s/{fullchain.pem,privkey.pem}\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_TLS_DIR"
+            printf '%s║%s  %sTLS-сертификаты:%s     %s/{fullchain.pem,privkey.pem}\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_TLS_DIR"
         fi
-        printf '%s║%s  %sПрокси-ядра:%s         ' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET"
+        printf '%s║%s  %sПрокси-ядра:%s         ' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET"
         local b=""
         for b in xray sing-box caddy-naive mita; do
             if [[ -x "/usr/local/bin/${b}" ]]; then
@@ -2182,28 +2639,37 @@ print_summary() {
             fi
         done
         printf '\n'
-        printf '%s║%s  %sКонфиг ноды:%s         %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_ENV_FILE"
+        printf '%s║%s  %sКонфиг ноды:%s         %s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_ENV_FILE"
         if [[ "$MODE" == "both" ]]; then
-            printf '%s║%s  %sСекрет лок. ноды:%s    %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$node_sec"
+            printf '%s║%s  %sСекрет лок. ноды:%s    %s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$node_sec"
         fi
     fi
 
-    printf '%s║%s  %sФаервол UFW:%s         %s\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET" "$UFW_STATUS"
+    printf '%s║%s  %sФаервол UFW:%s         %s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$UFW_STATUS"
 
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
-        printf '%s╠══════════════════════════════════════════════════════════════════════╣\n' "$C_GREEN"
+        printf '%s╠══════════════════════════════════════════════════════════════════════╣\n' "$bc"
         printf '║%s  %sПодключение внешней ноды:%s\n' "$C_RESET" "$C_BOLD" "$C_RESET"
-        printf '%s║%s  1. Откройте %s%s%s -> Ноды -> Добавить ноду (порт %s2222%s).\n' "$C_GREEN" "$C_RESET" "$C_CYAN" "$panel_url" "$C_RESET" "$C_BOLD" "$C_RESET"
-        printf '%s║%s  2. Скопируйте %sNODE_SECRET%s и на новом VPS выполните:\n' "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET"
-        printf '%s║%s     bash <(curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh)\n' "$C_GREEN" "$C_RESET" "$GITHUB_REPO"
-        printf '%s║%s     и выберите пункт 3 («Установить только ноду»).\n' "$C_GREEN" "$C_RESET"
+        printf '%s║%s  1. Откройте %s%s%s -> Ноды -> Добавить ноду (порт %s2222%s).\n' "$bc" "$C_RESET" "$C_CYAN" "$panel_url" "$C_RESET" "$C_BOLD" "$C_RESET"
+        printf '%s║%s  2. Скопируйте %sNODE_SECRET%s и на новом VPS выполните:\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET"
+        printf '%s║%s     bash <(curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh)\n' "$bc" "$C_RESET" "$GITHUB_REPO"
+        printf '%s║%s     и выберите пункт 3 («Установить только ноду»).\n' "$bc" "$C_RESET"
     else
-        printf '%s╠══════════════════════════════════════════════════════════════════════╣\n' "$C_GREEN"
-        printf '║%s  %s✓ Нода запущена и готова принимать команды от панели на порту %s!%s\n' "$C_RESET" "$C_GREEN" "$API_PORT" "$C_RESET"
+        printf '%s╠══════════════════════════════════════════════════════════════════════╣\n' "$bc"
+        if [[ "$NODE_VERIFIED" == "true" ]]; then
+            printf '║%s  %s✓ Нода запущена и готова принимать команды от панели на порту %s!%s\n' "$C_RESET" "$C_GREEN" "$API_PORT" "$C_RESET"
+        else
+            printf '║%s  %s✗ Нода НЕ подтвердила связь с панелью!%s\n' "$C_RESET" "$C_RED" "$C_RESET"
+            local e=""
+            for e in "${NODE_VERIFY_ERRORS[@]}"; do
+                printf '%s║%s    %s• %s%s\n' "$bc" "$C_RESET" "$C_RED" "$e" "$C_RESET"
+            done
+            printf '%s║%s  Исправьте %s (NODE_RPC_SECRET / MASTER_URL) и выполните: systemctl restart mypanel3-agent\n' "$bc" "$C_RESET" "$NODE_ENV_FILE"
+        fi
     fi
 
-    printf '%s║%s  %sЛоги:%s                journalctl -u mypanel3 -f | journalctl -u mypanel3-agent -f\n' "$C_GREEN" "$C_RESET" "$C_DIM" "$C_RESET"
-    printf '%s╚══════════════════════════════════════════════════════════════════════╝%s\n\n' "$C_GREEN" "$C_RESET"
+    printf '%s║%s  %sЛоги:%s                journalctl -u mypanel3 -f | journalctl -u mypanel3-agent -f\n' "$bc" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf '%s╚══════════════════════════════════════════════════════════════════════╝%s\n\n' "$bc" "$C_RESET"
 }
 
 main() {
@@ -2259,7 +2725,7 @@ main() {
         write_node_env
         check_port_free "$AGENT_WORKER_PORT" mypanel3
         if [[ "$MODE" == "node" ]]; then
-            if [[ "$TLS_MODE" == "port2222" ]] || [[ "$TLS_MODE" == "port2087" ]]; then
+            if [[ "$TLS_MODE" == "port2222" ]]; then
                 check_port_free 80 caddy
                 check_port_free "$API_PORT" caddy
             elif [[ "$TLS_MODE" == "auto" ]] || [[ "$TLS_MODE" == "internal" ]]; then
@@ -2293,16 +2759,22 @@ main() {
     install_systemd_units
 
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
-        systemctl enable --now mypanel3
-        systemctl restart mypanel3
+        systemctl enable --now mypanel3 || warn "Не удалось запустить mypanel3; перехожу к диагностике..."
+        systemctl restart mypanel3 || warn "Не удалось перезапустить mypanel3; перехожу к диагностике..."
     fi
     if [[ "$MODE" == "node" ]] || [[ "$MODE" == "both" ]]; then
-        systemctl enable --now mypanel3-agent
-        systemctl restart mypanel3-agent
+        systemctl enable --now mypanel3-agent || warn "Не удалось запустить mypanel3-agent; перехожу к диагностике..."
+        systemctl restart mypanel3-agent || warn "Не удалось перезапустить mypanel3-agent; перехожу к диагностике..."
     fi
 
     verify_installation
     print_summary
+
+    if [[ "$MODE" == "node" ]] && [[ "$NODE_VERIFIED" != "true" ]]; then
+        exit 1
+    fi
 }
 
-main "$@"
+if [[ "${MYPANEL3_INSTALL_SOURCED:-0}" != "1" ]]; then
+    main "$@"
+fi

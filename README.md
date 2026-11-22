@@ -52,9 +52,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
 ### 3. Только нода — внешний сервер (`--mode node`)
 
 Выделенный прокси-сервер для работы под управлением основной панели:
-- запрашивает домен ноды (`node1.example.com`, для TLS/SNI), адрес/IP управляющей панели и секрет `NODE_SECRET` (из **Ноды → Добавить ноду**, порт управления **`2222`**);
+- запрашивает домен ноды (`node1.example.com`, для TLS/SNI), адрес/IP управляющей панели и секрет `NODE_SECRET` (из **Ноды → Добавить ноду**, порт управления **`2222`**; ввод видимый с автоматической очисткой пробелов/переносов строк и валидацией);
 - ограничивает доступ к управляющему порту `2222` как на уровне агента (`ALLOWED_PANEL_IPS`), так и правилом UFW (`allow from <PANEL_IP> to any port 2222`), проверяет секрет постоянным по времени сравнением (`X-Node-Secret` / `Authorization: Bearer`);
-- оставляет порт `:443` свободным под VLESS Reality / Sing-box, а сертификаты Let's Encrypt для NaiveProxy / Hysteria2 / Trojan складывает в `/etc/mypanel3-node/tls/`.
+- оставляет порт `:443` свободным под VLESS Reality / Sing-box, а сертификаты Let's Encrypt для NaiveProxy / Hysteria2 / Trojan складывает в `/etc/mypanel3-node/tls/`;
+- после запуска агента проверяет прослушивание порта `2222`, правило UFW и рукопожатие с API панели (`NODE_SECRET`), позволяя при ошибке сразу ввести секрет заново без перезапуска установки.
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) \

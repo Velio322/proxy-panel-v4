@@ -835,7 +835,7 @@ export function NodesPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Порт агента (API)' : 'Worker API Port'}</Label>
-                <Input type="number" value={apiPort} onChange={(e) => setApiPort(e.target.value)} />
+                <Input type="number" placeholder="2222" value={apiPort} onChange={(e) => setApiPort(e.target.value)} />
               </div>
             </div>
             <div className="space-y-1.5">

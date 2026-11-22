@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS "Node" (
   "name" TEXT NOT NULL,
   "host" TEXT NOT NULL,
   "port" INTEGER NOT NULL DEFAULT 443,
-  "apiPort" INTEGER NOT NULL DEFAULT 2087,
+  "apiPort" INTEGER NOT NULL DEFAULT 2222,
   "secret" TEXT NOT NULL,
   "country" TEXT,
   "city" TEXT,

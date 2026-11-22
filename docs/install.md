@@ -63,7 +63,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
 ## Scenario 3 & 4: External Node Setup
 
 1. In your existing panel UI, open **Nodes → Add Node**, enter the new server's IP or domain (port `2222`), and save.
-2. Copy the `NODE_SECRET` (or full 1-liner) and run on the target VPS:
+2. Copy the `NODE_SECRET` (or full 1-liner) and run on the target VPS (in interactive mode `install.sh` uses visible input for `NODE_SECRET`, automatically strips whitespace/newlines, validates length/format, and verifies port `2222`, UFW, and panel handshake before completion with an option to re-enter the token on mismatch):
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) \
@@ -85,7 +85,7 @@ If `--panel-ip` is set, UFW restricts port `2222/tcp` to that IP/CIDR and `mypan
 | Mode | Port 443 | Agent API | Notes |
 |---|---|---|---|
 | `none` (default for `node`) | **FREE** | HTTP `:2222` on `0.0.0.0` + outbound TLS `WSS /ws/worker` | Control channel uses outbound WSS and/or panel→node API on `:2222` protected by `NODE_SECRET` + `ALLOWED_PANEL_IPS` |
-| `port2222` (alias `port2087`) | **FREE** | Caddy HTTPS on `:2222` → `127.0.0.1:2223` | HTTPS for inbound panel→node REST calls while keeping `:443` free (requires DNS domain & `:80` open) |
+| `port2222` | **FREE** | Caddy HTTPS on `:2222` → `127.0.0.1:2223` | HTTPS for inbound panel→node REST calls while keeping `:443` free (requires DNS domain & `:80` open) |
 | `auto` | Caddy | Caddy Let's Encrypt on `:443` → `127.0.0.1:2222` | Legacy mode when proxy doesn't need `:443` |
 | `internal` | Caddy | Self-signed Caddy CA on `:443` → `127.0.0.1:2222` | Testing only |
 
