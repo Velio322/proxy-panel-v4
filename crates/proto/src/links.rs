@@ -748,22 +748,48 @@ pub fn build_entry(
         .as_deref()
         .is_some_and(|s| s.eq_ignore_ascii_case("reality"));
     if is_reality {
-        let mut candidates = jstr_list(stream, &["realitySettings", "serverNames"]);
-        candidates.extend(jstr_list(stream, &["serverNames"]));
-        if let Some(dest_host) = extract_dest_host(stream) {
-            candidates.push(dest_host);
-        }
+        let mut server_names = jstr_list(stream, &["realitySettings", "serverNames"]);
+        server_names.extend(jstr_list(stream, &["serverNames"]));
+        let valid_server_names: Vec<String> = server_names
+            .into_iter()
+            .filter(|c| !is_ip_literal(c))
+            .collect();
+
+        let dest_host = extract_dest_host(stream);
+
+        let mut fallback_snis = Vec::new();
         for path in [&["sni"][..], &["tlsSettings", "serverName"][..]] {
             if let Some(v) = jstr(stream, path) {
-                candidates.push(v);
+                if !is_ip_literal(&v) {
+                    fallback_snis.push(v);
+                }
             }
         }
         if let Some(v) = jstr(settings, &["sni"]) {
-            candidates.push(v);
+            if !is_ip_literal(&v) {
+                fallback_snis.push(v);
+            }
         }
-        let chosen = candidates
-            .into_iter()
-            .find(|c| !is_ip_literal(c) && !same_host_ignore_case(c, &clean_node_host))
+
+        let chosen = valid_server_names
+            .iter()
+            .find(|c| !same_host_ignore_case(c, &clean_node_host))
+            .cloned()
+            .or_else(|| {
+                dest_host
+                    .as_ref()
+                    .filter(|d| !same_host_ignore_case(d, &clean_node_host))
+                    .cloned()
+            })
+            .or_else(|| valid_server_names.into_iter().next())
+            .or(dest_host)
+            .or_else(|| {
+                fallback_snis
+                    .iter()
+                    .find(|c| !same_host_ignore_case(c, &clean_node_host))
+                    .cloned()
+            })
+            .or_else(|| fallback_snis.into_iter().next())
             .unwrap_or_else(|| "www.google.com".to_string());
         e.sni = Some(chosen);
     } else {
@@ -820,10 +846,18 @@ pub fn build_entry(
         .or_else(|| jstr(stream, &["xhttpSettings", "headers", "Host"]));
     e.xhttp_host = if is_reality {
         match raw_xhttp_host {
-            Some(ref h) if !is_ip_literal(h) && !same_host_ignore_case(h, &clean_node_host) => {
-                Some(h.clone())
+            Some(ref h) if !is_ip_literal(h) => {
+                if same_host_ignore_case(h, &clean_node_host)
+                    && e.sni
+                        .as_deref()
+                        .is_some_and(|s| !same_host_ignore_case(s, &clean_node_host))
+                {
+                    e.sni.clone()
+                } else {
+                    Some(h.clone())
+                }
             }
-            _ => e.sni.clone(),
+            _ => None,
         }
     } else {
         raw_xhttp_host
@@ -1345,6 +1379,16 @@ pub fn display_link(entry: &SubEntry) -> Result<String, SubError> {
     }
 }
 
+/// Returns the canonical share link used across both single "Nodes & QR" links
+/// and `/sub/:token` subscription payloads.
+pub fn share_link(entry: &SubEntry) -> Result<String, SubError> {
+    match entry.protocol {
+        Protocol::Naiveproxy | Protocol::Mieru => display_link(entry),
+        _ if !entry.raw.is_empty() => Ok(entry.raw.clone()),
+        _ => build_uri(entry),
+    }
+}
+
 fn push_transport_params(params: &mut Vec<(&'static str, String)>, e: &SubEntry) {
     match e.net() {
         "ws" => {
@@ -1398,7 +1442,8 @@ fn push_transport_params(params: &mut Vec<(&'static str, String)>, e: &SubEntry)
                 e.xhttp_path
                     .clone()
                     .or_else(|| e.stream_path.clone())
-                    .unwrap_or_default(),
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "/".into()),
             ));
             if let Some(ref h) = e.xhttp_host {
                 params.push(("host", h.clone()));

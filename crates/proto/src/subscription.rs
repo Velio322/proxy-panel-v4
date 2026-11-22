@@ -1,6 +1,6 @@
 use crate::links::{
-    apply_vless_route, build_uri, display_link, encode_uri_component, format_ss2022_key,
-    is_ip_literal, parse_port_range, same_host_ignore_case, SubEntry, SubError,
+    apply_vless_route, build_uri, encode_uri_component, format_ss2022_key, is_ip_literal,
+    parse_port_range, share_link, SubEntry, SubError,
 };
 use crate::wire::Protocol;
 use age::armor::{ArmoredWriter, Format as ArmorFormat};
@@ -288,16 +288,11 @@ const fn default_true() -> bool {
     true
 }
 
-/// Renders Base64 subscription (`base64std(links.join('\n'))`) including all protocols via `display_link`.
+/// Renders Base64 subscription (`base64std(links.join('\n'))`) via canonical [`share_link`].
 pub fn render_base64(entries: &[SubEntry]) -> Result<String, SubError> {
     let mut lines = Vec::with_capacity(entries.len());
     for e in entries {
-        let uri = match e.protocol {
-            Protocol::Naiveproxy | Protocol::Mieru => display_link(e)?,
-            _ if !e.raw.is_empty() => e.raw.clone(),
-            _ => build_uri(e)?,
-        };
-        lines.push(uri);
+        lines.push(share_link(e)?);
     }
     Ok(STANDARD.encode(lines.join("\n").as_bytes()))
 }
@@ -309,6 +304,7 @@ pub fn render_json(entries: &[SubEntry], info: &UserInfo) -> Result<String, SubE
     let mut structured: Vec<Value> = Vec::with_capacity(entries.len());
 
     for e in entries {
+        let share = share_link(e)?;
         let raw = if e.raw.is_empty() {
             build_uri(e)?
         } else {
@@ -319,16 +315,15 @@ pub fn render_json(entries: &[SubEntry], info: &UserInfo) -> Result<String, SubE
                 let parsed: Value = serde_json::from_str(&raw).map_err(|err| {
                     SubError::Invalid(format!("Invalid Mieru JSON configuration: {err}"))
                 })?;
-                let share_link = display_link(e)?;
                 proxies.push(parsed.clone());
-                links.push(share_link.clone());
+                links.push(share.clone());
                 structured.push(json!({
                     "protocol": e.protocol.as_str(),
                     "tag": e.tag,
                     "host": e.host,
                     "port": e.port,
-                    "link": share_link,
-                    "rawUri": share_link,
+                    "link": share,
+                    "rawUri": share,
                     "config": parsed,
                 }));
             }
@@ -338,28 +333,27 @@ pub fn render_json(entries: &[SubEntry], info: &UserInfo) -> Result<String, SubE
                     "listen": "socks://127.0.0.1:1080",
                     "proxy": proxy_no_frag,
                 });
-                let share_link = display_link(e)?;
                 proxies.push(naive_cfg.clone());
-                links.push(share_link.clone());
+                links.push(share.clone());
                 structured.push(json!({
                     "protocol": e.protocol.as_str(),
                     "tag": e.tag,
                     "host": e.host,
                     "port": e.port,
-                    "link": share_link,
+                    "link": share,
                     "rawUri": raw,
                     "config": naive_cfg,
                 }));
             }
             _ => {
-                proxies.push(Value::String(raw.clone()));
-                links.push(raw.clone());
+                proxies.push(Value::String(share.clone()));
+                links.push(share.clone());
                 structured.push(json!({
                     "protocol": e.protocol.as_str(),
                     "tag": e.tag,
                     "host": e.host,
                     "port": e.port,
-                    "link": raw,
+                    "link": share,
                     "rawUri": raw,
                     "config": Value::Null,
                 }));
@@ -883,21 +877,18 @@ fn singbox_server(e: &SubEntry) -> &str {
     &e.host
 }
 
-fn is_valid_reality_sni(candidate: &str, e: &SubEntry) -> bool {
-    !candidate.is_empty()
-        && !is_ip_literal(candidate)
-        && !same_host_ignore_case(candidate, &e.host)
-        && !e
-            .node_host
-            .as_deref()
-            .is_some_and(|nh| same_host_ignore_case(candidate, nh))
+fn is_valid_sni_host(candidate: &str) -> bool {
+    !candidate.is_empty() && !is_ip_literal(candidate)
 }
 
 fn singbox_sni(e: &SubEntry) -> Option<String> {
-    let raw = e.sni.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let raw = e
+        .sni
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| is_valid_sni_host(s));
     if e.security.as_deref() == Some("reality") {
-        let valid = raw.filter(|s| is_valid_reality_sni(s, e));
-        return Some(valid.unwrap_or("www.google.com").to_string());
+        return Some(raw.unwrap_or("www.google.com").to_string());
     }
     raw.map(ToString::to_string)
 }
@@ -1042,7 +1033,7 @@ fn singbox_transport(e: &SubEntry) -> Option<Value> {
                 e.xhttp_host
                     .as_deref()
                     .map(str::trim)
-                    .filter(|h| is_valid_reality_sni(h, e))
+                    .filter(|h| is_valid_sni_host(h))
                     .map(ToString::to_string)
                     .or_else(|| singbox_sni(e))
             } else {
@@ -1946,11 +1937,7 @@ pub fn apply_template(
 ) -> Result<RenderedSubscription, SubError> {
     let mut links = Vec::with_capacity(entries.len());
     for e in entries {
-        links.push(match e.protocol {
-            Protocol::Naiveproxy | Protocol::Mieru => display_link(e)?,
-            _ if !e.raw.is_empty() => e.raw.clone(),
-            _ => build_uri(e)?,
-        });
+        links.push(share_link(e)?);
     }
     let links_joined = links.join("\n");
     let links_b64 = STANDARD.encode(links_joined.as_bytes());
@@ -2545,5 +2532,118 @@ mod tests {
         assert_eq!(out["tls"]["server_name"], json!("www.apple.com"));
         assert_eq!(out["tls"]["utls"]["fingerprint"], json!("edge"));
         assert!(out.get("transport").is_none());
+    }
+
+    #[test]
+    fn vless_xhttp_self_steal_reality_preserves_server_name_across_all_formats() {
+        let settings = json!({ "decryption": "none" });
+        let stream = json!({
+            "network": "xhttp",
+            "security": "reality",
+            "sni": "pisos.fenrir322.pro",
+            "fingerprint": "firefox",
+            "dest": "127.0.0.1:9443",
+            "serverNames": ["pisos.fenrir322.pro"],
+            "publicKey": "JMTb7MWN1VTRpoZsUKWyai47TyRy3Qq1KtT9TK5pA1c",
+            "shortId": "6228e0d3caec8e12",
+            "spiderX": "/",
+            "realitySettings": {
+                "dest": "127.0.0.1:9443",
+                "target": "127.0.0.1:9443",
+                "serverNames": ["pisos.fenrir322.pro"],
+                "publicKey": "JMTb7MWN1VTRpoZsUKWyai47TyRy3Qq1KtT9TK5pA1c",
+                "shortIds": ["6228e0d3caec8e12"],
+                "spiderX": "/",
+                "fingerprint": "chrome"
+            },
+            "xhttpSettings": {
+                "host": "",
+                "mode": "auto",
+                "path": "/xh"
+            }
+        });
+        let ctx = EntryContext {
+            node_host: "pisos.fenrir322.pro".into(),
+            port: 443,
+            client_uuid: "ec19a5ce-f140-47d4-891b-903354fbb52c".into(),
+            client_id: "b5120507".into(),
+            secret: String::new(),
+        };
+
+        let mut entry = build_entry(
+            Protocol::Vless,
+            "vless-xhttp-reality-443",
+            &settings,
+            &stream,
+            &ctx,
+        )
+        .unwrap()
+        .unwrap();
+        entry.resolved_ip = Some("13.143.132.68".into());
+
+        assert_eq!(entry.sni.as_deref(), Some("pisos.fenrir322.pro"));
+        assert_eq!(entry.xhttp_host, None);
+        assert!(entry.raw.contains("sni=pisos.fenrir322.pro"));
+        assert!(entry.raw.contains("pbk=JMTb7MWN1VTRpoZsUKWyai47TyRy3Qq1KtT9TK5pA1c"));
+        assert!(entry.raw.contains("sid=6228e0d3caec8e12"));
+        assert!(entry.raw.contains("path=%2Fxh"));
+        assert!(entry.raw.contains("mode=auto"));
+        assert!(entry.raw.contains("encryption=none"));
+        assert!(!entry.raw.contains("www.google.com"));
+        assert!(!entry.raw.contains("&host="));
+
+        let info = UserInfo {
+            username: "Velio".into(),
+            uuid: "ec19a5ce-f140-47d4-891b-903354fbb52c".into(),
+            ..Default::default()
+        };
+
+        let b64_decoded = String::from_utf8(
+            STANDARD
+                .decode(render_base64(std::slice::from_ref(&entry)).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        let happ_decoded = String::from_utf8(
+            STANDARD
+                .decode(render_happ(std::slice::from_ref(&entry)).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        let json_val: Value =
+            serde_json::from_str(&render_json(std::slice::from_ref(&entry), &info).unwrap())
+                .unwrap();
+        let json_link = json_val["entries"][0]["link"].as_str().unwrap();
+
+        assert_eq!(b64_decoded, entry.raw);
+        assert_eq!(happ_decoded, entry.raw);
+        assert_eq!(json_link, entry.raw);
+
+        let sb: Value =
+            serde_json::from_str(&render_singbox(std::slice::from_ref(&entry)).unwrap()).unwrap();
+        let sb_vless = sb["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["type"] == "vless")
+            .unwrap();
+        assert_eq!(sb_vless["server"], json!("13.143.132.68"));
+        assert_eq!(sb_vless["tls"]["server_name"], json!("pisos.fenrir322.pro"));
+        assert_eq!(sb_vless["transport"]["host"], json!("pisos.fenrir322.pro"));
+        assert_eq!(sb_vless["transport"]["mode"], json!("packet-up"));
+
+        let clash_yaml: serde_yaml::Value =
+            serde_yaml::from_str(&render_clash(std::slice::from_ref(&entry)).unwrap()).unwrap();
+        assert_eq!(
+            clash_yaml["proxies"][0]["servername"].as_str(),
+            Some("pisos.fenrir322.pro")
+        );
+
+        let orig: Value =
+            serde_json::from_str(&render_original(std::slice::from_ref(&entry)).unwrap()).unwrap();
+        assert_eq!(
+            orig["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"],
+            json!("pisos.fenrir322.pro")
+        );
     }
 }

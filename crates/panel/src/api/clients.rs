@@ -18,7 +18,7 @@ use mypanel_proto::openwrt::{
     generate_openclash_uci, generate_openclash_yaml_with_ts, generate_passwall_subscription,
     generate_singbox_subscription, generate_ssr_subscription, InboundExport,
 };
-use mypanel_proto::subscription::{render_json as render_sub_json, UserInfo as SubUserInfo};
+use mypanel_proto::subscription::render_json as render_sub_json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::{Postgres, QueryBuilder, Row, Transaction};
@@ -2596,20 +2596,15 @@ async fn get_links(
     let expire_at: Option<NaiveDateTime> = r.try_get("expireAt").ok().flatten();
     let protocols_val: Value = r.try_get("protocols")?;
 
-    let info = SubUserInfo {
-        username: username.clone(),
-        uuid: uuid.clone(),
-        upload: u64::try_from(upload_traffic.max(0)).unwrap_or(0),
-        download: u64::try_from(download_traffic.max(0)).unwrap_or(0),
-        total: u64::try_from(traffic_limit.max(0)).unwrap_or(0),
-        expire: expire_at.map_or(0, |d| d.and_utc().timestamp()),
-        profile_title: Some(username),
-        update_interval: Some(12),
-        support_url: None,
-        profile_web_page_url: Some(state.cfg.sub_url.clone()),
-        announce: None,
-        routing_url: None,
-    };
+    let info = crate::api::sub::build_user_info(
+        username,
+        uuid.clone(),
+        upload_traffic,
+        download_traffic,
+        traffic_limit,
+        expire_at,
+        state.cfg.sub_url.clone(),
+    );
 
     let entries = crate::api::sub::load_client_entries(&state, &id, &uuid, &protocols_val).await?;
     let rendered = render_sub_json(&entries, &info)

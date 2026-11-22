@@ -790,6 +790,70 @@ pub(crate) async fn load_client_entries(
     Ok(entries)
 }
 
+pub(crate) fn build_user_info(
+    username: String,
+    uuid: String,
+    upload_traffic: i64,
+    download_traffic: i64,
+    traffic_limit: i64,
+    expire_at: Option<NaiveDateTime>,
+    sub_url: String,
+) -> UserInfo {
+    UserInfo {
+        profile_title: Some(username.clone()),
+        username,
+        uuid,
+        upload: u64::try_from(upload_traffic.max(0)).unwrap_or(0),
+        download: u64::try_from(download_traffic.max(0)).unwrap_or(0),
+        total: u64::try_from(traffic_limit.max(0)).unwrap_or(0),
+        expire: expire_at.map_or(0, |d| d.and_utc().timestamp()),
+        update_interval: Some(12),
+        support_url: None,
+        profile_web_page_url: Some(sub_url),
+        announce: None,
+        routing_url: None,
+    }
+}
+
+fn is_browser_request(headers: &HeaderMap, ua_str: &str, profile: ClientProfile) -> bool {
+    if profile != ClientProfile::Generic {
+        return false;
+    }
+    let accepts_html = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|a| a.contains("text/html"));
+    if !accepts_html || !ua_str.contains("Mozilla/5.0") {
+        return false;
+    }
+    let lower = ua_str.to_ascii_lowercase();
+    const VPN_UA_TOKENS: [&str; 22] = [
+        "v2ray",
+        "xray",
+        "happ",
+        "hiddify",
+        "clash",
+        "mihomo",
+        "stash",
+        "flclash",
+        "sing-box",
+        "podkop",
+        "streisand",
+        "karing",
+        "throne",
+        "shadowrocket",
+        "nekobox",
+        "nekoray",
+        "incy",
+        "foxray",
+        "v2box",
+        "loon",
+        "quantumult",
+        "surge",
+    ];
+    !VPN_UA_TOKENS.iter().any(|tok| lower.contains(tok))
+}
+
 pub(crate) async fn get_subscription(
     State(state): State<AppState>,
     Path(sub_token): Path<String>,
@@ -800,13 +864,6 @@ pub(crate) async fn get_subscription(
     let raw_flag = q.flag.as_deref().or(q.format.as_deref());
     let ua_opt = user_agent(&headers);
     let ua_str = ua_opt.as_deref().unwrap_or("");
-
-    // HTML subscription landing page when requested directly from a browser without ?flag=
-    let accepts_html = headers
-        .get(header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|a| a.contains("text/html"));
-    let is_browser = ua_str.contains("Mozilla/5.0") && !ua_str.to_ascii_lowercase().contains("clash");
 
     let format = match SubFormat::detect(raw_flag, ua_opt.as_deref()) {
         Ok(f) => f,
@@ -912,22 +969,17 @@ pub(crate) async fn get_subscription(
         }
     };
 
-    let info = UserInfo {
-        username: username.clone(),
-        uuid: uuid.clone(),
-        upload: u64::try_from(upload_traffic.max(0)).unwrap_or(0),
-        download: u64::try_from(download_traffic.max(0)).unwrap_or(0),
-        total: u64::try_from(traffic_limit.max(0)).unwrap_or(0),
-        expire: expire_at.map_or(0, |d| d.and_utc().timestamp()),
-        profile_title: Some(username.clone()),
-        update_interval: Some(12),
-        support_url: None,
-        profile_web_page_url: Some(state.cfg.sub_url.clone()),
-        announce: None,
-        routing_url: None,
-    };
+    let info = build_user_info(
+        username.clone(),
+        uuid.clone(),
+        upload_traffic,
+        download_traffic,
+        traffic_limit,
+        expire_at,
+        state.cfg.sub_url.clone(),
+    );
 
-    if raw_flag.is_none() && accepts_html && is_browser {
+    if raw_flag.is_none() && is_browser_request(&headers, ua_str, profile) {
         let entries = match load_client_entries(&state, &client_id, &uuid, &protocols_val).await {
             Ok(e) => e,
             Err(_) => return plain_err(StatusCode::SERVICE_UNAVAILABLE, "Database unavailable"),
