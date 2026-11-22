@@ -117,6 +117,7 @@ fn node_row_to_json(r: &sqlx::postgres::PgRow, include_secret: bool) -> AppResul
         "status": r.try_get::<NodeStatus, _>("status")?,
         "lastCheckAt": last_check.map(|d| crate::db::ts::format_iso(&d)),
         "lastPingMs": r.try_get::<Option<i32>, _>("lastPingMs")?,
+        "uptime": r.try_get::<Option<i64>, _>("uptime").ok().flatten(),
         "version": r.try_get::<Option<String>, _>("version")?,
         "cpuUsage": r.try_get::<Option<f64>, _>("cpuUsage")?,
         "memUsage": r.try_get::<Option<f64>, _>("memUsage")?,
@@ -150,7 +151,7 @@ async fn list(
 ) -> AppResult<Json<Vec<Value>>> {
     let mut qb = QueryBuilder::new(
         r#"SELECT id, name, host, port, "apiPort", secret, country, city, isp, status,
-                  "lastCheckAt", "lastPingMs", version, "cpuUsage", "memUsage", "netUpload", "netDownload",
+                  "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload",
                   "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch,
                   features, COALESCE(tags, '{}') AS tags,
                   "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt"
@@ -201,9 +202,9 @@ async fn list(
 
         // Windowed query fetching at most 12 latest metrics per node
         let m_rows = sqlx::query(
-            r#"SELECT "nodeId", "cpuUsage", "memUsage", "tcpConnections", "udpSockets", "uploadBps", "downloadBps", "recordedAt"
+            r#"SELECT "nodeId", "cpuUsage", "memUsage", "tcpConnections", "udpSockets", "uploadBps", "downloadBps", uptime, "recordedAt"
                FROM (
-                   SELECT "nodeId", "cpuUsage", "memUsage", "tcpConnections", "udpSockets", "uploadBps", "downloadBps", "recordedAt",
+                   SELECT "nodeId", "cpuUsage", "memUsage", "tcpConnections", "udpSockets", "uploadBps", "downloadBps", uptime, "recordedAt",
                           ROW_NUMBER() OVER (PARTITION BY "nodeId" ORDER BY "recordedAt" DESC, id DESC) AS rn
                    FROM "NodeMetric"
                    WHERE "nodeId" = ANY($1::text[])
@@ -225,6 +226,7 @@ async fn list(
                 "udpSockets": mr.try_get::<Option<i32>, _>("udpSockets")?,
                 "uploadBps": mr.try_get::<Option<f64>, _>("uploadBps")?,
                 "downloadBps": mr.try_get::<Option<f64>, _>("downloadBps")?,
+                "uptime": mr.try_get::<Option<i32>, _>("uptime").ok().flatten(),
                 "recordedAt": crate::db::ts::format_iso(&rec)
             }));
         }
@@ -256,7 +258,7 @@ async fn get_one(
     valid_id(&id)?;
     let r = sqlx::query(
         r#"SELECT id, name, host, port, "apiPort", secret, country, city, isp, status,
-                  "lastCheckAt", "lastPingMs", version, "cpuUsage", "memUsage", "netUpload", "netDownload",
+                  "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload",
                   "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch,
                   features, COALESCE(tags, '{}') AS tags,
                   "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt"
@@ -333,7 +335,7 @@ async fn create(
     let r = sqlx::query(
         r#"INSERT INTO "Node" (id, name, host, port, "apiPort", secret, "secretHash", country, city, isp, tags, active, "createdAt", "updatedAt")
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12, $12)
-           RETURNING id, name, host, port, "apiPort", secret, country, city, isp, status, "lastCheckAt", "lastPingMs", version, "cpuUsage", "memUsage", "netUpload", "netDownload", "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch, features, COALESCE(tags, '{}') AS tags, "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt""#,
+           RETURNING id, name, host, port, "apiPort", secret, country, city, isp, status, "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload", "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch, features, COALESCE(tags, '{}') AS tags, "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt""#,
     )
     .bind(&id)
     .bind(body.name.trim())
@@ -431,7 +433,7 @@ async fn update(
            SET name = $2, host = $3, port = $4, "apiPort" = $5, secret = $6, "secretHash" = $7,
                country = $8, city = $9, isp = $10, tags = $11, active = $12, "updatedAt" = $13
            WHERE id = $1
-           RETURNING id, name, host, port, "apiPort", secret, country, city, isp, status, "lastCheckAt", "lastPingMs", version, "cpuUsage", "memUsage", "netUpload", "netDownload", "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch, features, COALESCE(tags, '{}') AS tags, "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt""#,
+           RETURNING id, name, host, port, "apiPort", secret, country, city, isp, status, "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload", "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch, features, COALESCE(tags, '{}') AS tags, "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt""#,
     )
     .bind(&id)
     .bind(body.name.unwrap_or_else(|| ex.try_get("name").unwrap_or_default()))

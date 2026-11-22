@@ -169,6 +169,7 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
             Envelope::StatusReport(sr) => {
                 let now = crate::db::now();
                 let info = core_updates::extract_core_info(sr.cores.as_ref());
+                let uptime_secs = crate::services::node_client::extract_report_uptime(&sr);
 
                 let _ = sqlx::query(
                     r#"UPDATE "Node"
@@ -178,6 +179,7 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                            "naiveVersion" = COALESCE($8, "naiveVersion"),
                            "mieruVersion" = COALESCE($9, "mieruVersion"),
                            arch = COALESCE($10, arch),
+                           uptime = COALESCE($12, uptime),
                            "lastCheckAt" = $11, "updatedAt" = $11
                        WHERE id = $1"#,
                 )
@@ -192,6 +194,7 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 .bind(info.mieru)
                 .bind(info.arch)
                 .bind(now)
+                .bind(uptime_secs)
                 .execute(&state.db)
                 .await;
 

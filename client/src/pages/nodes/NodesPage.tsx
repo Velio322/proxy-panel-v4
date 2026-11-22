@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   ArrowRight,
+  Clock,
   Edit,
   Layers,
   LayoutGrid,
@@ -43,7 +44,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { NodeBladeCard } from '@/components/nodes/NodeBladeCard';
 import { NodeInstallModal, type NodeInstallInitialData } from '@/components/nodes/NodeInstallModal';
-import { MeterBar, latencyBadgeClass } from '@/components/nodes/NodeTelemetryPrimitives';
+import { MeterBar, formatUptime, latencyBadgeClass } from '@/components/nodes/NodeTelemetryPrimitives';
 import { getApiErrorMessage, nodesApi } from '@/lib/api';
 import { PROTOCOL_COLORS, cn, formatBytes, generateNodeSecret } from '@/lib/core-utils';
 import { useTranslation } from '@/lib/i18n';
@@ -55,12 +56,10 @@ function statusBadgeVariant(status: NodeStatus) {
   switch (status) {
     case 'ONLINE':
       return 'success' as const;
-    case 'ERROR':
-      return 'destructive' as const;
     case 'MAINTENANCE':
       return 'warning' as const;
     default:
-      return 'secondary' as const;
+      return 'destructive' as const;
   }
 }
 
@@ -377,7 +376,7 @@ export function NodesPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="mx-auto w-full max-w-7xl space-y-4">
       {/* Page Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -438,8 +437,8 @@ export function NodesPage() {
       </div>
 
       {/* Fleet Telemetry Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-4 space-y-2.5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-3.5 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Флот нод' : 'Node Fleet'}</span>
             <Server className="h-4 w-4 text-emerald-400" />
@@ -472,12 +471,12 @@ export function NodesPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3.5 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Средняя нагрузка' : 'Average Load'}</span>
             <span className="font-mono text-[11px]">{isRu ? 'онлайн-ноды' : 'online nodes'}</span>
           </div>
-          <div className="space-y-1.5 text-xs">
+          <div className="space-y-1 text-xs">
             <div className="flex items-center justify-between font-mono tabular-nums">
               <span className="text-muted-foreground">CPU</span>
               <span className="font-semibold">
@@ -495,7 +494,7 @@ export function NodesPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2.5">
+        <Card className="p-3.5 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Суммарный трафик' : 'Fleet Traffic'}</span>
             <span className="font-mono text-[11px]">↓/↑</span>
@@ -503,7 +502,7 @@ export function NodesPage() {
           <div className="font-mono text-2xl font-bold tabular-nums">
             {formatBytes(fleetStats.totalTraffic, { locale: language })}
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <div className="flex items-center justify-between font-mono text-[11px] tabular-nums">
               <span className="text-emerald-400">
                 ↓ {formatBytes(fleetStats.totalDown, { locale: language })}
@@ -519,7 +518,7 @@ export function NodesPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2.5">
+        <Card className="p-3.5 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Задержка и протоколы' : 'Latency & Protocols'}</span>
             <Signal className="h-4 w-4 text-cyan-400" />
@@ -546,7 +545,7 @@ export function NodesPage() {
 
       {/* Filter & Search Toolbar */}
       <Card>
-        <CardHeader className="py-3.5">
+        <CardHeader className="py-2.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-1.5">
               {statusTabs.map((tab) => (
@@ -582,9 +581,9 @@ export function NodesPage() {
 
       {/* Main Content */}
       {isLoading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-44 w-full rounded-xl" />
-          <Skeleton className="h-44 w-full rounded-xl" />
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <Skeleton className="h-64 w-full rounded-xl" />
+          <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       ) : filtered.length === 0 ? (
         <Card className="p-10 text-center">
@@ -609,7 +608,7 @@ export function NodesPage() {
           </div>
         </Card>
       ) : viewMode === 'blades' ? (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {filtered.map((n) => (
             <NodeBladeCard
               key={n.id}
@@ -641,7 +640,9 @@ export function NodesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((n) => (
+                  {filtered.map((n) => {
+                    const rowUptime = n.uptime ?? n.nodeMetrics?.[0]?.uptime ?? null;
+                    return (
                     <tr key={n.id} className="border-b border-border/60 last:border-b-0 hover:bg-accent/35">
                       <td className="py-2.5 px-3 font-medium">
                         <Link to={`/nodes/${n.id}`} className="hover:text-primary flex items-center gap-2">
@@ -652,27 +653,33 @@ export function NodesPage() {
                                 ? 'bg-emerald-400 animate-pulse'
                                 : n.status === 'MAINTENANCE'
                                   ? 'bg-amber-400'
-                                  : n.status === 'ERROR'
-                                    ? 'bg-red-500'
-                                    : 'bg-zinc-500',
+                                  : 'bg-red-500',
                             )}
                           />
                           <span>{n.name}</span>
                         </Link>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-xs space-y-0.5">
+                      <td className="py-2.5 px-3 font-mono text-xs space-y-1">
                         <div>
                           {n.host}:{n.port}
                         </div>
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded border px-1.5 py-0 text-[10px]',
-                            latencyBadgeClass(n.lastPingMs),
-                          )}
-                        >
-                          <Signal className="h-2.5 w-2.5" />
-                          {n.lastPingMs != null ? `${n.lastPingMs} ms` : '—'}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded border px-1.5 py-0 text-[10px]',
+                              latencyBadgeClass(n.lastPingMs),
+                            )}
+                          >
+                            <Signal className="h-2.5 w-2.5" />
+                            {n.lastPingMs != null ? `${n.lastPingMs} ms` : '—'}
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded border border-border/70 bg-muted/40 px-1.5 py-0 text-[10px] text-muted-foreground">
+                            <Clock className="h-2.5 w-2.5" />
+                            {n.status === 'ONLINE' && rowUptime != null
+                              ? `↑ ${formatUptime(rowUptime, isRu)}`
+                              : '—'}
+                          </span>
+                        </div>
                       </td>
                       <td className="py-2.5 px-3">
                         <Badge variant={statusBadgeVariant(n.status)}>{n.status}</Badge>
@@ -790,7 +797,8 @@ export function NodesPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

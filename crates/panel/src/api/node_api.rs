@@ -229,11 +229,8 @@ async fn heartbeat(
         .and_then(Value::as_i64)
         .and_then(|v| i32::try_from(v).ok())
         .unwrap_or(0);
-    let uptime = body
-        .get("uptime")
-        .and_then(Value::as_i64)
-        .and_then(|v| i32::try_from(v).ok())
-        .unwrap_or(0);
+    let uptime_secs = crate::services::node_client::extract_uptime_seconds(&body, None);
+    let uptime_metric = uptime_secs.unwrap_or(0).clamp(0, i32::MAX as i64) as i32;
     let core_info = core_updates::extract_core_info(body.get("cores"));
 
     let now = crate::db::now();
@@ -245,6 +242,7 @@ async fn heartbeat(
                "naiveVersion" = COALESCE($7, "naiveVersion"),
                "mieruVersion" = COALESCE($8, "mieruVersion"),
                arch = COALESCE($9, arch),
+               uptime = COALESCE($11, uptime),
                "lastCheckAt" = $10, "lastPingMs" = NULL, "updatedAt" = $10
            WHERE id = $1"#,
     )
@@ -258,6 +256,7 @@ async fn heartbeat(
     .bind(&core_info.mieru)
     .bind(&core_info.arch)
     .bind(now)
+    .bind(uptime_secs)
     .execute(&state.db)
     .await?;
 
@@ -270,7 +269,7 @@ async fn heartbeat(
     .bind(cpu)
     .bind(mem)
     .bind(connections)
-    .bind(uptime)
+    .bind(uptime_metric)
     .bind(now)
     .execute(&state.db)
     .await;

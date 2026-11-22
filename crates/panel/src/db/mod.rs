@@ -92,11 +92,13 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     let client_nodes = include_str!("../../migrations/20261121000004_client_nodes.sql");
     let node_core_versions = include_str!("../../migrations/20261121000005_node_core_versions.sql");
     let node_api_port_2222 = include_str!("../../migrations/20261122000006_node_api_port_2222.sql");
+    let node_uptime = include_str!("../../migrations/20261122000007_node_uptime.sql");
     sqlx::raw_sql(baseline).execute(pool).await?;
     sqlx::raw_sql(parity).execute(pool).await?;
     sqlx::raw_sql(remnawave).execute(pool).await?;
     sqlx::raw_sql(client_nodes).execute(pool).await?;
     sqlx::raw_sql(node_core_versions).execute(pool).await?;
     sqlx::raw_sql(node_api_port_2222).execute(pool).await?;
+    sqlx::raw_sql(node_uptime).execute(pool).await?;
     Ok(())
 }

@@ -258,6 +258,7 @@ export interface NodeMetric {
   udpSockets: number;
   uploadBps: number;
   downloadBps: number;
+  uptime?: number | null;
   recordedAt: string;
 }
 
@@ -273,6 +274,7 @@ export interface NodeItem {
   isp?: string | null;
   lastCheckAt?: string | null;
   lastPingMs?: number | null;
+  uptime?: number | null;
   version?: string | null;
   cpuUsage?: number | null;
   memUsage?: number | null;
