@@ -22,23 +22,26 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
 
 ## Scenario 1: Panel + Node on one server (All-in-One)
 
+Panel deployments require **two domains**: the admin panel domain (`--domain`) and an isolated subscription domain (`--sub-domain`).
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) \
   --mode both \
   --domain panel.example.com \
+  --sub-domain sub.example.com \
   --email you@example.com
 ```
 
 What gets configured automatically:
 - **PostgreSQL + Panel (`127.0.0.1:3000`)** + migrations + `admin` user in `/etc/mypanel3/admin-credentials.txt`
 - **HAProxy SNI Multiplexer** on `<PUBLIC_IP>:443`:
-  - `panel.example.com` (and optional `--sub-domain`) → Caddy (`127.0.0.1:9443`) → Panel
+  - `panel.example.com` and `sub.example.com` → Caddy (`127.0.0.1:9443`) (`sub.example.com` only exposes `/sub/*` & `/api/v1/client/*`)
   - Everything else (e.g., Xray Reality SNI) → `127.0.0.1:443`
 - **Certbot ACME webroot** (`/var/www/acme` on `:80`) + renewal hook copying certs into `/etc/caddy/certs/` and `/etc/mypanel3-node/tls/`
 - **All 4 proxy cores** (`xray`, `sing-box`, `caddy-naive`, `mita`) + TCP BBR + UFW (`SSH`, `80`, `443`, `8443`, `2053`)
 - **Local node auto-registered** in PostgreSQL on management port `2222` with auto-generated secret (`mypanel3 node create --if-missing`).
 
-Pass `--no-sni-mux` to use Caddy directly on `:443`, or `--no-ufw` to skip firewall configuration.
+Pass `--no-sni-mux` to use Caddy directly on `:443`, `--self-steal --decoy <1-10|slug|random>` for a decoy website on a distinct node domain, or `--no-ufw` to skip firewall configuration.
 
 ---
 
@@ -52,7 +55,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
   --email you@example.com
 ```
 
-Without a domain (plain HTTP on `:3000`, e.g., behind your own reverse proxy):
+Without domains (plain HTTP on `:3000`, e.g., behind your own reverse proxy):
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) --mode panel --proxy none
@@ -62,8 +65,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
 
 ## Scenario 3 & 4: External Node Setup
 
-1. In your existing panel UI, open **Nodes → Add Node**, enter the new server's IP or domain (port `2222`), and save.
-2. Copy the `NODE_SECRET` (or full 1-liner) and run on the target VPS (in interactive mode `install.sh` uses visible input for `NODE_SECRET`, automatically strips whitespace/newlines, validates length/format, and verifies port `2222`, UFW, and panel handshake before completion with an option to re-enter the token on mismatch):
+1. In your existing panel UI, open **Nodes → Add Node**, enter the new server's domain (`node1.example.com`, port `2222`), and save.
+2. Copy the `NODE_SECRET` and run on the target VPS. The wizard prompts for the **node domain** (`1` domain required) and immediately offers to deploy one of **10 built-in multi-page Self-Steal decoy templates** (`decoys/`) on `127.0.0.1:9443` with Let's Encrypt while keeping `:443` free for Xray Reality (`realitySettings.dest = "127.0.0.1:9443"`, `serverNames = ["node1.example.com"]`). In interactive mode, `NODE_SECRET` uses visible input, strips whitespace/newlines automatically, validates format, and verifies port `2222`, UFW rules, and panel API handshake before completion:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) \
@@ -71,6 +74,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
   --master-url 'https://panel.example.com' \
   --panel-ip '<PANEL_IP>' \
   --node-domain 'node1.example.com' \
+  --self-steal --decoy random \
   --node-name 'eu-1' \
   --node-secret '<SECRET>' \
   --api-port 2222 \

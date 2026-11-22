@@ -371,139 +371,7 @@ fn record_srh(
     });
 }
 
-fn format_human_bytes(bytes: i64) -> String {
-    let b = bytes.max(0) as f64;
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    if b < 1024.0 {
-        return format!("{} B", bytes.max(0));
-    }
-    let mut val = b;
-    let mut idx = 0;
-    while val >= 1024.0 && idx < UNITS.len() - 1 {
-        val /= 1024.0;
-        idx += 1;
-    }
-    format!("{val:.2} {}", UNITS[idx])
-}
-
-fn render_landing_html(
-    username: &str,
-    sub_base_url: &str,
-    sub_token: &str,
-    used_traffic: i64,
-    traffic_limit: i64,
-    entries: &[SubEntry],
-    info: &UserInfo,
-) -> String {
-    use crate::services::telegram::esc;
-
-    let base = sub_base_url.trim_end_matches('/');
-    let sub_link = format!("{base}/sub/{sub_token}");
-    let traffic_str = if traffic_limit > 0 {
-        format!(
-            "{} / {}",
-            format_human_bytes(used_traffic),
-            format_human_bytes(traffic_limit)
-        )
-    } else {
-        format!("{} / ∞", format_human_bytes(used_traffic))
-    };
-
-    let mut cards_html = String::new();
-    let parsed_entries = subscription::render_json(entries, info)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .and_then(|v| v.get("entries").and_then(Value::as_array).cloned())
-        .unwrap_or_default();
-
-    if parsed_entries.is_empty() {
-        cards_html.push_str(
-            "<div class=\"card\"><p class=\"muted\">No active proxy nodes available for this subscription.</p></div>",
-        );
-    } else {
-        for item in &parsed_entries {
-            let proto = item.get("protocol").and_then(Value::as_str).unwrap_or("PROXY");
-            let tag = item.get("tag").and_then(Value::as_str).unwrap_or("");
-            let host = item.get("host").and_then(Value::as_str).unwrap_or("");
-            let port = item.get("port").and_then(Value::as_u64).unwrap_or(0);
-            let link = item.get("link").and_then(Value::as_str).unwrap_or("");
-            let cfg_block = match item.get("config").filter(|c| !c.is_null()) {
-                Some(cfg) => {
-                    let pretty = serde_json::to_string_pretty(cfg).unwrap_or_default();
-                    format!(
-                        "<details open><summary>Native JSON Config</summary><pre>{}</pre></details>",
-                        esc(&pretty)
-                    )
-                }
-                None => String::new(),
-            };
-            cards_html.push_str(&format!(
-                "<div class=\"card\">\
-                 <div class=\"card-head\"><span class=\"badge\">{}</span><strong>{}</strong>\
-                 <span class=\"mono muted\">{}:{}</span></div>\
-                 <label class=\"label\">Share Link</label>\
-                 <textarea readonly rows=\"2\" class=\"mono\">{}</textarea>\
-                 {}\
-                 </div>",
-                esc(proto),
-                esc(tag),
-                esc(host),
-                port,
-                esc(link),
-                cfg_block,
-            ));
-        }
-    }
-
-    format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\">\
-         <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
-         <title>{}</title>\
-         <style>\
-         body{{font-family:system-ui,-apple-system,sans-serif;background:#0b1120;color:#e2e8f0;max-width:780px;margin:32px auto;padding:0 16px;line-height:1.5}}\
-         h1{{margin:0 0 8px;font-size:1.5rem}}\
-         .muted{{color:#94a3b8;font-size:0.875rem}}\
-         .mono{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.8rem}}\
-         .card{{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:16px;margin:14px 0}}\
-         .card-head{{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}}\
-         .badge{{background:#1d4ed8;color:#eff6ff;border-radius:6px;padding:2px 8px;font-size:0.75rem;font-weight:600}}\
-         .label{{display:block;font-size:0.75rem;color:#94a3b8;margin-bottom:4px}}\
-         textarea{{width:100%;box-sizing:border-box;background:#020617;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:8px;resize:vertical}}\
-         pre{{background:#020617;border:1px solid #334155;border-radius:8px;padding:10px;overflow-x:auto;font-size:0.78rem;margin:8px 0 0}}\
-         details{{margin-top:10px}}\
-         summary{{cursor:pointer;font-size:0.8rem;color:#93c5fd}}\
-         .links{{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}}\
-         .pill{{display:inline-block;padding:4px 10px;border:1px solid #334155;border-radius:6px;color:#93c5fd;text-decoration:none;font-size:0.8rem}}\
-         .pill:hover{{background:#1e293b}}\
-         </style></head>\
-         <body>\
-         <h1>{}</h1>\
-         <p class=\"muted\">Traffic: {}</p>\
-         <div class=\"card\">\
-           <label class=\"label\">Subscription URL</label>\
-           <textarea readonly rows=\"1\" class=\"mono\">{}</textarea>\
-           <div class=\"links\">\
-             <a class=\"pill\" href=\"{}?flag=base64\">Base64</a>\
-             <a class=\"pill\" href=\"{}?flag=clash\">Clash / Mihomo</a>\
-             <a class=\"pill\" href=\"{}?flag=singbox\">Sing-box</a>\
-             <a class=\"pill\" href=\"{}?flag=json\">JSON (All / Native)</a>\
-             <a class=\"pill\" href=\"{}?flag=original\">Original JSON</a>\
-           </div>\
-         </div>\
-         {}\
-         </body></html>",
-        esc(username),
-        esc(username),
-        esc(&traffic_str),
-        esc(&sub_link),
-        esc(&sub_link),
-        esc(&sub_link),
-        esc(&sub_link),
-        esc(&sub_link),
-        esc(&sub_link),
-        cards_html,
-    )
-}
+// HTML subscription landing page is implemented in `crate::api::sub_page`.
 
 /// Resolves a domain host to an IPv4 (preferred) or IPv6 literal with an in-memory TTL cache.
 pub(crate) async fn resolve_host_to_ip(state: &AppState, host: &str) -> Option<String> {
@@ -984,12 +852,13 @@ pub(crate) async fn get_subscription(
             Ok(e) => e,
             Err(_) => return plain_err(StatusCode::SERVICE_UNAVAILABLE, "Database unavailable"),
         };
-        let html = render_landing_html(
+        let html = crate::api::sub_page::render_landing_html(
             &username,
             &state.cfg.sub_url,
             &sub_token,
             used_traffic,
             traffic_limit,
+            expire_at,
             &entries,
             &info,
         );

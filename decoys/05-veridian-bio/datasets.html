@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Datasets — Veridian Genomics Lab</title>
+  <meta name="description" content="Computational Proteomics & Spatial Transcriptomics">
+  <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
+  <link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav-wrap">
+      <a class="brand" href="./index.html">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span>Veridian Genomics Lab</span>
+      </a>
+      <button type="button" class="menu-btn" id="menuToggle" aria-label="Menu">Menu</button>
+      <nav class="nav-links" id="navMenu">
+        <a class="nav-link" href="./index.html">Overview</a>
+        <a class="nav-link" href="./pipelines.html">Pipelines</a>
+        <a class="nav-link" href="./publications.html">Publications</a>
+        <a class="nav-link active" href="./datasets.html">Open Datasets</a>
+        <a class="nav-link" href="./team.html">Researchers</a>
+        <a class="nav-link" href="./contact.html">Contact</a>
+      </nav>
+    </div>
+  </header>
+  <main class="container main-wrap">
+    <span class="eyebrow">Veridian Genomics Lab · Open Datasets</span><h1>Public Benchmark Cohorts & Checksums</h1><p class="lead">Curated reference AnnData and Parquet cohorts under CC-BY-4.0.</p>
+<div class="card" style="margin-top:16px"><h3>CLI Pull</h3><pre><code>nextflow run veridian-org/sc-spatial -r v3.2 -profile singularity --input samplesheet.csv</code></pre></div>
+<div class="card" style="margin-top:16px"><h3>Python Loader</h3><pre><code>import anndata as ad
+adata = ad.read_h5ad('cohort_pbmk_2026.h5ad')</code></pre></div>
+  </main>
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <strong>Veridian Genomics Lab</strong>
+        <p class="muted">Computational Proteomics & Spatial Transcriptomics · Cambridge · Basel</p>
+      </div>
+      <div class="footer-nav"><a href="./index.html">Overview</a> · <a href="./pipelines.html">Pipelines</a> · <a href="./publications.html">Publications</a> · <a href="./datasets.html">Open Datasets</a> · <a href="./team.html">Researchers</a> · <a href="./contact.html">Contact</a></div>
+      <div class="muted">&copy; 2026 Veridian Genomics Lab · <a href="mailto:lab@veridian-genomics.org">lab@veridian-genomics.org</a></div>
+    </div>
+  </footer>
+  <script src="./assets/app.js"></script>
+</body>
+</html>

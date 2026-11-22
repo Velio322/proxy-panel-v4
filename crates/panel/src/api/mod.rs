@@ -26,6 +26,7 @@ pub mod settings;
 pub mod srh;
 pub mod static_files;
 pub mod sub;
+pub mod sub_page;
 pub mod templates;
 pub mod tg_oauth;
 pub mod twofa;

@@ -389,22 +389,36 @@ export function SubscriptionModal({ open, onOpenChange, client }: SubscriptionMo
               </div>
               <div className="flex flex-wrap justify-center gap-2 text-xs">
                 <a
-                  href={`happ://add/${encodeURIComponent(subUrl)}`}
+                  href={`happ://add/${subUrl}`}
                   className="rounded-md border px-2.5 py-1 hover:bg-accent"
                 >
                   {isRu ? 'Открыть в Happ' : 'Open in Happ'}
                 </a>
                 <a
-                  href={`v2raytun://import/${encodeURIComponent(subUrl)}`}
+                  href={`karing://install-config?url=${encodeURIComponent(subUrl)}&name=${encodeURIComponent(client.username)}`}
                   className="rounded-md border px-2.5 py-1 hover:bg-accent"
                 >
-                  {isRu ? 'Открыть в v2RayTun' : 'Open in v2RayTun'}
+                  {isRu ? 'Открыть в Karing' : 'Open in Karing'}
                 </a>
                 <a
-                  href={`streisand://import/${encodeURIComponent(subUrl)}`}
+                  href={`sn://subscription?url=${encodeURIComponent(subUrl)}&name=${encodeURIComponent(client.username)}`}
                   className="rounded-md border px-2.5 py-1 hover:bg-accent"
                 >
-                  {isRu ? 'Открыть в Streisand' : 'Open in Streisand'}
+                  {isRu ? 'Открыть в NekoBox' : 'Open in NekoBox'}
+                </a>
+                <a
+                  href={`throne://addsub/?url=${encodeURIComponent(subUrl)}&name=${encodeURIComponent(client.username)}`}
+                  className="rounded-md border px-2.5 py-1 hover:bg-accent"
+                >
+                  {isRu ? 'Открыть в Throne (ПК)' : 'Open in Throne (PC)'}
+                </a>
+                <a
+                  href={subUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-primary hover:bg-primary/20"
+                >
+                  {isRu ? 'Страница подписки' : 'Open Sub Page'}
                 </a>
               </div>
             </div>

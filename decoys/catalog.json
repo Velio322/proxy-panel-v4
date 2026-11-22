@@ -1,0 +1,162 @@
+[
+  {
+    "id": 1,
+    "slug": "01-nordcloud",
+    "name": "NordCloud Systems",
+    "tagline": "European Bare-Metal Compute & Managed Kubernetes",
+    "taglineRu": "Облачная инфраструктура и Kubernetes-кластеры",
+    "theme": "dark",
+    "pages": [
+      "index.html",
+      "infrastructure.html",
+      "pricing.html",
+      "status.html",
+      "docs.html",
+      "contact.html"
+    ]
+  },
+  {
+    "id": 2,
+    "slug": "02-helvetia-quant",
+    "name": "Helvetia Quant Partners",
+    "tagline": "Institutional Quantitative Risk & Portfolio Analytics",
+    "taglineRu": "Финансовая аналитика и моделирование рисков",
+    "theme": "light",
+    "pages": [
+      "index.html",
+      "platform.html",
+      "research.html",
+      "security.html",
+      "company.html",
+      "contact.html"
+    ]
+  },
+  {
+    "id": 3,
+    "slug": "03-fjord-atelier",
+    "name": "Fjord Architectural Atelier",
+    "tagline": "Nordic Timber Architecture & Civic Masterplanning",
+    "taglineRu": "Архитектурное бюро и урбанистика",
+    "theme": "light",
+    "pages": [
+      "index.html",
+      "projects.html",
+      "studio.html",
+      "sustainability.html",
+      "journal.html",
+      "contact.html"
+    ]
+  },
+  {
+    "id": 4,
+    "slug": "04-pulseops",
+    "name": "PulseOps Telemetry",
+    "tagline": "OpenTelemetry Distributed Tracing & Incident Forensics",
+    "taglineRu": "Мониторинг сервисов и распределённый трейсинг",
+    "theme": "dark",
+    "pages": [
+      "index.html",
+      "features.html",
+      "integrations.html",
+      "pricing.html",
+      "changelog.html",
+      "contact.html"
+    ]
+  },
+  {
+    "id": 5,
+    "slug": "05-veridian-bio",
+    "name": "Veridian Genomics Lab",
+    "tagline": "Computational Proteomics & Spatial Transcriptomics",
+    "taglineRu": "Биоинформатика и вычислительная протеомика",
+    "theme": "light",
+    "pages": [
+      "index.html",
+      "pipelines.html",
+      "publications.html",
+      "datasets.html",
+      "team.html",
+      "contact.html"
+    ]
+  },
+  {
+    "id": 6,
+    "slug": "06-kestrel-freight",
+    "name": "Kestrel Maritime & Rail",
+    "tagline": "Pan-European Intermodal Rail & Short-Sea Logistics",
+    "taglineRu": "Морские и железнодорожные грузоперевозки",
+    "theme": "dark",
+    "pages": [
+      "index.html",
+      "corridors.html",
+      "fleet.html",
+      "tracking.html",
+      "customs.html",
+      "contact.html"
+    ]
+  },
+  {
+    "id": 7,
+    "slug": "07-solstice-roasters",
+    "name": "Solstice Specialty Roasters",
+    "tagline": "Direct-Trade Nordic Micro-Lot Roastery",
+    "taglineRu": "Спешелти кофе светлой обжарки",
+    "theme": "light",
+    "pages": [
+      "index.html",
+      "coffees.html",
+      "brew-guides.html",
+      "wholesale.html",
+      "origin-stories.html",
+      "contact.html"
+    ]
+  },
+  {
+    "id": 8,
+    "slug": "08-aether-ai",
+    "name": "Aether Reasoning Lab",
+    "tagline": "Compact Multimodal Weights & Deterministic Tool Inference",
+    "taglineRu": "Исследовательская лаборатория ИИ-моделей",
+    "theme": "dark",
+    "pages": [
+      "index.html",
+      "models.html",
+      "benchmarks.html",
+      "papers.html",
+      "api.html",
+      "contact.html"
+    ]
+  },
+  {
+    "id": 9,
+    "slug": "09-monolith-sound",
+    "name": "Monolith Acoustics",
+    "tagline": "Active Coaxial Studio Reference Monitors",
+    "taglineRu": "Студийные мониторы и акустические системы",
+    "theme": "dark",
+    "pages": [
+      "index.html",
+      "monitors.html",
+      "acoustics.html",
+      "specs.html",
+      "dealers.html",
+      "contact.html"
+    ]
+  },
+  {
+    "id": 10,
+    "slug": "10-ironpine-games",
+    "name": "Ironpine Interactive",
+    "tagline": "Independent Tactical Strategy & Narrative Worlds",
+    "taglineRu": "Инди-студия тактических игр и нарратива",
+    "theme": "dark",
+    "pages": [
+      "index.html",
+      "games.html",
+      "devlog.html",
+      "presskit.html",
+      "careers.html",
+      "contact.html"
+    ]
+  }
+]

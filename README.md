@@ -25,8 +25,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
 
 ### 1. Панель + локальная нода на одном сервере (`--mode both`)
 
-Подходит для запуска всей инфраструктуры на одном VPS:
-- устанавливает PostgreSQL, `mypanel3` и Caddy + HAProxy SNI-мультиплексор на `:443` (HTTPS панели и Xray Reality работают на `:443` одновременно);
+Подходит для запуска всей инфраструктуры на одном VPS (требуется **2 домена**: отдельный для админ-панели `--domain` и отдельный для подписок `--sub-domain`):
+- устанавливает PostgreSQL, `mypanel3` и Caddy + HAProxy SNI-мультиплексор на `:443` (HTTPS панели/подписок и Xray Reality работают на `:443` одновременно; на домене подписок открываются только `/sub/*` и `/api/v1/client/*`);
 - выпускает SSL-сертификаты Let's Encrypt, настраивает UFW (`SSH`, `80`, `443`, `8443`, `2053`);
 - устанавливает все 4 прокси-ядра (`xray`, `sing-box`, `caddy-naive`, `mita`), включает TCP BBR и автоматически регистрирует локальную ноду в БД с автогенерированным секретом на порту `2222`.
 
@@ -34,12 +34,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
 bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) \
   --mode both \
   --domain panel.example.com \
+  --sub-domain sub.example.com \
   --email you@example.com
 ```
 
 ### 2. Только панель (`--mode panel`)
 
-Лёгкий управляющий сервер (control plane): PostgreSQL + `mypanel3` + Caddy HTTPS + Let's Encrypt + UFW (`SSH`, `80`, `443`). Прокси-ядра, агент и HAProxy не устанавливаются.
+Лёгкий управляющий сервер (control plane): требует **2 домена** (`--domain` для админ-панели и `--sub-domain` для изолированной страницы подписок пользователей) + PostgreSQL + `mypanel3` + Caddy HTTPS + Let's Encrypt + UFW (`SSH`, `80`, `443`).
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main/install.sh) \
@@ -51,10 +52,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
 
 ### 3. Только нода — внешний сервер (`--mode node`)
 
-Выделенный прокси-сервер для работы под управлением основной панели:
-- запрашивает домен ноды (`node1.example.com`, для TLS/SNI), адрес/IP управляющей панели и секрет `NODE_SECRET` (из **Ноды → Добавить ноду**, порт управления **`2222`**; ввод видимый с автоматической очисткой пробелов/переносов строк и валидацией);
+Выделенный прокси-сервер для работы под управлением основной панели (требуется **1 домен** ноды):
+- запрашивает домен ноды (`node1.example.com`) и сразу предлагает развернуть многостраничный **сайт-заглушку для Self-Steal Reality** (выбор из **10 готовых шаблонов** в [`decoys/`](decoys/) или случайный шаблон, раздаётся локальным Caddy на `127.0.0.1:9443` с Let's Encrypt, оставляя порт `:443` свободным под Xray);
+- запрашивает адрес/IP управляющей панели и секрет `NODE_SECRET` (из **Ноды → Добавить ноду**, порт управления **`2222`**; ввод видимый с автоматической очисткой пробелов/переносов строк и валидацией);
 - ограничивает доступ к управляющему порту `2222` как на уровне агента (`ALLOWED_PANEL_IPS`), так и правилом UFW (`allow from <PANEL_IP> to any port 2222`), проверяет секрет постоянным по времени сравнением (`X-Node-Secret` / `Authorization: Bearer`);
-- оставляет порт `:443` свободным под VLESS Reality / Sing-box, а сертификаты Let's Encrypt для NaiveProxy / Hysteria2 / Trojan складывает в `/etc/mypanel3-node/tls/`;
 - после запуска агента проверяет прослушивание порта `2222`, правило UFW и рукопожатие с API панели (`NODE_SECRET`), позволяя при ошибке сразу ввести секрет заново без перезапуска установки.
 
 ```bash
@@ -63,6 +64,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Velio322/proxy-panel-v4/main
   --master-url 'https://panel.example.com' \
   --panel-ip '<PANEL_IP>' \
   --node-domain 'node1.example.com' \
+  --self-steal --decoy random \
   --node-name 'EU-1' \
   --node-secret '<NODE_SECRET>' \
   -y

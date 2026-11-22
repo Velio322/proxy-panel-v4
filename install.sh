@@ -46,6 +46,10 @@ API_PORT_EXPLICIT="false"
 CORES_SPEC="all"
 ENABLE_BBR="auto"
 CONFIGURE_UFW="true"
+SELF_STEAL="auto"
+DECOY_TEMPLATE=""
+DECOY_ROOT="/var/www/decoy"
+DECOY_INSTALLED="none"
 RECONFIGURE="false"
 NON_INTERACTIVE="false"
 UPGRADE_ONLY="false"
@@ -160,8 +164,8 @@ usage() {
   --binary-url <URL>            Прямой URL для скачивания бинарника mypanel3
 
 Параметры панели:
-  --domain <DOMAIN>             Домен панели (например, panel.example.com)
-  --sub-domain <DOMAIN>         Отдельный домен для подписок (опционально)
+  --domain <DOMAIN>             Домен панели (обязателен для HTTPS, например panel.example.com)
+  --sub-domain <DOMAIN>         Отдельный домен подписок (обязателен для panel/both с HTTPS, например sub.example.com)
   --email, --admin-email <ADDR> Email для Let's Encrypt и администратора
   --proxy <caddy|none>          Reverse proxy для панели (по умолчанию: caddy)
   --sni-mux / --no-sni-mux      В режиме both: делить :443 между панелью и Reality через HAProxy
@@ -181,6 +185,8 @@ usage() {
                                 Транспорт API ноды (по умолчанию для node: none на :2222, :443 свободен;
                                 port2222 — Caddy HTTPS на порту API -> loopback)
   --tls-certs-domain <DOMAIN>   Выпустить Let's Encrypt сертификаты в /etc/mypanel3-node/tls
+  --self-steal / --no-self-steal Развернуть сайт-заглушку Caddy (:9443) + SSL для Self-Steal Reality (:443 свободен)
+  --decoy <1-10|slug|random>    Выбрать шаблон сайта-заглушки (каталог decoys/, по умолчанию выбор в меню)
   --cores <all|list|none>       Прокси-ядра: xray,singbox,naive,mieru (по умолчанию: all)
   --skip-cores                  Синоним --cores none
   --bbr / --no-bbr              Настройка fq + TCP BBR (по умолчанию включено для node/both)
@@ -356,6 +362,20 @@ parse_args() {
             --no-ufw)
                 CONFIGURE_UFW="false"
                 shift
+                ;;
+            --self-steal)
+                SELF_STEAL="true"
+                shift
+                ;;
+            --no-self-steal)
+                SELF_STEAL="false"
+                shift
+                ;;
+            --decoy)
+                [[ $# -ge 2 ]] || die "--decoy требует значение"
+                DECOY_TEMPLATE="$2"
+                SELF_STEAL="true"
+                shift 2
                 ;;
             --reconfigure)
                 RECONFIGURE="true"
@@ -1471,6 +1491,228 @@ write_certbot_deploy_hook() {
     "$hook_script" || true
 }
 
+DECOY_SLUGS=(
+    "01-nordcloud"
+    "02-helvetia-quant"
+    "03-fjord-atelier"
+    "04-pulseops"
+    "05-veridian-bio"
+    "06-kestrel-freight"
+    "07-solstice-roasters"
+    "08-aether-ai"
+    "09-monolith-sound"
+    "10-ironpine-games"
+)
+
+print_decoy_menu() {
+    printf '%sДоступные шаблоны сайта-заглушки (Self-Steal Reality):%s\n' "$C_BOLD" "$C_RESET" >&2
+    printf '   1) NordCloud Systems       — Облачная инфраструктура и Kubernetes\n' >&2
+    printf '   2) Helvetia Quant Partners — Финансовая аналитика и моделирование рисков\n' >&2
+    printf '   3) Fjord Atelier           — Скандинавская архитектура и урбанистика\n' >&2
+    printf '   4) PulseOps Telemetry      — OpenTelemetry-трейсинг и DevOps SaaS\n' >&2
+    printf '   5) Veridian Genomics Lab   — Биоинформатика и протеомика\n' >&2
+    printf '   6) Kestrel Freight         — Европейские ж/д и морские грузоперевозки\n' >&2
+    printf '   7) Solstice Roasters       — Спешелти-обжарка кофе\n' >&2
+    printf '   8) Aether Reasoning Lab    — Исследовательская лаборатория ИИ\n' >&2
+    printf '   9) Monolith Acoustics      — Студийные референсные мониторы\n' >&2
+    printf '  10) Ironpine Interactive    — Инди-студия тактических игр\n' >&2
+    printf '  11) Выбрать случайный шаблон (рекомендуется)\n' >&2
+}
+
+resolve_decoy_slug() {
+    local sel=""
+    sel="$(trim_ws "${1:-}")"
+    if [[ -z "$sel" ]] || [[ "$sel" == "random" ]] || [[ "$sel" == "rand" ]] || [[ "$sel" == "11" ]]; then
+        local idx=$(( RANDOM % ${#DECOY_SLUGS[@]} ))
+        printf '%s' "${DECOY_SLUGS[$idx]}"
+        return 0
+    fi
+    if [[ "$sel" =~ ^[0-9]+$ ]] && [[ "$sel" -ge 1 ]] && [[ "$sel" -le "${#DECOY_SLUGS[@]}" ]]; then
+        printf '%s' "${DECOY_SLUGS[$((sel - 1))]}"
+        return 0
+    fi
+    local s=""
+    for s in "${DECOY_SLUGS[@]}"; do
+        if [[ "$s" == "$sel" ]] || [[ "${s#*-}" == "$sel" ]]; then
+            printf '%s' "$s"
+            return 0
+        fi
+    done
+    return 1
+}
+
+prompt_decoy_choice() {
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        DECOY_TEMPLATE="$(resolve_decoy_slug "${DECOY_TEMPLATE:-random}")"
+        return 0
+    fi
+    if [[ -z "$ANSWERS_FD" ]]; then
+        print_decoy_menu
+    fi
+    while true; do
+        local ans=""
+        ans="$(prompt_line "Выберите шаблон заглушки (1-11)" "11")"
+        local slug=""
+        if slug="$(resolve_decoy_slug "$ans")"; then
+            DECOY_TEMPLATE="$slug"
+            ok "Выбран шаблон заглушки: ${DECOY_TEMPLATE}"
+            return 0
+        fi
+        warn "Некорректный выбор '$ans'. Укажите число от 1 до 11 или имя шаблона."
+    done
+}
+
+install_decoy_site() {
+    local slug="$1"
+    local dest_dir="${2:-$DECOY_ROOT}"
+    [[ -n "$slug" ]] || die "Не указан шаблон заглушки"
+
+    local script_src="${BASH_SOURCE[0]:-}"
+    local script_dir=""
+    if [[ -n "$script_src" ]] && [[ -e "$script_src" ]]; then
+        script_dir="$(cd "$(dirname "$script_src")" && pwd 2>/dev/null || true)"
+    fi
+
+    local src_dir=""
+    if [[ -n "$script_dir" ]] && [[ -f "${script_dir}/decoys/${slug}/index.html" ]]; then
+        src_dir="${script_dir}/decoys/${slug}"
+    else
+        local tmp_dir=""
+        tmp_dir="$(make_tmp_dir)"
+        local tarball_url="https://github.com/${GITHUB_REPO}/archive/refs/heads/main.tar.gz"
+        log "Скачиваю шаблон заглушки '${slug}' из ${GITHUB_REPO}..."
+        curl -fsSL "$tarball_url" -o "${tmp_dir}/repo.tar.gz" \
+            || die "Не удалось скачать архив шаблонов заглушек (${tarball_url})"
+        tar -xzf "${tmp_dir}/repo.tar.gz" -C "$tmp_dir"
+        src_dir="$(find "$tmp_dir" -maxdepth 3 -type d -path "*/decoys/${slug}" | head -n 1 || true)"
+        [[ -n "$src_dir" ]] && [[ -f "${src_dir}/index.html" ]] \
+            || die "Шаблон заглушки '${slug}' не найден в архиве репозитория"
+    fi
+
+    rm -rf "$dest_dir"
+    install -d -m 0755 "$dest_dir"
+    cp -R "${src_dir}/." "${dest_dir}/"
+    chown -R root:root "$dest_dir"
+    find "$dest_dir" -type d -exec chmod 0755 {} +
+    find "$dest_dir" -type f -exec chmod 0644 {} +
+    DECOY_INSTALLED="${slug} -> ${dest_dir}"
+    ok "Сайт-заглушка '${slug}' развёрнут в ${dest_dir}"
+}
+
+configure_node_self_steal_decoy() {
+    [[ "$MODE" == "node" ]] && [[ "$SELF_STEAL" == "true" ]] || return 0
+    ! is_ip_addr "$NODE_DOMAIN" || die "Для Self-Steal заглушки требуется DNS-домен ноды (указано '${NODE_DOMAIN}')"
+
+    local slug=""
+    slug="$(resolve_decoy_slug "$DECOY_TEMPLATE" || true)"
+    [[ -n "$slug" ]] || slug="$(resolve_decoy_slug "random")"
+    install_decoy_site "$slug" "$DECOY_ROOT"
+
+    install_caddy
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -qq --no-install-recommends certbot
+
+    install -d -m 0755 /etc/caddy "$CADDY_CERTS_DIR" /var/www/acme /var/log/caddy "$NODE_TLS_DIR"
+    local pub_ip=""
+    pub_ip="$(detect_public_ipv4)"
+
+    # 1. Bootstrap ACME HTTP listener on :80 (:443 stays untouched for Xray Reality)
+    : > "$CADDY_FILE"
+    {
+        printf '{\n'
+        [[ -n "$EMAIL" ]] && printf '\temail %s\n' "$EMAIL"
+        printf '\tauto_https off\n}\n\n'
+        cat <<EOF
+http://${NODE_DOMAIN} {
+	@acme path /.well-known/acme-challenge/*
+	handle @acme {
+		root * /var/www/acme
+		file_server
+	}
+	handle {
+		redir https://{host}{uri} 301
+	}
+}
+EOF
+    } > "$CADDY_FILE"
+    chmod 0644 "$CADDY_FILE"
+    chown -R caddy:caddy /var/log/caddy /var/www/acme
+    caddy validate --config "$CADDY_FILE"
+    systemctl enable --now caddy
+    systemctl reload caddy || systemctl restart caddy
+
+    local email_args=("--register-unsafely-without-email")
+    if [[ -n "$EMAIL" ]]; then
+        email_args=("--email" "$EMAIL")
+    fi
+    if [[ ! -f "/etc/letsencrypt/live/${NODE_DOMAIN}/fullchain.pem" ]]; then
+        log "Выпуск сертификата Let's Encrypt для Self-Steal (${NODE_DOMAIN})..."
+        certbot certonly --webroot -w /var/www/acme --non-interactive --agree-tos "${email_args[@]}" -d "$NODE_DOMAIN" \
+            || die "Не удалось выпустить сертификат для ${NODE_DOMAIN}. Проверьте DNS A-запись -> ${pub_ip:-<IP ноды>} и открытый порт 80/tcp."
+    fi
+
+    write_certbot_deploy_hook "$NODE_DOMAIN" "$NODE_DOMAIN"
+
+    # 2. Write final Self-Steal Caddy config bound strictly to 127.0.0.1:9443 (:443 kept free!)
+    : > "$CADDY_FILE"
+    {
+        printf '{\n'
+        [[ -n "$EMAIL" ]] && printf '\temail %s\n' "$EMAIL"
+        printf '\tauto_https off\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n\n'
+        cat <<EOF
+http://${NODE_DOMAIN} {
+	@acme path /.well-known/acme-challenge/*
+	handle @acme {
+		root * /var/www/acme
+		file_server
+	}
+	handle {
+		redir https://{host}{uri} 301
+	}
+}
+
+https://${NODE_DOMAIN}:9443 {
+	bind 127.0.0.1
+	tls ${CADDY_CERTS_DIR}/${NODE_DOMAIN}.fullchain.pem ${CADDY_CERTS_DIR}/${NODE_DOMAIN}.privkey.pem
+	encode gzip zstd
+	root * ${DECOY_ROOT}
+	file_server
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	log {
+		output file /var/log/caddy/decoy.log
+	}
+}
+EOF
+        if [[ "$TLS_MODE" == "port2222" ]]; then
+            cat <<EOF
+
+https://${NODE_DOMAIN}:${API_PORT} {
+	tls ${CADDY_CERTS_DIR}/${NODE_DOMAIN}.fullchain.pem ${CADDY_CERTS_DIR}/${NODE_DOMAIN}.privkey.pem
+	reverse_proxy 127.0.0.1:${AGENT_WORKER_PORT} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+	log {
+		output file /var/log/caddy/node.log
+	}
+}
+EOF
+        fi
+    } > "$CADDY_FILE"
+
+    chmod 0644 "$CADDY_FILE"
+    caddy validate --config "$CADDY_FILE"
+    chown -R caddy:caddy /var/log/caddy
+    systemctl reload caddy || systemctl restart caddy
+    ok "Self-Steal заглушка готова на 127.0.0.1:9443 (порт :443 свободен для Xray Reality)"
+}
+
 configure_sni_mux_both() {
     install_caddy
     install_haproxy
@@ -1487,10 +1729,24 @@ configure_sni_mux_both() {
     if [[ -n "$SUB_DOMAIN" ]] && [[ "$SUB_DOMAIN" != "$DOMAIN" ]]; then
         all_domains+=("$SUB_DOMAIN")
     fi
-    if [[ -n "$TLS_CERTS_DOMAIN" ]] && [[ "$TLS_CERTS_DOMAIN" != "$DOMAIN" ]] && [[ "$TLS_CERTS_DOMAIN" != "$SUB_DOMAIN" ]]; then
+    if [[ "$TLS_CERTS_DOMAIN_EXPLICIT" != "true" ]] && [[ -n "$TLS_CERTS_DOMAIN" ]] && [[ "$TLS_CERTS_DOMAIN" != "$DOMAIN" ]] && [[ "$TLS_CERTS_DOMAIN" != "$SUB_DOMAIN" ]]; then
         if ! is_ip_addr "$TLS_CERTS_DOMAIN"; then
             all_domains+=("$TLS_CERTS_DOMAIN")
         fi
+    fi
+    if [[ "$SELF_STEAL" == "true" ]] && [[ -n "$NODE_DOMAIN" ]] && ! is_ip_addr "$NODE_DOMAIN"; then
+        local already="false"
+        local ad=""
+        for ad in "${all_domains[@]}"; do
+            [[ "$ad" == "$NODE_DOMAIN" ]] && already="true"
+        done
+        [[ "$already" == "true" ]] || all_domains+=("$NODE_DOMAIN")
+    fi
+
+    if [[ "$SELF_STEAL" == "true" ]]; then
+        local decoy_slug=""
+        decoy_slug="$(resolve_decoy_slug "$DECOY_TEMPLATE")"
+        install_decoy_site "$decoy_slug" "$DECOY_ROOT"
     fi
 
     : > "$CADDY_FILE"
@@ -1583,13 +1839,40 @@ https://${SUB_DOMAIN}:9443 {
 	bind 127.0.0.1
 	tls ${CADDY_CERTS_DIR}/${SUB_DOMAIN}.fullchain.pem ${CADDY_CERTS_DIR}/${SUB_DOMAIN}.privkey.pem
 	encode gzip zstd
-	reverse_proxy 127.0.0.1:3000 {
-		header_up Host {host}
-		header_up X-Real-IP {remote_host}
-		header_up X-Forwarded-Proto https
+	@sub_routes path /sub/* /api/v1/client/*
+	handle @sub_routes {
+		reverse_proxy 127.0.0.1:3000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+	handle {
+		respond 404
 	}
 	log {
 		output file /var/log/caddy/sub.log
+	}
+}
+
+EOF
+        fi
+        if [[ "$SELF_STEAL" == "true" ]] && [[ -n "$NODE_DOMAIN" ]] && ! is_ip_addr "$NODE_DOMAIN" && [[ "$NODE_DOMAIN" != "$DOMAIN" ]] && [[ "$NODE_DOMAIN" != "$SUB_DOMAIN" ]]; then
+            cat <<EOF
+https://${NODE_DOMAIN}:9443 {
+	bind 127.0.0.1
+	tls ${CADDY_CERTS_DIR}/${NODE_DOMAIN}.fullchain.pem ${CADDY_CERTS_DIR}/${NODE_DOMAIN}.privkey.pem
+	encode gzip zstd
+	root * ${DECOY_ROOT}
+	file_server
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	log {
+		output file /var/log/caddy/decoy.log
 	}
 }
 
@@ -1606,6 +1889,9 @@ EOF
     sni_acls="    acl is_panel req.ssl_sni -i ${DOMAIN}"
     if [[ -n "$SUB_DOMAIN" ]] && [[ "$SUB_DOMAIN" != "$DOMAIN" ]]; then
         sni_acls="${sni_acls}"$'\n'"    acl is_panel req.ssl_sni -i ${SUB_DOMAIN}"
+    fi
+    if [[ "$SELF_STEAL" == "true" ]] && [[ -n "$NODE_DOMAIN" ]] && ! is_ip_addr "$NODE_DOMAIN" && [[ "$NODE_DOMAIN" != "$DOMAIN" ]] && [[ "$NODE_DOMAIN" != "$SUB_DOMAIN" ]]; then
+        sni_acls="${sni_acls}"$'\n'"    acl is_panel req.ssl_sni -i ${NODE_DOMAIN}"
     fi
 
     cat > "$HAPROXY_FILE" <<EOF
@@ -1678,14 +1964,20 @@ ${tls_directive}	encode gzip zstd
 }
 
 EOF
-            if [[ -n "$SUB_DOMAIN" ]]; then
+            if [[ -n "$SUB_DOMAIN" ]] && [[ "$SUB_DOMAIN" != "$DOMAIN" ]]; then
                 cat >> "$CADDY_FILE" <<EOF
 ${SUB_DOMAIN} {
 ${tls_directive}	encode gzip zstd
-	reverse_proxy 127.0.0.1:3000 {
-		header_up Host {host}
-		header_up X-Real-IP {remote_host}
-		header_up X-Forwarded-Proto {scheme}
+	@sub_routes path /sub/* /api/v1/client/*
+	handle @sub_routes {
+		reverse_proxy 127.0.0.1:3000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	handle {
+		respond 404
 	}
 	log {
 		output file /var/log/caddy/sub.log
@@ -1984,25 +2276,58 @@ run_wizard() {
     esac
 
     if [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; then
-        if [[ "$PROXY_MODE" != "none" ]] && [[ -z "$DOMAIN" ]]; then
-            DOMAIN="$(prompt_line "Домен панели (например, panel.example.com; Enter — без домена, HTTP :3000)" "")"
-            if [[ -z "$DOMAIN" ]]; then
-                PROXY_MODE="none"
-            fi
-        fi
-        if [[ -n "$DOMAIN" ]]; then
-            validate_domain "$DOMAIN" || die "Некорректный домен панели: $DOMAIN"
+        if [[ "$PROXY_MODE" != "none" ]]; then
+            while true; do
+                if [[ -z "$DOMAIN" ]]; then
+                    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+                        die "В неинтерактивном режиме для панели требуется --domain <DOMAIN> (или --proxy none)"
+                    fi
+                    DOMAIN="$(prompt_line "1/2 Домен панели (обязательно, например panel.example.com)" "")"
+                fi
+                if [[ -z "$DOMAIN" ]]; then
+                    warn "Домен панели не может быть пустым."
+                    continue
+                fi
+                if validate_domain "$DOMAIN"; then
+                    break
+                fi
+                warn "Некорректный домен панели: $DOMAIN"
+                [[ "$NON_INTERACTIVE" == "true" ]] && die "Некорректный домен панели: $DOMAIN"
+                DOMAIN=""
+            done
             if [[ "$PROXY_MODE" == "caddy" ]]; then
                 prompt_dns_warn_continue "$DOMAIN"
             fi
-        fi
 
-        if [[ "$PROXY_MODE" != "none" ]] && [[ -z "$SUB_DOMAIN" ]] && [[ "$NON_INTERACTIVE" != "true" ]]; then
-            SUB_DOMAIN="$(prompt_line "Отдельный домен для подписок (необязательно, Enter — общий с панелью)" "")"
-        fi
-        if [[ -n "$SUB_DOMAIN" ]]; then
-            validate_domain "$SUB_DOMAIN" || die "Некорректный домен подписок: $SUB_DOMAIN"
-            prompt_dns_warn_continue "$SUB_DOMAIN"
+            while true; do
+                if [[ -z "$SUB_DOMAIN" ]]; then
+                    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+                        die "В неинтерактивном режиме для панели требуется --sub-domain <DOMAIN> (или --proxy none)"
+                    fi
+                    SUB_DOMAIN="$(prompt_line "2/2 Домен подписок (обязательно, например sub.example.com)" "")"
+                fi
+                if [[ -z "$SUB_DOMAIN" ]]; then
+                    warn "Домен подписок не может быть пустым (для панели требуются 2 домена: панель + подписки)."
+                    continue
+                fi
+                if ! validate_domain "$SUB_DOMAIN"; then
+                    warn "Некорректный домен подписок: $SUB_DOMAIN"
+                    [[ "$NON_INTERACTIVE" == "true" ]] && die "Некорректный домен подписок: $SUB_DOMAIN"
+                    SUB_DOMAIN=""
+                    continue
+                fi
+                if [[ "$SUB_DOMAIN" == "$DOMAIN" ]] && [[ "$NON_INTERACTIVE" != "true" ]] && [[ -z "$ANSWERS_FD" ]]; then
+                    warn "Домен подписок совпадает с доменом панели (${DOMAIN}). Рекомендуется указать отдельный домен (например, sub.${DOMAIN#*.})."
+                    if prompt_confirm "Указать другой домен для подписок?" "Y"; then
+                        SUB_DOMAIN=""
+                        continue
+                    fi
+                fi
+                break
+            done
+            if [[ "$PROXY_MODE" == "caddy" ]] && [[ "$SUB_DOMAIN" != "$DOMAIN" ]]; then
+                prompt_dns_warn_continue "$SUB_DOMAIN"
+            fi
         fi
 
         if [[ "$PROXY_MODE" != "none" ]] && [[ "$TLS_MODE" == "auto" ]] && [[ -z "$EMAIL" ]]; then
@@ -2037,7 +2362,7 @@ run_wizard() {
             det_ip="$(detect_public_ipv4)"
             local default_node_dom="${DOMAIN:-$det_ip}"
             if [[ "$NON_INTERACTIVE" != "true" ]]; then
-                NODE_DOMAIN="$(prompt_line "Домен или IP локальной ноды (может совпадать с доменом панели)" "$default_node_dom")"
+                NODE_DOMAIN="$(prompt_line "Домен или IP локальной ноды (для Self-Steal укажите отдельный домен, иначе домен панели)" "$default_node_dom")"
             else
                 NODE_DOMAIN="$default_node_dom"
             fi
@@ -2046,6 +2371,20 @@ run_wizard() {
             validate_domain "$NODE_DOMAIN" || die "Некорректный домен ноды: $NODE_DOMAIN"
             if [[ "$NODE_DOMAIN" != "$DOMAIN" ]] && [[ "$NODE_DOMAIN" != "$SUB_DOMAIN" ]]; then
                 prompt_dns_warn_continue "$NODE_DOMAIN"
+                if [[ "$SNI_MUX" != "false" ]] && [[ "$PROXY_MODE" == "caddy" ]]; then
+                    if [[ "$SELF_STEAL" == "auto" ]]; then
+                        if prompt_confirm "Развернуть сайт-заглушку для Self-Steal Reality на ${NODE_DOMAIN} (127.0.0.1:9443 + Let's Encrypt)?" "Y"; then
+                            SELF_STEAL="true"
+                        else
+                            SELF_STEAL="false"
+                        fi
+                    fi
+                    if [[ "$SELF_STEAL" == "true" ]] && [[ -z "$DECOY_TEMPLATE" ]]; then
+                        prompt_decoy_choice
+                    elif [[ "$SELF_STEAL" == "true" ]]; then
+                        DECOY_TEMPLATE="$(resolve_decoy_slug "$DECOY_TEMPLATE")" || die "Неизвестный шаблон заглушки: $DECOY_TEMPLATE"
+                    fi
+                fi
             fi
             if [[ "$TLS_CERTS_DOMAIN_EXPLICIT" != "true" ]] && [[ -z "$TLS_CERTS_DOMAIN" ]]; then
                 TLS_CERTS_DOMAIN="$NODE_DOMAIN"
@@ -2064,7 +2403,11 @@ run_wizard() {
         if [[ -z "$NODE_DOMAIN" ]]; then
             local det_ip=""
             det_ip="$(detect_public_ipv4)"
-            NODE_DOMAIN="$(prompt_line "Домен этой ноды (например, node1.example.com) или IP" "$det_ip")"
+            if [[ "$NON_INTERACTIVE" == "true" ]]; then
+                NODE_DOMAIN="$det_ip"
+            else
+                NODE_DOMAIN="$(prompt_line "Домен этой ноды (например, node1.example.com; требуется для Self-Steal и TLS)" "$det_ip")"
+            fi
         fi
         [[ -n "$NODE_DOMAIN" ]] || die "Необходимо указать домен или IP ноды (--node-domain)"
         if ! is_ip_addr "$NODE_DOMAIN"; then
@@ -2073,6 +2416,26 @@ run_wizard() {
             if [[ "$TLS_CERTS_DOMAIN_EXPLICIT" != "true" ]] && [[ -z "$TLS_CERTS_DOMAIN" ]]; then
                 TLS_CERTS_DOMAIN="$NODE_DOMAIN"
             fi
+
+            if [[ "$SELF_STEAL" == "auto" ]]; then
+                if prompt_confirm "Развернуть сайт-заглушку для Self-Steal Reality на домене ${NODE_DOMAIN} (Caddy 127.0.0.1:9443 + Let's Encrypt, :443 свободен для Xray)?" "Y"; then
+                    SELF_STEAL="true"
+                else
+                    SELF_STEAL="false"
+                fi
+            fi
+            if [[ "$SELF_STEAL" == "true" ]]; then
+                if [[ -z "$DECOY_TEMPLATE" ]]; then
+                    prompt_decoy_choice
+                else
+                    DECOY_TEMPLATE="$(resolve_decoy_slug "$DECOY_TEMPLATE")" || die "Неизвестный шаблон заглушки: $DECOY_TEMPLATE"
+                fi
+            fi
+        else
+            if [[ "$SELF_STEAL" == "true" ]]; then
+                warn "Адрес ноды '${NODE_DOMAIN}' является IP; сайт-заглушка Self-Steal пропущен (нужен DNS-домен)."
+            fi
+            SELF_STEAL="false"
         fi
 
         if [[ -z "$MASTER_URL" ]] && [[ -z "$PANEL_IP" ]]; then
@@ -2629,6 +2992,10 @@ print_summary() {
         if [[ -f "${NODE_TLS_DIR}/fullchain.pem" ]]; then
             printf '%s║%s  %sTLS-сертификаты:%s     %s/{fullchain.pem,privkey.pem}\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_TLS_DIR"
         fi
+        if [[ "$DECOY_INSTALLED" != "none" ]]; then
+            printf '%s║%s  %sSelf-Steal заглушка:%s  %s (Caddy 127.0.0.1:9443)\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$DECOY_INSTALLED"
+            printf '%s║%s  %sReality (в панели):%s   dest=127.0.0.1:9443 | serverNames=%s\n' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET" "$NODE_DOMAIN"
+        fi
         printf '%s║%s  %sПрокси-ядра:%s         ' "$bc" "$C_RESET" "$C_BOLD" "$C_RESET"
         local b=""
         for b in xray sing-box caddy-naive mita; do
@@ -2725,6 +3092,10 @@ main() {
         write_node_env
         check_port_free "$AGENT_WORKER_PORT" mypanel3
         if [[ "$MODE" == "node" ]]; then
+            if [[ "$SELF_STEAL" == "true" ]]; then
+                check_port_free 80 caddy
+                check_port_free 9443 caddy
+            fi
             if [[ "$TLS_MODE" == "port2222" ]]; then
                 check_port_free 80 caddy
                 check_port_free "$API_PORT" caddy
@@ -2745,13 +3116,17 @@ main() {
     elif { [[ "$MODE" == "panel" ]] || [[ "$MODE" == "both" ]]; } && [[ "$PROXY_MODE" == "caddy" ]] && [[ -n "$DOMAIN" ]]; then
         install_caddy
         write_caddy_config
+    elif [[ "$MODE" == "node" ]] && [[ "$SELF_STEAL" == "true" ]]; then
+        configure_node_self_steal_decoy
     elif [[ "$MODE" == "node" ]] && [[ "$TLS_MODE" != "none" ]]; then
         install_caddy
         write_caddy_config
     fi
 
     if [[ -n "$TLS_CERTS_DOMAIN" ]]; then
-        issue_inbound_tls_certs
+        if ! { [[ "$MODE" == "node" ]] && [[ "$SELF_STEAL" == "true" ]] && [[ "$TLS_CERTS_DOMAIN" == "$NODE_DOMAIN" ]]; }; then
+            issue_inbound_tls_certs
+        fi
     fi
 
     step "6/6 Запуск служб systemd и проверка"
