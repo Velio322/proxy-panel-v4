@@ -31,7 +31,7 @@ interface LogoCropDialogProps {
 
 const CROP_BOX_SIZE = 260;
 const WORKSPACE_SIZE = 320;
-const EXPORT_SIZE = 256;
+const EXPORT_SIZE = 512;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 
@@ -229,7 +229,8 @@ export function LogoCropDialog({
       ctx.closePath();
       ctx.clip();
     } else {
-      drawRoundedRectPath(ctx, 0, 0, EXPORT_SIZE, EXPORT_SIZE, 56);
+      const exportRadius = Math.round(56 * (EXPORT_SIZE / CROP_BOX_SIZE));
+      drawRoundedRectPath(ctx, 0, 0, EXPORT_SIZE, EXPORT_SIZE, exportRadius);
       ctx.clip();
     }
 

@@ -159,9 +159,9 @@ export function LoginPage() {
       </div>
 
       <Card className="w-full max-w-md border-border/90 bg-card/95 shadow-2xl backdrop-blur-md">
-        <CardHeader className="space-y-1.5 text-center">
+        <CardHeader className="space-y-2 text-center">
           <div className="mx-auto mb-1 flex justify-center">
-            <BrandMark logoUrl={branding.hasCustomLogo ? branding.logoUrl : null} panelName={displayName} size="lg" />
+            <BrandMark logoUrl={branding.hasCustomLogo ? branding.logoUrl : null} panelName={displayName} size="xl" />
           </div>
           <div className="flex items-center justify-center gap-2">
             <CardTitle className="text-xl tracking-tight">{displayName}</CardTitle>

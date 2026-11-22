@@ -80,15 +80,16 @@ export function KeeperLogoMark({ className }: { className?: string }) {
 interface BrandMarkProps {
   logoUrl?: string | null;
   panelName?: string;
-  size?: 'xs' | 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
 }
 
 const SIZE_CLASSES: Record<NonNullable<BrandMarkProps['size']>, string> = {
-  xs: 'h-5 w-5 rounded-md',
-  sm: 'h-7 w-7 rounded-lg',
-  md: 'h-9 w-9 rounded-xl',
-  lg: 'h-12 w-12 rounded-2xl',
+  xs: 'h-6 w-6 rounded-md',
+  sm: 'h-10 w-10 rounded-xl',
+  md: 'h-12 w-12 rounded-xl',
+  lg: 'h-16 w-16 rounded-2xl',
+  xl: 'h-20 w-20 rounded-2xl',
 };
 
 export function BrandMark({ logoUrl, panelName = DEFAULT_PANEL_NAME, size = 'md', className }: BrandMarkProps) {
@@ -99,7 +100,7 @@ export function BrandMark({ logoUrl, panelName = DEFAULT_PANEL_NAME, size = 'md'
     return (
       <span
         className={cn(
-          'relative inline-flex shrink-0 items-center justify-center overflow-hidden border border-white/15 bg-emerald-950/35 shadow-[0_0_20px_-6px_rgba(16,185,129,0.45)]',
+          'relative inline-flex shrink-0 items-center justify-center overflow-hidden drop-shadow-[0_4px_14px_rgba(16,185,129,0.28)]',
           SIZE_CLASSES[size],
           className,
         )}
@@ -108,7 +109,7 @@ export function BrandMark({ logoUrl, panelName = DEFAULT_PANEL_NAME, size = 'md'
           src={logoUrl}
           alt={panelName}
           onError={() => setFailedUrl(logoUrl)}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-contain"
         />
       </span>
     );

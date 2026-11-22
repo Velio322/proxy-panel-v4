@@ -724,11 +724,11 @@ export function SettingsPage() {
                       <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
                         {isRu ? 'Шапка сайдбара' : 'Sidebar Header'}
                       </div>
-                      <div className="keeper-sidebar keeper-sidebar-brand flex items-center gap-2.5 rounded-lg border border-border/80 px-3 py-2.5">
-                        <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="sm" />
+                      <div className="keeper-sidebar keeper-sidebar-brand flex items-center gap-3 rounded-lg border border-border/80 px-3 py-2.5">
+                        <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="md" />
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-bold leading-tight">{previewPanelName}</div>
-                          <div className="mt-0.5 inline-flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-[1px] font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-500 dark:text-emerald-300">
+                          <div className="truncate text-base font-bold leading-tight">{previewPanelName}</div>
+                          <div className="mt-1 inline-flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-[1px] font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-500 dark:text-emerald-300">
                             <span className="h-1 w-1 rounded-full bg-emerald-400" />
                             <span>CORE · {healthVersion ? `v${healthVersion.replace(/^v/i, '')}` : 'v4.0.0'}</span>
                           </div>
@@ -741,8 +741,8 @@ export function SettingsPage() {
                       <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
                         {isRu ? 'Экран входа (Login)' : 'Login Card'}
                       </div>
-                      <div className="login-grid-bg flex flex-col items-center justify-center gap-1.5 rounded-lg border border-border/80 bg-background/90 py-3 px-4 text-center">
-                        <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="md" />
+                      <div className="login-grid-bg flex flex-col items-center justify-center gap-2 rounded-lg border border-border/80 bg-background/90 py-3 px-4 text-center">
+                        <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="lg" />
                         <div className="truncate max-w-full text-sm font-bold">{previewPanelName}</div>
                       </div>
                     </div>

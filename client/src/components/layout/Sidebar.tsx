@@ -272,7 +272,7 @@ export function Sidebar({ mobileOpen, onCloseMobile }: SidebarProps) {
         {/* Brand Header Zone with subtle radial/grid texture */}
         <div
           className={cn(
-            'keeper-sidebar-brand flex h-16 shrink-0 items-center border-b border-border/70 dark:border-white/[0.06]',
+            'keeper-sidebar-brand flex h-[72px] shrink-0 items-center border-b border-border/70 dark:border-white/[0.06]',
             isCollapsed ? 'justify-center px-2' : 'justify-between px-3.5',
           )}
         >
@@ -280,19 +280,19 @@ export function Sidebar({ mobileOpen, onCloseMobile }: SidebarProps) {
             <Link
               to="/"
               onClick={onCloseMobile}
-              className="flex min-w-0 items-center gap-2.5 font-semibold tracking-tight"
+              className="flex min-w-0 items-center gap-3 font-semibold tracking-tight"
             >
               <BrandMark
                 logoUrl={branding.hasCustomLogo ? branding.logoUrl : null}
                 panelName={panelName}
-                size="sm"
+                size={isCollapsed ? 'sm' : 'md'}
               />
               {!isCollapsed && (
                 <div className="min-w-0">
-                  <div className="truncate text-[15px] font-bold leading-tight tracking-tight text-foreground">
+                  <div className="truncate text-base font-bold leading-tight tracking-tight text-foreground">
                     {panelName}
                   </div>
-                  <div className="mt-0.5 inline-flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-[1px] font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-600 dark:text-emerald-300">
+                  <div className="mt-1 inline-flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-[1px] font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em] text-emerald-600 dark:text-emerald-300">
                     <span className="h-1 w-1 rounded-full bg-emerald-400" />
                     <span>CORE · {versionStr}</span>
                   </div>
