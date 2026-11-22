@@ -75,7 +75,7 @@ export function createDefaultInboundForm(nodeId = ''): InboundFormState {
     httpupgradeAcceptProxy: false,
     xhttpPath: '/',
     xhttpHost: '',
-    xhttpMode: 'auto',
+    xhttpMode: 'packet-up',
     xhttpMaxConcurrency: '',
     xhttpMaxConnections: '',
     xhttpCMaxReuseTimes: '',
@@ -86,7 +86,7 @@ export function createDefaultInboundForm(nodeId = ''): InboundFormState {
     xhttpScMinPostsIntervalMs: '',
     xhttpScMaxBufferedPosts: '',
     xhttpScStreamUpServerSecs: '',
-    xhttpXPaddingBytes: '',
+    xhttpXPaddingBytes: '100-1000',
     xhttpNoGrpcHeader: false,
     xhttpNoSseHeader: false,
     xhttpHeadersJson: '',
@@ -367,7 +367,7 @@ export function inboundToForm(inbound: Inbound): InboundFormState {
     httpupgradeAcceptProxy: asBool(httpupgradeSettings.acceptProxyProtocol, false),
     xhttpPath: asStr(xhttpSettings.path, '/'),
     xhttpHost: asStr(xhttpSettings.host),
-    xhttpMode: (asStr(xhttpSettings.mode, 'auto') as InboundFormState['xhttpMode']) || 'auto',
+    xhttpMode: (asStr(xhttpSettings.mode, 'packet-up') as InboundFormState['xhttpMode']) || 'packet-up',
     xhttpMaxConcurrency: asNumStr(xmux.maxConcurrency),
     xhttpMaxConnections: asNumStr(xmux.maxConnections),
     xhttpCMaxReuseTimes: asNumStr(xmux.cMaxReuseTimes),
@@ -993,7 +993,7 @@ export function formToPayload(form: InboundFormState): Record<string, unknown> {
 
       const dest = form.realityDest.trim() || 'www.google.com:443';
       const spiderX = form.realitySpiderX.trim() || '/';
-      const fp = form.fingerprint.trim() || 'chrome';
+      const fp = form.fingerprint.trim() || (form.network === 'xhttp' ? 'edge' : 'chrome');
       const primarySni = serverNames[0] || form.sni.trim();
       const xver = parsePositiveNum(form.realityXver) ?? 0;
       const maxTimeDiff = parsePositiveNum(form.realityMaxTimeDiff);
@@ -1002,6 +1002,8 @@ export function formToPayload(form: InboundFormState): Record<string, unknown> {
 
       stream.sni = primarySni;
       stream.fingerprint = fp;
+      if (alpnList.length) stream.alpn = alpnList;
+      else delete stream.alpn;
       stream.publicKey = form.realityPublicKey.trim();
       stream.privateKey = form.realityPrivateKey.trim();
       stream.shortId = shortIds[0] || '';

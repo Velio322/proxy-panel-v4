@@ -236,6 +236,12 @@ pub struct SubEntry {
     pub mihomo_ip_version: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host_tags: Vec<String>,
+    /// Original node host from `EntryContext` before host overrides or IP resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_host: Option<String>,
+    /// Resolved IPv4/IPv6 address of the node or host override target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_ip: Option<String>,
     #[serde(default)]
     pub raw: String,
 }
@@ -319,6 +325,8 @@ impl Default for SubEntry {
             shadowtls_detour: None,
             mihomo_ip_version: None,
             host_tags: Vec::new(),
+            node_host: None,
+            resolved_ip: None,
             raw: String::new(),
         }
     }
@@ -361,6 +369,42 @@ pub fn strip_brackets(host: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+pub(crate) fn is_ip_literal(s: &str) -> bool {
+    let clean = strip_brackets(s);
+    !clean.is_empty() && clean.parse::<std::net::IpAddr>().is_ok()
+}
+
+fn strip_host_only(s: &str) -> String {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.starts_with('[') {
+        if let Some(end) = trimmed.find(']') {
+            return trimmed[1..end].trim().to_string();
+        }
+    }
+    if trimmed.parse::<std::net::IpAddr>().is_ok() {
+        return trimmed.to_string();
+    }
+    if let Some((host_part, port_part)) = trimmed.rsplit_once(':') {
+        if !host_part.is_empty()
+            && !host_part.contains(':')
+            && !port_part.is_empty()
+            && port_part.chars().all(|c| c.is_ascii_digit())
+        {
+            return host_part.trim().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+pub(crate) fn same_host_ignore_case(a: &str, b: &str) -> bool {
+    let ha = strip_host_only(a);
+    let hb = strip_host_only(b);
+    !ha.is_empty() && !hb.is_empty() && ha.eq_ignore_ascii_case(&hb)
 }
 
 /// Brackets bare IPv6 addresses (`:` present and not already bracketed) for URI authorities.
@@ -628,6 +672,45 @@ fn merge_objects(base: &Value, overlay: &Value) -> Map<String, Value> {
     out
 }
 
+fn jstr_list(root: &Value, path: &[&str]) -> Vec<String> {
+    let Some(val) = at(root, path) else {
+        return Vec::new();
+    };
+    match val {
+        Value::String(s) => s
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(ToString::to_string)
+            .collect(),
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn extract_dest_host(stream: &Value) -> Option<String> {
+    for path in [
+        &["realitySettings", "dest"][..],
+        &["realitySettings", "target"][..],
+        &["dest"][..],
+        &["target"][..],
+    ] {
+        if let Some(raw) = jstr(stream, path) {
+            let host = strip_host_only(&raw);
+            if !host.is_empty() && !is_ip_literal(&host) {
+                return Some(host);
+            }
+        }
+    }
+    None
+}
+
 /// Builds a normalized [`SubEntry`] from inbound configuration and user context.
 pub fn build_entry(
     protocol: Protocol,
@@ -636,13 +719,15 @@ pub fn build_entry(
     stream: &Value,
     ctx: &EntryContext,
 ) -> Result<Option<SubEntry>, SubError> {
+    let clean_node_host = strip_brackets(&ctx.node_host);
     let mut e = SubEntry {
         protocol,
         tag: tag.to_string(),
-        host: strip_brackets(&ctx.node_host),
+        host: clean_node_host.clone(),
         port: ctx.port,
         uuid: ctx.client_uuid.clone(),
         username: ctx.client_id.clone(),
+        node_host: Some(clean_node_host.clone()),
         ..Default::default()
     };
 
@@ -658,10 +743,35 @@ pub fn build_entry(
         })
         .unwrap_or(0);
 
-    e.sni = jstr(stream, &["sni"])
-        .or_else(|| jstr(stream, &["tlsSettings", "serverName"]))
-        .or_else(|| jstr(settings, &["sni"]))
-        .or_else(|| jstr_first(stream, &["realitySettings", "serverNames"]));
+    let is_reality = e
+        .security
+        .as_deref()
+        .is_some_and(|s| s.eq_ignore_ascii_case("reality"));
+    if is_reality {
+        let mut candidates = jstr_list(stream, &["realitySettings", "serverNames"]);
+        candidates.extend(jstr_list(stream, &["serverNames"]));
+        if let Some(dest_host) = extract_dest_host(stream) {
+            candidates.push(dest_host);
+        }
+        for path in [&["sni"][..], &["tlsSettings", "serverName"][..]] {
+            if let Some(v) = jstr(stream, path) {
+                candidates.push(v);
+            }
+        }
+        if let Some(v) = jstr(settings, &["sni"]) {
+            candidates.push(v);
+        }
+        let chosen = candidates
+            .into_iter()
+            .find(|c| !is_ip_literal(c) && !same_host_ignore_case(c, &clean_node_host))
+            .unwrap_or_else(|| "www.google.com".to_string());
+        e.sni = Some(chosen);
+    } else {
+        e.sni = jstr(stream, &["sni"])
+            .or_else(|| jstr(stream, &["tlsSettings", "serverName"]))
+            .or_else(|| jstr(settings, &["sni"]))
+            .or_else(|| jstr_first(stream, &["realitySettings", "serverNames"]));
+    }
     e.fingerprint = jstr(stream, &["fingerprint"])
         .or_else(|| jstr(stream, &["tlsSettings", "fingerprint"]))
         .or_else(|| jstr(stream, &["realitySettings", "fingerprint"]));
@@ -672,7 +782,9 @@ pub fn build_entry(
         || jbool(settings, &["allowInsecure"])
         || jbool(settings, &["allow_insecure"]);
 
-    e.flow = jstr(settings, &["flow"]).or_else(|| jstr(stream, &["flow"]));
+    e.flow = jstr(settings, &["flow"])
+        .or_else(|| jstr(stream, &["flow"]))
+        .filter(|f| !f.eq_ignore_ascii_case("none"));
 
     // Reality + ML-DSA-65 verification
     e.public_key =
@@ -704,8 +816,18 @@ pub fn build_entry(
         .or_else(|| jstr(stream, &["httpupgradeSettings", "headers", "Host"]));
 
     e.xhttp_path = jstr(stream, &["xhttpSettings", "path"]).or_else(|| e.stream_path.clone());
-    e.xhttp_host = jstr(stream, &["xhttpSettings", "host"])
+    let raw_xhttp_host = jstr(stream, &["xhttpSettings", "host"])
         .or_else(|| jstr(stream, &["xhttpSettings", "headers", "Host"]));
+    e.xhttp_host = if is_reality {
+        match raw_xhttp_host {
+            Some(ref h) if !is_ip_literal(h) && !same_host_ignore_case(h, &clean_node_host) => {
+                Some(h.clone())
+            }
+            _ => e.sni.clone(),
+        }
+    } else {
+        raw_xhttp_host
+    };
     e.xhttp_mode = jstr(stream, &["xhttpSettings", "mode"]);
     e.xhttp_extra = build_xhttp_extra(stream);
 
@@ -1040,6 +1162,7 @@ pub fn apply_host_override(
                 candidates[0]
             };
             entry.host = strip_brackets(chosen);
+            entry.resolved_ip = None;
         }
     }
 

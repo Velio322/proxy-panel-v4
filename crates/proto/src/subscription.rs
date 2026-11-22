@@ -1,6 +1,6 @@
 use crate::links::{
     apply_vless_route, build_uri, display_link, encode_uri_component, format_ss2022_key,
-    parse_port_range, SubEntry, SubError,
+    is_ip_literal, parse_port_range, same_host_ignore_case, SubEntry, SubError,
 };
 use crate::wire::Protocol;
 use age::armor::{ArmoredWriter, Format as ArmorFormat};
@@ -107,6 +107,7 @@ pub fn detect_client_from_ua(ua: &str) -> (SubFormat, ClientProfile) {
         return (SubFormat::Singbox, ClientProfile::Hiddify);
     }
     if lower.contains("sing-box")
+        || lower.contains("podkop")
         || lower.contains("sfa")
         || lower.contains("sfi")
         || lower.contains("sfm")
@@ -864,27 +865,90 @@ pub fn render_clash(entries: &[SubEntry]) -> Result<String, SubError> {
         .map_err(|err| SubError::Invalid(format!("Clash YAML serialization failed: {err}")))
 }
 
+fn is_xhttp_net(e: &SubEntry) -> bool {
+    matches!(net(e), "xhttp" | "splithttp")
+}
+
+fn singbox_server(e: &SubEntry) -> &str {
+    if let Some(ip) = e
+        .resolved_ip
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if !e.is_cdn || e.security.as_deref() == Some("reality") {
+            return ip;
+        }
+    }
+    &e.host
+}
+
+fn is_valid_reality_sni(candidate: &str, e: &SubEntry) -> bool {
+    !candidate.is_empty()
+        && !is_ip_literal(candidate)
+        && !same_host_ignore_case(candidate, &e.host)
+        && !e
+            .node_host
+            .as_deref()
+            .is_some_and(|nh| same_host_ignore_case(candidate, nh))
+}
+
+fn singbox_sni(e: &SubEntry) -> Option<String> {
+    let raw = e.sni.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if e.security.as_deref() == Some("reality") {
+        let valid = raw.filter(|s| is_valid_reality_sni(s, e));
+        return Some(valid.unwrap_or("www.google.com").to_string());
+    }
+    raw.map(ToString::to_string)
+}
+
+fn singbox_utls_fingerprint(e: &SubEntry) -> Option<String> {
+    let raw = e
+        .fingerprint
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let is_reality_or_xhttp = e.security.as_deref() == Some("reality") || is_xhttp_net(e);
+    if is_reality_or_xhttp {
+        return Some(match raw.map(str::to_ascii_lowercase).as_deref() {
+            None | Some("firefox" | "random" | "randomized") => "edge".to_string(),
+            Some(_) => raw.unwrap().to_string(),
+        });
+    }
+    raw.map(ToString::to_string)
+}
+
+fn extract_xhttp_padding(e: &SubEntry) -> String {
+    if let Some(Value::Object(extra)) = e.xhttp_extra.as_ref() {
+        if let Some(val) = extra
+            .get("xPaddingBytes")
+            .or_else(|| extra.get("x_padding_bytes"))
+        {
+            if let Some(s) = val.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                return s.to_string();
+            }
+            if let Some(n) = val.as_u64() {
+                return n.to_string();
+            }
+        }
+    }
+    "100-1000".to_string()
+}
+
 fn singbox_tls(e: &SubEntry) -> Value {
     let mut tls = Map::new();
     tls.insert("enabled".into(), json!(true));
-    if let Some(ref sni) = e.sni {
+    if let Some(sni) = singbox_sni(e) {
         tls.insert("server_name".into(), json!(sni));
     }
-    if e.allow_insecure {
+    if e.allow_insecure && e.security.as_deref() != Some("reality") {
         tls.insert("insecure".into(), json!(true));
     }
     let alpn = split_alpn(e.alpn.as_ref());
     if !alpn.is_empty() {
         tls.insert("alpn".into(), json!(alpn));
-    }
-    if let Some(ref fp) = e.fingerprint {
-        tls.insert(
-            "utls".into(),
-            json!({
-                "enabled": true,
-                "fingerprint": fp,
-            }),
-        );
+    } else if is_xhttp_net(e) {
+        tls.insert("alpn".into(), json!(["h2", "http/1.1"]));
     }
     if e.security.as_deref() == Some("reality") {
         tls.insert(
@@ -893,6 +957,15 @@ fn singbox_tls(e: &SubEntry) -> Value {
                 "enabled": true,
                 "public_key": e.public_key.clone().unwrap_or_default(),
                 "short_id": e.short_id.clone().unwrap_or_default(),
+            }),
+        );
+    }
+    if let Some(fp) = singbox_utls_fingerprint(e) {
+        tls.insert(
+            "utls".into(),
+            json!({
+                "enabled": true,
+                "fingerprint": fp,
             }),
         );
     }
@@ -946,6 +1019,59 @@ fn singbox_transport(e: &SubEntry) -> Option<Value> {
             }
             Some(Value::Object(t))
         }
+        "xhttp" | "splithttp" => {
+            let mut t = Map::new();
+            t.insert("type".into(), json!("xhttp"));
+            let path = e
+                .xhttp_path
+                .as_deref()
+                .or(e.stream_path.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("/");
+            t.insert("path".into(), json!(path));
+            let mode = match e.xhttp_mode.as_deref().map(str::trim) {
+                Some("packet-up") => "packet-up",
+                Some("stream-up") => "stream-up",
+                Some("stream-one") => "stream-one",
+                _ => "packet-up",
+            };
+            t.insert("mode".into(), json!(mode));
+            t.insert("x_padding_bytes".into(), json!(extract_xhttp_padding(e)));
+            let host = if e.security.as_deref() == Some("reality") {
+                e.xhttp_host
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|h| is_valid_reality_sni(h, e))
+                    .map(ToString::to_string)
+                    .or_else(|| singbox_sni(e))
+            } else {
+                e.xhttp_host
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|h| !h.is_empty())
+                    .map(ToString::to_string)
+            };
+            if let Some(h) = host {
+                t.insert("host".into(), json!(h));
+            }
+            if let Some(Value::Object(extra)) = e.xhttp_extra.as_ref() {
+                if let Some(hdrs) = extra.get("headers").and_then(Value::as_object) {
+                    if !hdrs.is_empty() {
+                        t.insert("headers".into(), Value::Object(hdrs.clone()));
+                    }
+                }
+                if extra
+                    .get("noGRPCHeader")
+                    .or_else(|| extra.get("no_grpc_header"))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+                {
+                    t.insert("no_grpc_header".into(), json!(true));
+                }
+            }
+            Some(Value::Object(t))
+        }
         "h2" => {
             let mut t = Map::new();
             t.insert("type".into(), json!("http"));
@@ -966,8 +1092,9 @@ fn singbox_transport(e: &SubEntry) -> Option<Value> {
     }
 }
 
-fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError> {
+pub(crate) fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError> {
     let mut out = Map::new();
+    let server = singbox_server(e);
     match e.protocol {
         Protocol::Vless => {
             let uuid = if let Some(ref rid) = e.vless_route_id {
@@ -977,13 +1104,16 @@ fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError
             };
             out.insert("type".into(), json!("vless"));
             out.insert("tag".into(), json!(uname));
-            out.insert("server".into(), json!(e.host));
+            out.insert("server".into(), json!(server));
             out.insert("server_port".into(), json!(e.port));
             out.insert("uuid".into(), json!(uuid));
-            out.insert("packet_encoding".into(), json!("xudp"));
-            if let Some(ref flow) = e.flow {
-                if !flow.is_empty() {
-                    out.insert("flow".into(), json!(flow));
+            if !is_xhttp_net(e) {
+                out.insert("packet_encoding".into(), json!("xudp"));
+                if let Some(ref flow) = e.flow {
+                    let trimmed = flow.trim();
+                    if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("none") {
+                        out.insert("flow".into(), json!(trimmed));
+                    }
                 }
             }
             if e.is_tls() {
@@ -997,7 +1127,7 @@ fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError
         Protocol::Vmess => {
             out.insert("type".into(), json!("vmess"));
             out.insert("tag".into(), json!(uname));
-            out.insert("server".into(), json!(e.host));
+            out.insert("server".into(), json!(server));
             out.insert("server_port".into(), json!(e.port));
             out.insert("uuid".into(), json!(e.uuid));
             out.insert("security".into(), json!(vmess_cipher(e)));
@@ -1014,7 +1144,7 @@ fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError
         Protocol::Trojan => {
             out.insert("type".into(), json!("trojan"));
             out.insert("tag".into(), json!(uname));
-            out.insert("server".into(), json!(e.host));
+            out.insert("server".into(), json!(server));
             out.insert("server_port".into(), json!(e.port));
             out.insert("password".into(), json!(e.password));
             out.insert("tls".into(), singbox_tls(e));
@@ -1026,7 +1156,7 @@ fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError
         Protocol::Shadowsocks => {
             out.insert("type".into(), json!("shadowsocks"));
             out.insert("tag".into(), json!(uname));
-            out.insert("server".into(), json!(e.host));
+            out.insert("server".into(), json!(server));
             out.insert("server_port".into(), json!(e.port));
             out.insert(
                 "method".into(),
@@ -1038,7 +1168,7 @@ fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError
         Protocol::Hysteria2 => {
             out.insert("type".into(), json!("hysteria2"));
             out.insert("tag".into(), json!(uname));
-            out.insert("server".into(), json!(e.host));
+            out.insert("server".into(), json!(server));
             if let Some(ref pr) = e.port_range {
                 let ports = parse_port_range(pr)?;
                 if let (Some(&first), Some(&last)) = (ports.first(), ports.last()) {
@@ -1081,7 +1211,7 @@ fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError
         Protocol::Tuic => {
             out.insert("type".into(), json!("tuic"));
             out.insert("tag".into(), json!(uname));
-            out.insert("server".into(), json!(e.host));
+            out.insert("server".into(), json!(server));
             out.insert("server_port".into(), json!(e.port));
             out.insert("uuid".into(), json!(e.uuid));
             out.insert("password".into(), json!(e.password));
@@ -1110,7 +1240,7 @@ fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError
         Protocol::Anytls => {
             out.insert("type".into(), json!("anytls"));
             out.insert("tag".into(), json!(uname));
-            out.insert("server".into(), json!(e.host));
+            out.insert("server".into(), json!(server));
             out.insert("server_port".into(), json!(e.port));
             out.insert("password".into(), json!(e.password));
             out.insert("udp_over_tcp".into(), json!(true));
@@ -1133,7 +1263,7 @@ fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError
         Protocol::Shadowtls => {
             out.insert("type".into(), json!("shadowtls"));
             out.insert("tag".into(), json!(uname));
-            out.insert("server".into(), json!(e.host));
+            out.insert("server".into(), json!(server));
             out.insert("server_port".into(), json!(e.port));
             out.insert("version".into(), json!(e.shadowtls_version.unwrap_or(3)));
             out.insert(
@@ -1150,6 +1280,20 @@ fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError
         }
         Protocol::Mieru | Protocol::Naiveproxy => Ok(None),
     }
+}
+
+/// Renders an outbounds-only Sing-box JSON document (`{"outbounds": [...]}`) for OpenWrt/Podkop.
+pub fn render_singbox_outbounds(entries: &[SubEntry]) -> Result<String, SubError> {
+    let mut outbounds = Vec::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for e in entries {
+        let uname = dedup_tag(&mut seen, &e.tag);
+        if let Some(ob) = singbox_outbound(e, &uname)? {
+            outbounds.push(ob);
+        }
+    }
+    serde_json::to_string_pretty(&json!({ "outbounds": outbounds }))
+        .map_err(|err| SubError::Invalid(format!("Sing-box JSON serialization failed: {err}")))
 }
 
 /// Renders Sing-box 1.14+ JSON with default options.
@@ -2232,5 +2376,174 @@ impl SubscriptionRenderer {
         }
 
         Ok(rendered)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::links::{build_entry, EntryContext};
+
+    #[test]
+    fn podkop_ua_detects_singbox_format() {
+        assert_eq!(
+            detect_client_from_ua("podkop/1.0"),
+            (SubFormat::Singbox, ClientProfile::Singbox)
+        );
+    }
+
+    #[test]
+    fn vless_xhttp_reality_matches_podkop_reference_config() {
+        let settings = json!({ "decryption": "none", "flow": "none" });
+        let stream = json!({
+            "network": "xhttp",
+            "security": "reality",
+            "sni": "finland.example.com",
+            "fingerprint": "firefox",
+            "realitySettings": {
+                "dest": "www.twitch.tv:443",
+                "serverNames": ["www.twitch.tv"],
+                "publicKey": "YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg",
+                "shortIds": [""],
+                "fingerprint": "firefox"
+            },
+            "xhttpSettings": {
+                "path": "/",
+                "mode": "auto",
+                "host": "finland.example.com"
+            }
+        });
+        let ctx = EntryContext {
+            node_host: "finland.example.com".into(),
+            port: 443,
+            client_uuid: "682e693a-33b4-4563-9ca4-f11f54fae2da".into(),
+            client_id: "rostislav".into(),
+            secret: String::new(),
+        };
+
+        let mut entry = build_entry(Protocol::Vless, "Finland Rostislav", &settings, &stream, &ctx)
+            .unwrap()
+            .unwrap();
+        entry.resolved_ip = Some("178.104.166.22".into());
+
+        for rendered in [
+            render_singbox(&[entry.clone()]).unwrap(),
+            render_singbox_outbounds(&[entry]).unwrap(),
+        ] {
+            let parsed: Value = serde_json::from_str(&rendered).unwrap();
+            let vless = parsed["outbounds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|o| o["type"] == "vless")
+                .expect("vless outbound present")
+                .clone();
+            assert_eq!(
+                vless,
+                json!({
+                    "type": "vless",
+                    "tag": "Finland Rostislav",
+                    "server": "178.104.166.22",
+                    "server_port": 443,
+                    "uuid": "682e693a-33b4-4563-9ca4-f11f54fae2da",
+                    "tls": {
+                        "enabled": true,
+                        "server_name": "www.twitch.tv",
+                        "alpn": ["h2", "http/1.1"],
+                        "reality": {
+                            "enabled": true,
+                            "public_key": "YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg",
+                            "short_id": ""
+                        },
+                        "utls": {
+                            "enabled": true,
+                            "fingerprint": "edge"
+                        }
+                    },
+                    "transport": {
+                        "type": "xhttp",
+                        "path": "/",
+                        "mode": "packet-up",
+                        "x_padding_bytes": "100-1000",
+                        "host": "www.twitch.tv"
+                    }
+                })
+            );
+            assert!(vless.get("flow").is_none());
+            assert!(vless.get("packet_encoding").is_none());
+        }
+    }
+
+    #[test]
+    fn vless_xhttp_reality_falls_back_to_dest_and_respects_explicit_values() {
+        let settings = json!({ "decryption": "none" });
+        let stream = json!({
+            "network": "xhttp",
+            "security": "reality",
+            "fingerprint": "chrome",
+            "realitySettings": {
+                "dest": "www.twitch.tv:443",
+                "publicKey": "PUBKEY",
+                "shortIds": ["ab12"]
+            },
+            "xhttpSettings": {
+                "path": "/xh",
+                "mode": "stream-up",
+                "xPaddingBytes": "200-500"
+            }
+        });
+        let ctx = EntryContext {
+            node_host: "edge.example.com".into(),
+            port: 443,
+            client_uuid: "682e693a-33b4-4563-9ca4-f11f54fae2da".into(),
+            client_id: "u1".into(),
+            secret: String::new(),
+        };
+
+        let entry = build_entry(Protocol::Vless, "Explicit", &settings, &stream, &ctx)
+            .unwrap()
+            .unwrap();
+        let out = singbox_outbound(&entry, "Explicit").unwrap().unwrap();
+        assert_eq!(out["server"], json!("edge.example.com"));
+        assert_eq!(out["tls"]["server_name"], json!("www.twitch.tv"));
+        assert_eq!(out["tls"]["utls"]["fingerprint"], json!("chrome"));
+        assert_eq!(out["transport"]["path"], json!("/xh"));
+        assert_eq!(out["transport"]["mode"], json!("stream-up"));
+        assert_eq!(out["transport"]["x_padding_bytes"], json!("200-500"));
+        assert_eq!(out["transport"]["host"], json!("www.twitch.tv"));
+    }
+
+    #[test]
+    fn vless_tcp_vision_reality_keeps_flow_and_packet_encoding() {
+        let settings = json!({ "decryption": "none", "flow": "xtls-rprx-vision" });
+        let stream = json!({
+            "network": "tcp",
+            "security": "reality",
+            "realitySettings": {
+                "dest": "www.apple.com:443",
+                "serverNames": ["www.apple.com"],
+                "publicKey": "PUBKEY",
+                "shortId": "1122"
+            }
+        });
+        let ctx = EntryContext {
+            node_host: "node.example.com".into(),
+            port: 443,
+            client_uuid: "682e693a-33b4-4563-9ca4-f11f54fae2da".into(),
+            client_id: "u1".into(),
+            secret: String::new(),
+        };
+        let mut entry = build_entry(Protocol::Vless, "Vision", &settings, &stream, &ctx)
+            .unwrap()
+            .unwrap();
+        entry.resolved_ip = Some("198.51.100.10".into());
+
+        let out = singbox_outbound(&entry, "Vision").unwrap().unwrap();
+        assert_eq!(out["server"], json!("198.51.100.10"));
+        assert_eq!(out["flow"], json!("xtls-rprx-vision"));
+        assert_eq!(out["packet_encoding"], json!("xudp"));
+        assert_eq!(out["tls"]["server_name"], json!("www.apple.com"));
+        assert_eq!(out["tls"]["utls"]["fingerprint"], json!("edge"));
+        assert!(out.get("transport").is_none());
     }
 }

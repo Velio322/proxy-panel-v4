@@ -1804,7 +1804,7 @@ async fn collect_client_openwrt_nodes(
         if !allowed {
             continue;
         }
-        let settings: Value = r.try_get("settings")?;
+        let mut settings: Value = r.try_get("settings")?;
         let stream: Value = r.try_get("stream")?;
         let tag: String = r.try_get("tag")?;
         let port: i32 = r.try_get("port")?;
@@ -1825,6 +1825,24 @@ async fn collect_client_openwrt_nodes(
             secret,
         };
         if let Ok(Some(entry)) = build_entry(proto, &tag, &settings, &stream, &ctx) {
+            if let Some(obj) = settings.as_object_mut() {
+                if !entry.uuid.is_empty() {
+                    let has_id = obj
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|s| !s.trim().is_empty());
+                    if !has_id {
+                        obj.insert("id".into(), json!(entry.uuid));
+                    }
+                }
+                if !entry.password.is_empty() {
+                    obj.insert("password".into(), json!(entry.password));
+                }
+                if !entry.username.is_empty() {
+                    obj.entry("username").or_insert_with(|| json!(entry.username));
+                }
+            }
+            let resolved_ip = crate::api::sub::resolve_host_to_ip(state, &host).await;
             nodes.push(InboundExport {
                 protocol: proto,
                 tag: entry.tag,
@@ -1832,6 +1850,7 @@ async fn collect_client_openwrt_nodes(
                 port: port_u16,
                 settings,
                 stream,
+                resolved_ip,
             });
         }
     }
@@ -2526,9 +2545,22 @@ async fn export_singbox(
 ) -> AppResult<Response> {
     valid_id(&id)?;
     ensure_client_access(&state, &user, &id).await?;
-    let (_username, nodes) = collect_client_openwrt_nodes(&state, &id).await?;
-    let cfg = generate_singbox_subscription(&nodes)
-        .map_err(|e| AppError::internal(format!("Sing-box config generation failed: {e}")))?;
+    let c_row = sqlx::query(r#"SELECT uuid, protocols FROM "Client" WHERE id = $1"#)
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| AppError::not_found("Client not found"))?;
+    let uuid: String = c_row.try_get("uuid")?;
+    let protocols_val: Value = c_row.try_get("protocols")?;
+    let entries = crate::api::sub::load_client_entries(&state, &id, &uuid, &protocols_val).await?;
+    let cfg = if !entries.is_empty() {
+        mypanel_proto::subscription::render_singbox_outbounds(&entries)
+            .map_err(|e| AppError::internal(format!("Sing-box config generation failed: {e}")))?
+    } else {
+        let (_username, nodes) = collect_client_openwrt_nodes(&state, &id).await?;
+        generate_singbox_subscription(&nodes)
+            .map_err(|e| AppError::internal(format!("Sing-box config generation failed: {e}")))?
+    };
 
     let mut res = (StatusCode::OK, cfg).into_response();
     res.headers_mut().insert(

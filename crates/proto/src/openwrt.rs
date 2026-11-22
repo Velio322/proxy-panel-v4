@@ -29,6 +29,8 @@ pub struct InboundExport {
     pub settings: Value,
     #[serde(default = "default_obj")]
     pub stream: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_ip: Option<String>,
 }
 
 fn default_obj() -> Value {
@@ -497,105 +499,25 @@ pub fn generate_openclash_yaml(inbounds: &[InboundExport]) -> Result<String, Sub
 
 fn to_singbox_outbound(inbound: &InboundExport) -> Option<Value> {
     let s = &inbound.settings;
-    let st = &inbound.stream;
-
-    match inbound.protocol {
-        Protocol::Vless => {
-            let network = js_or(st, &["network"], "tcp");
-            let sec = js_str(st, &["security"]);
-            let mut tls = Map::new();
-            tls.insert("enabled".into(), json!(is_tls(st)));
-            tls.insert("server_name".into(), json!(js_or(st, &["sni"], "")));
-            tls.insert(
-                "utls".into(),
-                json!({
-                    "enabled": true,
-                    "fingerprint": js_or(st, &["fingerprint"], "chrome"),
-                }),
-            );
-            if sec == Some("reality") {
-                tls.insert(
-                    "reality".into(),
-                    json!({
-                        "enabled": true,
-                        "public_key": js_or(st, &["publicKey"], ""),
-                        "short_id": js_or(st, &["shortId"], ""),
-                    }),
-                );
-            }
-
-            let mut out = Map::new();
-            out.insert("type".into(), json!("vless"));
-            out.insert("tag".into(), json!(inbound.tag));
-            out.insert("server".into(), json!(inbound.host));
-            out.insert("server_port".into(), json!(inbound.port));
-            out.insert("uuid".into(), json!(js_or(s, &["id"], "")));
-            out.insert("flow".into(), json!(js_or(s, &["flow"], "")));
-            out.insert("tls".into(), Value::Object(tls));
-            if network == "ws" {
-                out.insert(
-                    "transport".into(),
-                    json!({
-                        "type": "ws",
-                        "path": js_or(st, &["wsSettings", "path"], "/"),
-                    }),
-                );
-            } else if network == "grpc" {
-                out.insert(
-                    "transport".into(),
-                    json!({
-                        "type": "grpc",
-                        "service_name": js_or(st, &["grpcSettings", "serviceName"], ""),
-                    }),
-                );
-            }
-            Some(Value::Object(out))
-        }
-        Protocol::Hysteria2 => {
-            let mut out = Map::new();
-            out.insert("type".into(), json!("hysteria2"));
-            out.insert("tag".into(), json!(inbound.tag));
-            out.insert("server".into(), json!(inbound.host));
-            out.insert("server_port".into(), json!(inbound.port));
-            out.insert("password".into(), json!(js_or(s, &["password"], "")));
-            out.insert(
-                "tls".into(),
-                json!({
-                    "enabled": true,
-                    "server_name": js_or(s, &["sni"], ""),
-                }),
-            );
-            if let Some(obfs_type) = js_str(s, &["obfs", "type"]) {
-                if obfs_type != "none" {
-                    out.insert(
-                        "obfs".into(),
-                        json!({
-                            "type": obfs_type,
-                            "password": js_or(s, &["obfs", "password"], ""),
-                        }),
-                    );
-                }
-            }
-            Some(Value::Object(out))
-        }
-        Protocol::Trojan => {
-            let mut out = Map::new();
-            out.insert("type".into(), json!("trojan"));
-            out.insert("tag".into(), json!(inbound.tag));
-            out.insert("server".into(), json!(inbound.host));
-            out.insert("server_port".into(), json!(inbound.port));
-            out.insert("password".into(), json!(js_or(s, &["password"], "")));
-            out.insert(
-                "tls".into(),
-                json!({
-                    "enabled": true,
-                    "server_name": js_or(st, &["sni"], ""),
-                }),
-            );
-            Some(Value::Object(out))
-        }
-        _ => None,
-    }
+    let ctx = crate::links::EntryContext {
+        node_host: inbound.host.clone(),
+        port: inbound.port,
+        client_uuid: js_or(s, &["id"], "").to_string(),
+        client_id: js_or(s, &["username"], "").to_string(),
+        secret: js_or(s, &["password"], "").to_string(),
+    };
+    let mut entry = crate::links::build_entry(
+        inbound.protocol,
+        &inbound.tag,
+        &inbound.settings,
+        &inbound.stream,
+        &ctx,
+    )
+    .ok()??;
+    entry.resolved_ip = inbound.resolved_ip.clone();
+    crate::subscription::singbox_outbound(&entry, &inbound.tag)
+        .ok()
+        .flatten()
 }
 
 /// Generates an OpenWrt Sing-box JSON `{"outbounds": [...]}` subscription.
@@ -727,4 +649,55 @@ pub fn generate_ssr_subscription(inbounds: &[InboundExport]) -> Result<String, S
         })
         .collect();
     Ok(STANDARD.encode(lines.join("\n").as_bytes()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_singbox_subscription_supports_vless_xhttp_reality() {
+        let inbound = InboundExport {
+            protocol: Protocol::Vless,
+            tag: "Finland Rostislav".into(),
+            host: "finland.example.com".into(),
+            port: 443,
+            settings: json!({
+                "id": "682e693a-33b4-4563-9ca4-f11f54fae2da",
+                "flow": "none"
+            }),
+            stream: json!({
+                "network": "xhttp",
+                "security": "reality",
+                "sni": "finland.example.com",
+                "fingerprint": "firefox",
+                "realitySettings": {
+                    "dest": "www.twitch.tv:443",
+                    "serverNames": ["www.twitch.tv"],
+                    "publicKey": "YSia7kbg9eXUatxAQ5e2nbmKkFNgormAPs27SsWeJXg",
+                    "shortIds": [""]
+                },
+                "xhttpSettings": {
+                    "path": "/",
+                    "mode": "auto",
+                    "host": "finland.example.com"
+                }
+            }),
+            resolved_ip: Some("178.104.166.22".into()),
+        };
+
+        let rendered = generate_singbox_subscription(&[inbound]).unwrap();
+        let parsed: Value = serde_json::from_str(&rendered).unwrap();
+        let ob = &parsed["outbounds"][0];
+        assert_eq!(ob["server"], json!("178.104.166.22"));
+        assert_eq!(ob["tls"]["server_name"], json!("www.twitch.tv"));
+        assert_eq!(ob["tls"]["alpn"], json!(["h2", "http/1.1"]));
+        assert_eq!(ob["tls"]["utls"]["fingerprint"], json!("edge"));
+        assert_eq!(ob["transport"]["type"], json!("xhttp"));
+        assert_eq!(ob["transport"]["mode"], json!("packet-up"));
+        assert_eq!(ob["transport"]["x_padding_bytes"], json!("100-1000"));
+        assert_eq!(ob["transport"]["host"], json!("www.twitch.tv"));
+        assert!(ob.get("flow").is_none());
+        assert!(ob.get("packet_encoding").is_none());
+    }
 }

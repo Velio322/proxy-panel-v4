@@ -13,7 +13,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::NaiveDateTime;
 use mypanel_proto::links::{
-    build_entry, build_port_share_entry, expand_with_hosts, EntryContext, PortShareInput, SubEntry,
+    build_entry, build_port_share_entry, expand_with_hosts, strip_brackets, EntryContext,
+    PortShareInput, SubEntry,
 };
 use mypanel_proto::subscription::{
     self, build_happ_crypt4, build_happ_crypt5, detect_client_from_ua, AgeEncryptionConfig,
@@ -504,6 +505,51 @@ fn render_landing_html(
     )
 }
 
+/// Resolves a domain host to an IPv4 (preferred) or IPv6 literal with an in-memory TTL cache.
+pub(crate) async fn resolve_host_to_ip(state: &AppState, host: &str) -> Option<String> {
+    let clean = strip_brackets(host);
+    let clean = clean.trim();
+    if clean.is_empty() {
+        return None;
+    }
+    if clean.parse::<std::net::IpAddr>().is_ok() {
+        return Some(clean.to_string());
+    }
+
+    let cache_key = format!("dns_ip:{clean}");
+    if let Some(cached) = state.cache.get_json(&cache_key) {
+        return cached.as_str().map(ToString::to_string);
+    }
+
+    let resolved = match tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::net::lookup_host((clean, 443)),
+    )
+    .await
+    {
+        Ok(Ok(addrs)) => {
+            let mut v4 = None;
+            let mut v6 = None;
+            for sa in addrs {
+                match sa.ip() {
+                    std::net::IpAddr::V4(ip) if v4.is_none() => v4 = Some(ip.to_string()),
+                    std::net::IpAddr::V6(ip) if v6.is_none() => v6 = Some(ip.to_string()),
+                    _ => {}
+                }
+            }
+            v4.or(v6)
+        }
+        _ => None,
+    };
+
+    let (cache_val, ttl) = match &resolved {
+        Some(ip) => (Value::String(ip.clone()), Duration::from_secs(300)),
+        None => (Value::Null, Duration::from_secs(30)),
+    };
+    state.cache.set_json(cache_key, cache_val, ttl);
+    resolved
+}
+
 pub(crate) async fn load_client_entries(
     state: &AppState,
     client_id: &str,
@@ -713,6 +759,30 @@ pub(crate) async fn load_client_entries(
                 if let Ok(Some(entry)) = build_port_share_entry(&settings, &stream, &ps_in, &s_ctx) {
                     entries.push(entry);
                 }
+            }
+        }
+    }
+
+    let mut unique_hosts = std::collections::BTreeSet::new();
+    for entry in &entries {
+        if !entry.is_cdn || entry.security.as_deref() == Some("reality") {
+            let h = strip_brackets(&entry.host);
+            if !h.is_empty() {
+                unique_hosts.insert(h);
+            }
+        }
+    }
+    let mut resolved_map = HashMap::new();
+    for h in unique_hosts {
+        if let Some(ip) = resolve_host_to_ip(state, &h).await {
+            resolved_map.insert(h, ip);
+        }
+    }
+    for entry in &mut entries {
+        if !entry.is_cdn || entry.security.as_deref() == Some("reality") {
+            let h = strip_brackets(&entry.host);
+            if let Some(ip) = resolved_map.get(&h) {
+                entry.resolved_ip = Some(ip.clone());
             }
         }
     }
