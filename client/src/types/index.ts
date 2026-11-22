@@ -74,11 +74,20 @@ export interface LoginResult {
   tempToken?: string;
 }
 
+export interface BrandingConfig {
+  panelName: string;
+  hasCustomLogo: boolean;
+  logoMime?: string | null;
+  logoVersion?: string | null;
+  logoUrl?: string | null;
+}
+
 export interface PublicConfig {
   apiUrl: string;
   subUrl: string;
   version?: string;
   telegramBotUsername?: string | null;
+  branding?: BrandingConfig;
 }
 
 export interface NotificationItem {
