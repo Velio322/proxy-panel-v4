@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod config_transfer;
+pub mod core_provision;
 pub mod core_updates;
 pub mod enforcement;
 pub mod event_export;

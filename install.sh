@@ -1078,6 +1078,24 @@ should_install_core() {
     esac
 }
 
+# Resolves the latest release tag of a GitHub repo without the REST API (60 req/h/IP limit):
+# follows the /releases/latest redirect. Prints the tag (e.g. v3.39.0) or nothing.
+github_latest_tag() {
+    local repo="$1" loc=""
+    loc="$(curl -fsSIL -o /dev/null -w '%{url_effective}' --retry 3 --retry-delay 2 --max-time 30 \
+        "https://github.com/${repo}/releases/latest" 2>/dev/null || true)"
+    loc="${loc##*/}"
+    # Redirect не сработал (репозиторий/релиз не найден): вернуть пусто, а не "latest".
+    [[ "$loc" =~ [0-9] ]] && printf '%s' "$loc"
+    return 0
+}
+
+# curl wrapper with retries for release downloads.
+download_with_retry() {
+    local url="$1" out="$2"
+    curl -fsSL --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 15 --max-time 300 "$url" -o "$out"
+}
+
 install_proxy_cores() {
     mkdir -p /usr/local/bin /usr/local/share/xray "$NODE_DATA_DIR"
 
@@ -1121,50 +1139,47 @@ install_proxy_cores() {
             warn "NaiveProxy не публикует готовые бинарники для linux/${ARCH}; пропускаю caddy-naive."
         else
             log "Устанавливаю NaiveProxy (caddy-forwardproxy)..."
-            local naive_url=""
-            naive_url="$(curl -fsSL https://api.github.com/repos/klzgrad/forwardproxy/releases/latest | grep -oE '"browser_download_url":\s*"[^"]+caddy[^"]*\.tar\.(xz|gz)"' | head -n 1 | sed -E 's/.*"(https:[^"]+)".*/\1/' || true)"
-            if [[ -n "$naive_url" ]]; then
-                local tmp_dir=""
-                tmp_dir="$(make_tmp_dir)"
-                if curl -fsSL "$naive_url" -o "${tmp_dir}/naive.tar.xz"; then
-                    tar -xf "${tmp_dir}/naive.tar.xz" -C "$tmp_dir"
-                    local naive_bin=""
-                    naive_bin="$(find "$tmp_dir" -type f -name caddy | head -n 1 || true)"
-                    if [[ -n "$naive_bin" ]]; then
-                        install -m 0755 "$naive_bin" /usr/local/bin/caddy-naive
-                    else
-                        warn "Бинарник caddy не найден внутри архива NaiveProxy."
-                    fi
+            local tmp_dir=""
+            tmp_dir="$(make_tmp_dir)"
+            # Имя ассета постоянное, поэтому GitHub API не нужен (нет лимита запросов).
+            local naive_url="https://github.com/klzgrad/forwardproxy/releases/latest/download/caddy-forwardproxy-naive.tar.xz"
+            if download_with_retry "$naive_url" "${tmp_dir}/naive.tar.xz" && tar -xf "${tmp_dir}/naive.tar.xz" -C "$tmp_dir"; then
+                local naive_bin=""
+                naive_bin="$(find "$tmp_dir" -type f -name caddy | head -n 1 || true)"
+                if [[ -n "$naive_bin" ]]; then
+                    install -m 0755 "$naive_bin" /usr/local/bin/caddy-naive
+                    ok "caddy-naive установлен."
                 else
-                    warn "Не удалось скачать архив NaiveProxy."
+                    warn "Бинарник caddy не найден внутри архива NaiveProxy."
                 fi
             else
-                warn "Не удалось определить URL релиза NaiveProxy; пропускаю."
+                warn "Не удалось скачать/распаковать NaiveProxy; панель доустановит ядро автоматически, когда нода появится онлайн."
             fi
         fi
     fi
 
     if should_install_core "mieru" && [[ ! -x /usr/local/bin/mita ]]; then
         log "Устанавливаю Mieru server (mita)..."
-        local mita_url=""
-        mita_url="$(curl -fsSL https://api.github.com/repos/enfein/mieru/releases/latest | grep -oE "\"browser_download_url\":\s*\"https://[^\"]*mita_[^\"]*_linux_${ARCH}\\.tar\\.gz\"" | head -n 1 | sed -E 's/.*"(https:[^"]+)".*/\1/' || true)"
-        if [[ -n "$mita_url" ]]; then
-            local tmp_dir=""
+        local mita_tag="" mita_ver="" tmp_dir=""
+        mita_tag="$(github_latest_tag enfein/mieru)"
+        mita_ver="${mita_tag#v}"
+        if [[ "$mita_ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             tmp_dir="$(make_tmp_dir)"
-            if curl -fsSL "$mita_url" -o "${tmp_dir}/mita.tar.gz"; then
-                tar -xzf "${tmp_dir}/mita.tar.gz" -C "$tmp_dir"
+            local mita_url="https://github.com/enfein/mieru/releases/download/${mita_tag}/mita_${mita_ver}_linux_${ARCH}.tar.gz"
+            if download_with_retry "$mita_url" "${tmp_dir}/mita.tar.gz" && tar -xzf "${tmp_dir}/mita.tar.gz" -C "$tmp_dir"; then
                 local mita_bin=""
                 mita_bin="$(find "$tmp_dir" -type f -name mita | head -n 1 || true)"
                 if [[ -n "$mita_bin" ]]; then
                     install -m 0755 "$mita_bin" /usr/local/bin/mita
+                    ok "mita ${mita_ver} установлен."
                 else
                     warn "Бинарник mita не найден внутри архива Mieru."
                 fi
             else
-                warn "Не удалось скачать архив Mieru."
+                warn "Не удалось скачать/распаковать Mieru; панель доустановит ядро автоматически, когда нода появится онлайн."
             fi
         else
-            warn "Не удалось определить URL релиза Mieru; пропускаю."
+            warn "Не удалось определить версию Mieru; панель доустановит ядро автоматически, когда нода появится онлайн."
         fi
     fi
 }

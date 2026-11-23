@@ -323,6 +323,7 @@ pub async fn check_status(state: &AppState, node: &NodeTarget) -> AppResult<Valu
                 .and_then(|s| s.mem_usage)
                 .or_else(|| val.get("memUsage").and_then(Value::as_f64));
             let uptime_secs = extract_uptime_seconds(&val, parsed.as_ref());
+            crate::services::core_provision::spawn_if_needed(state, &node.id, val.get("cores"));
 
             let _ = sqlx::query(
                 r#"UPDATE "Node"

@@ -532,6 +532,9 @@ impl ProcessManager {
                     )
                     .await?;
                 self.naive_procs.insert(ib.id.clone(), child);
+            } else {
+                self.warn_missing_core("naive", &self.config.naive_bin.clone(), &ib.tag)
+                    .await;
             }
         }
 
@@ -600,6 +603,9 @@ impl ProcessManager {
                     .stdout(Stdio::null())
                     .stderr(Stdio::null());
                 let _ = tokio::time::timeout(Duration::from_secs(5), reload_cmd.output()).await;
+            } else {
+                self.warn_missing_core("mieru", &self.config.mieru_bin.clone(), &ib.tag)
+                    .await;
             }
         }
 
@@ -608,6 +614,10 @@ impl ProcessManager {
                 .push("port-share", "error", format!("PortShare apply failed: {err}"))
                 .await;
             return Err(err);
+        }
+
+        for warning in crate::firewall::open_ports_for_inbounds(&inbounds).await {
+            self.logs.push("firewall", "warn", warning).await;
         }
 
         self.current_inbounds = inbounds;
@@ -977,6 +987,17 @@ impl ProcessManager {
         Ok(dropped)
     }
 
+    /// Records a loud warning when an enabled inbound cannot start because its core binary is absent.
+    async fn warn_missing_core(&self, core: &str, bin: &Path, tag: &str) {
+        let msg = format!(
+            "{core} binary not found at {}: inbound '{tag}' is NOT running. \
+             Install the core (panel: Nodes -> Core update, or re-run install.sh)",
+            bin.display()
+        );
+        tracing::warn!(core, inbound = tag, bin = %bin.display(), "core binary missing; inbound not started");
+        self.logs.push(core, "warn", msg).await;
+    }
+
     /// Builds a complete [`StatusReport`] including host telemetry, core PIDs, traffic capabilities, and traffic summary.
     pub async fn status_report(&mut self, include_traffic: bool) -> StatusReport {
         let xray_running = self.xray_running();
@@ -1063,10 +1084,12 @@ impl ProcessManager {
                 },
                 "naive": {
                     "running": naive_running,
+                    "installed": binary_exists(&self.config.naive_bin).await,
                     "version": self.core_versions.get("naive").cloned(),
                 },
                 "mieru": {
                     "running": mieru_running,
+                    "installed": binary_exists(&self.config.mieru_bin).await,
                     "version": self.core_versions.get("mieru").cloned(),
                 },
             })),

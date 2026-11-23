@@ -230,6 +230,7 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 let now = crate::db::now();
                 let info = core_updates::extract_core_info(sr.cores.as_ref());
                 let uptime_secs = crate::services::node_client::extract_report_uptime(&sr);
+                crate::services::core_provision::spawn_if_needed(&state, &node_id, sr.cores.as_ref());
 
                 let _ = sqlx::query(
                     r#"UPDATE "Node"

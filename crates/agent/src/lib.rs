@@ -1,6 +1,7 @@
 pub mod api;
 pub mod config;
 pub mod cores;
+pub mod firewall;
 pub mod master_client;
 pub mod mtls;
 pub mod port_share;
