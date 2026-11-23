@@ -31,14 +31,15 @@ pub async fn run(cfg: Config) -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(shutdown_signal(state.clone()))
     .await?;
 
-    let _ = traffic_batcher::flush_batch(&state).await;
+    let flushed = traffic_batcher::drain_all(&state).await;
+    tracing::info!(flushed, "final traffic flush complete");
     Ok(())
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(state: AppState) {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
     };
@@ -60,4 +61,7 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
     tracing::info!("Shutdown signal received, draining...");
+    // Close node sessions cleanly and give the frames a moment to leave before the runtime stops.
+    state.hub.begin_shutdown();
+    tokio::time::sleep(Duration::from_millis(300)).await;
 }

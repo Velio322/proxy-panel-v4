@@ -296,7 +296,40 @@ async fn record_telemetry_snapshot(
     .await;
 }
 
+/// Scheduler variant: a node that merely lost its HTTP/WS link around a panel restart is not marked
+/// OFFLINE (see [`within_offline_grace`]). Manual checks use [`check_status`] and are immediate.
+pub async fn check_status_scheduled(state: &AppState, node: &NodeTarget) -> AppResult<Value> {
+    check_status_inner(state, node, true).await
+}
+
 pub async fn check_status(state: &AppState, node: &NodeTarget) -> AppResult<Value> {
+    check_status_inner(state, node, false).await
+}
+
+/// Grace before a failed check flips a node to OFFLINE: the panel just started (agents are still
+/// reconnecting) or the node was seen ONLINE moments ago.
+pub fn within_offline_grace(panel_uptime: Duration, since_last_online: Option<chrono::Duration>) -> bool {
+    const STARTUP: Duration = Duration::from_secs(60);
+    const LAST_SEEN: i64 = 90;
+    panel_uptime < STARTUP || since_last_online.is_some_and(|d| d.num_seconds() < LAST_SEEN)
+}
+
+async fn offline_deferred(state: &AppState, node_id: &str) -> bool {
+    let last: Option<chrono::NaiveDateTime> =
+        sqlx::query_scalar(r#"SELECT "lastOnlineAt" FROM "Node" WHERE id = $1"#)
+            .bind(node_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .flatten();
+    within_offline_grace(
+        state.started_at.elapsed(),
+        last.map(|t| crate::db::now() - t),
+    )
+}
+
+async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bool) -> AppResult<Value> {
     let started = Instant::now();
     let now = crate::db::now();
     // A node that pushes status over WebSocket needs no HTTP poll (its API port may be closed).
@@ -391,6 +424,13 @@ pub async fn check_status(state: &AppState, node: &NodeTarget) -> AppResult<Valu
                     "status": "ONLINE",
                     "transport": "websocket",
                     "httpReachable": false
+                }));
+            }
+            if allow_grace && offline_deferred(state, &node.id).await {
+                return Ok(json!({
+                    "nodeId": node.id,
+                    "status": "UNCHANGED",
+                    "reason": "offline decision deferred (panel just started or node seen recently)"
                 }));
             }
             let _ = sqlx::query(
@@ -627,6 +667,23 @@ pub async fn tcp_probe(host: &str, port: u16, timeout: Duration) -> bool {
     tokio::time::timeout(timeout, tokio::net::TcpStream::connect(&addr))
         .await
         .is_ok_and(|res| res.is_ok())
+}
+
+#[cfg(test)]
+mod grace_tests {
+    use super::within_offline_grace;
+    use std::time::Duration;
+
+    #[test]
+    fn grace_after_panel_start_or_recent_online() {
+        let old = Some(chrono::Duration::seconds(600));
+        // Just after a panel restart nothing is marked OFFLINE, even if last seen long ago.
+        assert!(within_offline_grace(Duration::from_secs(5), old));
+        // Normal operation: only nodes seen in the last 90s are protected.
+        assert!(within_offline_grace(Duration::from_secs(900), Some(chrono::Duration::seconds(30))));
+        assert!(!within_offline_grace(Duration::from_secs(900), old));
+        assert!(!within_offline_grace(Duration::from_secs(900), None));
+    }
 }
 
 #[cfg(test)]

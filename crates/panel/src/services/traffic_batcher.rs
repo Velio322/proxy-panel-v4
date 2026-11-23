@@ -27,6 +27,16 @@ pub async fn resolve_client_id(state: &AppState, email_or_id: &str) -> Option<St
     Some(id)
 }
 
+/// Idempotency key for one node report entry.
+///
+/// A report is replayed by the agent until acknowledged (e.g. after a panel restart), and a random
+/// receipt id per replay would count the same bytes twice. Deriving the id from
+/// `(node, batch, key)` makes `ON CONFLICT DO NOTHING` in [`flush_batch`] drop the duplicate.
+pub fn receipt_id_for(node_id: &str, batch_id: Option<&str>, key: &str) -> Option<String> {
+    let batch = batch_id.map(str::trim).filter(|b| !b.is_empty())?;
+    Some(crate::auth::crypto::sha256_hex(&format!("{node_id}\u{1f}{batch}\u{1f}{key}")))
+}
+
 pub async fn add_traffic(
     state: &AppState,
     node_id: &str,
@@ -54,7 +64,9 @@ pub async fn add_traffic(
     }
 
     state.traffic_queue.push(PendingTrafficItem {
-        receipt_id: receipt_id.unwrap_or_else(crate::db::new_id),
+        receipt_id: receipt_id
+            .or_else(|| receipt_id_for(node_id, batch_id.as_deref(), email_or_id))
+            .unwrap_or_else(crate::db::new_id),
         batch_id,
         node_id: node_id.to_string(),
         client_id,
@@ -214,6 +226,25 @@ pub async fn flush_batch(state: &AppState) -> AppResult<usize> {
     Ok(processed)
 }
 
+/// Flushes until the queue is empty (bounded), used on shutdown so a restart loses nothing queued.
+pub async fn drain_all(state: &AppState) -> usize {
+    let mut total = 0;
+    for _ in 0..200 {
+        if state.traffic_queue.is_empty() {
+            break;
+        }
+        match flush_batch(state).await {
+            Ok(0) => break,
+            Ok(n) => total += n,
+            Err(e) => {
+                tracing::warn!(error = %e, queued = state.traffic_queue.len(), "final traffic flush failed");
+                break;
+            }
+        }
+    }
+    total
+}
+
 pub fn spawn_flush_loop(state: AppState) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
@@ -224,4 +255,24 @@ pub fn spawn_flush_loop(state: AppState) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::receipt_id_for;
+
+    #[test]
+    fn receipt_id_is_stable_per_batch_entry_and_distinct_otherwise() {
+        let a = receipt_id_for("n1", Some("b1"), "alice").unwrap();
+        assert_eq!(a, receipt_id_for("n1", Some("b1"), "alice").unwrap());
+        assert_ne!(a, receipt_id_for("n1", Some("b1"), "bob").unwrap());
+        assert_ne!(a, receipt_id_for("n1", Some("b2"), "alice").unwrap());
+        assert_ne!(a, receipt_id_for("n2", Some("b1"), "alice").unwrap());
+    }
+
+    #[test]
+    fn no_batch_means_no_deterministic_id() {
+        assert!(receipt_id_for("n1", None, "alice").is_none());
+        assert!(receipt_id_for("n1", Some("  "), "alice").is_none());
+    }
 }

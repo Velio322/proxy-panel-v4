@@ -122,11 +122,21 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
     // Cancelled by the writer when the socket breaks, so the reader never waits on a dead peer.
     let closed = CancellationToken::new();
     let writer_closed = closed.clone();
+    let shutdown = state.hub.shutdown_token();
     let writer = tokio::spawn(async move {
         let mut ping = tokio::time::interval_at(Instant::now() + PING_INTERVAL, PING_INTERVAL);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             let msg = tokio::select! {
+                _ = shutdown.cancelled() => {
+                    // 1001 = going away: the agent reconnects immediately instead of treating this as an error.
+                    let frame = axum::extract::ws::CloseFrame {
+                        code: 1001,
+                        reason: "panel restarting".into(),
+                    };
+                    let _ = send_frame(&mut ws_tx, Message::Close(Some(frame))).await;
+                    break;
+                }
                 env = rx.recv() => match env {
                     Some(env) => match serde_json::to_string(&env) {
                         Ok(text) => Message::Text(text.into()),

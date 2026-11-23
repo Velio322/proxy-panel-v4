@@ -97,7 +97,7 @@ fn supervise(state: AppState, spec: JobSpec) {
 }
 
 async fn check_node_guarded(state: &AppState, node: &node_client::NodeTarget) {
-    match tokio::time::timeout(NODE_CHECK_TIMEOUT, node_client::check_status(state, node)).await {
+    match tokio::time::timeout(NODE_CHECK_TIMEOUT, node_client::check_status_scheduled(state, node)).await {
         Ok(Ok(_)) => {}
         Ok(Err(e)) => tracing::warn!(node_id = %node.id, error = %e, "node health check failed"),
         Err(_) => tracing::warn!(

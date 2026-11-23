@@ -33,6 +33,8 @@ pub struct WorkerHub {
     last_status: DashMap<String, (std::time::Instant, serde_json::Value)>,
     log_tx: broadcast::Sender<StoredLogEntry>,
     next_conn_id: std::sync::atomic::AtomicU64,
+    /// Cancelled when the panel is shutting down so sessions can send a proper Close frame.
+    shutdown: tokio_util::sync::CancellationToken,
 }
 
 impl Default for WorkerHub {
@@ -52,6 +54,7 @@ impl WorkerHub {
             last_status: DashMap::new(),
             log_tx,
             next_conn_id: std::sync::atomic::AtomicU64::new(1),
+            shutdown: tokio_util::sync::CancellationToken::new(),
         }
     }
 
@@ -89,6 +92,15 @@ impl WorkerHub {
     ) -> Option<serde_json::Value> {
         let e = self.last_status.get(node_id)?;
         (e.0.elapsed() <= max_age).then(|| e.1.clone())
+    }
+
+    pub fn shutdown_token(&self) -> tokio_util::sync::CancellationToken {
+        self.shutdown.clone()
+    }
+
+    /// Tells every node session to send `Close(1001 going away)` and finish.
+    pub fn begin_shutdown(&self) {
+        self.shutdown.cancel();
     }
 
     pub fn is_connected(&self, node_id: &str) -> bool {
