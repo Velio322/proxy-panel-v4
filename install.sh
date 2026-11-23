@@ -1171,6 +1171,9 @@ install_proxy_cores() {
                 mita_bin="$(find "$tmp_dir" -type f -name mita | head -n 1 || true)"
                 if [[ -n "$mita_bin" ]]; then
                     install -m 0755 "$mita_bin" /usr/local/bin/mita
+                    # mita не стартует без системного пользователя `mita` (его создаёт postinst из .deb).
+                    id mita >/dev/null 2>&1 || useradd --system --no-create-home --user-group mita
+                    install -d -m 0775 -o mita -g mita /etc/mita /var/lib/mita /var/run/mita
                     ok "mita ${mita_ver} установлен."
                 else
                     warn "Бинарник mita не найден внутри архива Mieru."

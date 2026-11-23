@@ -550,7 +550,11 @@ impl ProcessManager {
             write_atomic_0600(&path, &bytes).await?;
 
             if binary_exists(&self.config.mieru_bin).await {
-                let _ = tokio::fs::create_dir_all("/var/run/mita").await;
+                if let Err(e) = mieru::ensure_mita_runtime().await {
+                    self.logs
+                        .push("mieru", "error", format!("mita runtime setup failed: {e}"))
+                        .await;
+                }
                 let path_str = path.to_string_lossy().to_string();
                 let child = self
                     .spawn_core(
