@@ -167,7 +167,7 @@ async fn register(
     sqlx::query(
         r#"UPDATE "Node"
            SET name = $2, host = $3, port = $4, "apiPort" = $5, "secretHash" = $6,
-               status = 'ONLINE', "lastCheckAt" = $7, version = $8,
+               status = 'ONLINE', "lastCheckAt" = $7, "lastOnlineAt" = $7, version = $8,
                "xrayVersion" = COALESCE($9, "xrayVersion"),
                "singboxVersion" = COALESCE($10, "singboxVersion"),
                "naiveVersion" = COALESCE($11, "naiveVersion"),

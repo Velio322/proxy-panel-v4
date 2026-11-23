@@ -10,7 +10,33 @@ use axum::response::Response;
 use futures_util::{SinkExt, StreamExt};
 use mypanel_proto::{ConfigUpdate, Envelope, TrafficAck};
 use sqlx::Row;
+use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
+
+/// Interval between server-initiated WebSocket `Ping` frames. Keeps NAT/hypervisor
+/// conntrack entries and load balancer (HAProxy `timeout tunnel`) idle timers alive.
+const PING_INTERVAL: Duration = Duration::from_secs(25);
+/// The session is closed when no frame (Pong or data) arrives within this window.
+const PONG_TIMEOUT: Duration = Duration::from_secs(60);
+/// Upper bound for a single frame write; a stalled TCP peer must not wedge the writer task.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Time left before the peer is considered dead, given when it was last heard from.
+fn liveness_remaining(last_seen: Instant, now: Instant) -> Duration {
+    PONG_TIMEOUT.saturating_sub(now.saturating_duration_since(last_seen))
+}
+
+type WsSink = futures_util::stream::SplitSink<WebSocket, Message>;
+
+/// Sends one frame; returns `false` when the socket is closed, broken or stalled.
+async fn send_frame(sink: &mut WsSink, msg: Message) -> bool {
+    matches!(
+        tokio::time::timeout(WRITE_TIMEOUT, sink.send(msg)).await,
+        Ok(Ok(()))
+    )
+}
 
 fn extract_node_secret(headers: &HeaderMap) -> Option<&str> {
     headers
@@ -85,7 +111,7 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
     let conn_id = state.hub.register(&node_id, tx.clone());
 
     let _ = sqlx::query(
-        r#"UPDATE "Node" SET status = 'ONLINE', "lastCheckAt" = $2, "updatedAt" = $2 WHERE id = $1"#,
+        r#"UPDATE "Node" SET status = 'ONLINE', "lastCheckAt" = $2, "lastOnlineAt" = $2, "updatedAt" = $2 WHERE id = $1"#,
     )
     .bind(&node_id)
     .bind(crate::db::now())
@@ -93,21 +119,55 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
     .await;
     state.metrics.set_node_status(&node_id, &node_name, true);
 
+    // Cancelled by the writer when the socket breaks, so the reader never waits on a dead peer.
+    let closed = CancellationToken::new();
+    let writer_closed = closed.clone();
     let writer = tokio::spawn(async move {
-        while let Some(env) = rx.recv().await {
-            let Ok(text) = serde_json::to_string(&env) else {
-                continue;
+        let mut ping = tokio::time::interval_at(Instant::now() + PING_INTERVAL, PING_INTERVAL);
+        ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            let msg = tokio::select! {
+                env = rx.recv() => match env {
+                    Some(env) => match serde_json::to_string(&env) {
+                        Ok(text) => Message::Text(text.into()),
+                        Err(_) => continue,
+                    },
+                    None => break,
+                },
+                _ = ping.tick() => Message::Ping(axum::body::Bytes::from_static(b"mp3")),
             };
-            if ws_tx.send(Message::Text(text.into())).await.is_err() {
+            if !send_frame(&mut ws_tx, msg).await {
                 break;
             }
         }
+        writer_closed.cancel();
     });
 
-    while let Some(Ok(msg)) = ws_rx.next().await {
+    let mut last_seen = Instant::now();
+    loop {
+        let remaining = liveness_remaining(last_seen, Instant::now());
+        let next = tokio::select! {
+            _ = closed.cancelled() => break,
+            res = tokio::time::timeout(remaining, ws_rx.next()) => res,
+        };
+        let msg = match next {
+            Ok(Some(Ok(msg))) => msg,
+            Ok(Some(Err(_)) | None) => break,
+            Err(_) => {
+                tracing::warn!(
+                    node_id = %node_id,
+                    timeout_secs = PONG_TIMEOUT.as_secs(),
+                    "worker WS: no Pong/data within timeout, closing session"
+                );
+                break;
+            }
+        };
+        last_seen = Instant::now();
+
         let text = match msg {
             Message::Text(t) => t.to_string(),
             Message::Close(_) => break,
+            // Pong/Ping/Binary only refresh liveness (axum answers Ping automatically).
             _ => continue,
         };
         let Ok(env) = serde_json::from_str::<Envelope>(&text) else {
@@ -180,7 +240,7 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                            "mieruVersion" = COALESCE($9, "mieruVersion"),
                            arch = COALESCE($10, arch),
                            uptime = COALESCE($12, uptime),
-                           "lastCheckAt" = $11, "updatedAt" = $11
+                           "lastCheckAt" = $11, "lastOnlineAt" = $11, "updatedAt" = $11
                        WHERE id = $1"#,
                 )
                 .bind(&node_id)
@@ -225,7 +285,7 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
             }
             Envelope::Heartbeat(_) => {
                 let _ = sqlx::query(
-                    r#"UPDATE "Node" SET "lastCheckAt" = $2, status = 'ONLINE' WHERE id = $1"#,
+                    r#"UPDATE "Node" SET "lastCheckAt" = $2, "lastOnlineAt" = $2, status = 'ONLINE' WHERE id = $1"#,
                 )
                 .bind(&node_id)
                 .bind(crate::db::now())
@@ -243,7 +303,34 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
     }
 
     writer.abort();
+    closed.cancel();
     if state.hub.unregister(&node_id, conn_id) {
         state.metrics.set_node_status(&node_id, &node_name, false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn liveness_budget_shrinks_and_saturates() {
+        let t0 = Instant::now();
+        assert_eq!(liveness_remaining(t0, t0), PONG_TIMEOUT);
+        assert_eq!(
+            liveness_remaining(t0, t0 + Duration::from_secs(20)),
+            Duration::from_secs(40)
+        );
+        assert_eq!(
+            liveness_remaining(t0, t0 + Duration::from_secs(61)),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn ping_interval_is_shorter_than_pong_timeout() {
+        assert!(PING_INTERVAL >= Duration::from_secs(25));
+        assert!(PING_INTERVAL <= Duration::from_secs(30));
+        assert!(PING_INTERVAL * 2 < PONG_TIMEOUT + Duration::from_secs(1));
     }
 }

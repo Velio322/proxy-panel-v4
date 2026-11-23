@@ -17,7 +17,24 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
-const RECONNECT_DELAY: Duration = Duration::from_secs(5);
+/// Reconnect backoff schedule: 1s -> 2s -> 5s -> 15s (cap).
+const RECONNECT_BACKOFF: [Duration; 4] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(5),
+    Duration::from_secs(15),
+];
+/// A session that lived at least this long is considered healthy and resets the backoff.
+const STABLE_SESSION: Duration = Duration::from_secs(30);
+/// Panel pings every ~25s; if nothing (data, Ping or Pong) arrives for this long the link is dead.
+const READ_IDLE_TIMEOUT: Duration = Duration::from_secs(75);
+/// Upper bound for one WS write (stalled TCP peer / NAT black hole).
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Upper bound for collecting a status/traffic snapshot (e.g. `ProcessManager` lock contention).
+const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(20);
+/// Initial registration must never delay the WS loop for minutes.
+const INITIAL_REGISTER_ATTEMPTS: usize = 3;
+const INITIAL_REGISTER_DELAY: Duration = Duration::from_secs(2);
 const STATUS_INTERVAL: Duration = Duration::from_secs(30);
 const TRAFFIC_INTERVAL: Duration = Duration::from_secs(60);
 
@@ -74,6 +91,19 @@ pub async fn register_node(
     ))
 }
 
+/// Delay before reconnect attempt number `failures` (0-based count of consecutive failures).
+fn reconnect_delay(failures: u32) -> Duration {
+    let idx = usize::try_from(failures).unwrap_or(usize::MAX);
+    RECONNECT_BACKOFF[idx.min(RECONNECT_BACKOFF.len() - 1)]
+}
+
+/// Adds up to ~20% jitter so a fleet of agents does not reconnect in lockstep after a panel restart.
+fn with_jitter(base: Duration) -> Duration {
+    use rand::Rng;
+    let extra_ms = rand::thread_rng().gen_range(0..=base.as_millis() as u64 / 5);
+    base + Duration::from_millis(extra_ms)
+}
+
 /// Converts an HTTP(S) `MASTER_URL` into a WS(S) `/ws/worker` URL.
 pub fn build_ws_url(master_url: &str) -> Result<String, String> {
     let trimmed = master_url.trim().trim_end_matches('/');
@@ -104,18 +134,27 @@ pub async fn run_master_loop(
         return;
     }
 
-    if let Err(err) = register_node(&http_client, &cfg, 30, Duration::from_secs(5)).await {
+    if let Err(err) = register_node(
+        &http_client,
+        &cfg,
+        INITIAL_REGISTER_ATTEMPTS,
+        INITIAL_REGISTER_DELAY,
+    )
+    .await
+    {
         tracing::warn!(error = %err, "Initial node registration failed; continuing to WS loop");
     }
 
     let mut last_applied_json: Option<String> = None;
+    let mut failures: u32 = 0;
 
     loop {
         if cancel.is_cancelled() {
             break;
         }
 
-        match connect_and_serve(
+        let started = tokio::time::Instant::now();
+        let result = connect_and_serve(
             &cfg,
             &http_client,
             &pm,
@@ -123,19 +162,39 @@ pub async fn run_master_loop(
             &mut last_applied_json,
             &cancel,
         )
-        .await
-        {
+        .await;
+
+        match result {
             Ok(()) => break,
             Err(err) => {
-                tracing::warn!(error = %err, "Master WS disconnected; reconnecting in 5s");
+                if started.elapsed() >= STABLE_SESSION {
+                    failures = 0;
+                }
+                let delay = with_jitter(reconnect_delay(failures));
+                failures = failures.saturating_add(1);
+                tracing::warn!(
+                    error = %err,
+                    attempt = failures,
+                    retry_in_ms = delay.as_millis() as u64,
+                    "Master WS disconnected; reconnecting"
+                );
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = tokio::time::sleep(delay) => {}
+                }
             }
         }
-
-        tokio::select! {
-            _ = cancel.cancelled() => break,
-            _ = tokio::time::sleep(RECONNECT_DELAY) => {}
-        }
     }
+}
+
+/// Takes a status snapshot without ever blocking the WS loop for longer than `SNAPSHOT_TIMEOUT`.
+async fn status_snapshot(pm: &Arc<Mutex<ProcessManager>>) -> Result<mypanel_proto::StatusReport, String> {
+    tokio::time::timeout(SNAPSHOT_TIMEOUT, async {
+        let mut guard = pm.lock().await;
+        guard.status_report(false).await
+    })
+    .await
+    .map_err(|_| "status snapshot timed out".to_string())
 }
 
 async fn connect_and_serve(
@@ -171,10 +230,7 @@ async fn connect_and_serve(
 
     // Send initial status_report + config_request
     {
-        let status = {
-            let mut guard = pm.lock().await;
-            guard.status_report(false).await
-        };
+        let status = status_snapshot(pm).await?;
         send_envelope(&mut write, &Envelope::StatusReport(status)).await?;
         send_envelope(&mut write, &Envelope::ConfigRequest(EmptyPayload {})).await?;
 
@@ -193,24 +249,31 @@ async fn connect_and_serve(
     let mut traffic_tick = tokio::time::interval(TRAFFIC_INTERVAL);
     traffic_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+    let mut last_seen = tokio::time::Instant::now();
+
     loop {
         tokio::select! {
             _ = cancel.cancelled() => {
-                let _ = write.close().await;
+                let _ = tokio::time::timeout(WRITE_TIMEOUT, write.close()).await;
                 return Ok(());
             }
+            _ = tokio::time::sleep_until(last_seen + READ_IDLE_TIMEOUT) => {
+                return Err(format!(
+                    "no frames from Master for {}s (dead connection)",
+                    READ_IDLE_TIMEOUT.as_secs()
+                ));
+            }
             _ = status_tick.tick() => {
-                let status = {
-                    let mut guard = pm.lock().await;
-                    guard.status_report(false).await
-                };
+                let status = status_snapshot(pm).await?;
                 send_envelope(&mut write, &Envelope::StatusReport(status)).await?;
             }
             _ = traffic_tick.tick() => {
-                let cur = {
+                let cur = tokio::time::timeout(SNAPSHOT_TIMEOUT, async {
                     let mut guard = pm.lock().await;
                     guard.collect_traffic().await
-                };
+                })
+                .await
+                .map_err(|_| "traffic snapshot timed out".to_string())?;
                 let report = {
                     let mut tr = tracker.lock().await;
                     tr.compute_delta(&cur).await.unwrap_or_else(|_| TrafficReport {
@@ -221,6 +284,9 @@ async fn connect_and_serve(
                 send_envelope(&mut write, &Envelope::TrafficReport(report)).await?;
             }
             msg = read.next() => {
+                if matches!(msg, Some(Ok(_))) {
+                    last_seen = tokio::time::Instant::now();
+                }
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         if let Ok(env) = serde_json::from_str::<Envelope>(&text) {
@@ -233,10 +299,12 @@ async fn connect_and_serve(
                                 last_applied_json,
                                 &mut write,
                             ).await?;
+                            // Long handlers (config apply, core update) must not count as idle time.
+                            last_seen = tokio::time::Instant::now();
                         }
                     }
                     Some(Ok(Message::Ping(payload))) => {
-                        write.send(Message::Pong(payload)).await.map_err(|e| format!("WS pong failed: {e}"))?;
+                        send_frame(&mut write, Message::Pong(payload)).await?;
                     }
                     Some(Ok(Message::Close(_))) | None => {
                         return Err("WS closed by Master".into());
@@ -390,6 +458,18 @@ where
     Ok(())
 }
 
+async fn send_frame<S>(write: &mut S, msg: Message) -> Result<(), String>
+where
+    S: SinkExt<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    match tokio::time::timeout(WRITE_TIMEOUT, write.send(msg)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(format!("WS send failed: {e}")),
+        Err(_) => Err(format!("WS send timed out after {}s", WRITE_TIMEOUT.as_secs())),
+    }
+}
+
 async fn send_envelope<S>(write: &mut S, env: &Envelope) -> Result<(), String>
 where
     S: SinkExt<Message> + Unpin,
@@ -397,8 +477,39 @@ where
 {
     let text = serde_json::to_string(env)
         .map_err(|e| format!("Failed to serialize WS envelope: {e}"))?;
-    write
-        .send(Message::Text(text.into()))
-        .await
-        .map_err(|e| format!("WS send failed: {e}"))
+    send_frame(write, Message::Text(text.into())).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backoff_follows_1_2_5_15_and_caps() {
+        let secs: Vec<u64> = (0..7).map(|i| reconnect_delay(i).as_secs()).collect();
+        assert_eq!(secs, vec![1, 2, 5, 15, 15, 15, 15]);
+        assert_eq!(reconnect_delay(u32::MAX).as_secs(), 15);
+    }
+
+    #[test]
+    fn jitter_never_shrinks_and_stays_bounded() {
+        for _ in 0..200 {
+            let base = Duration::from_secs(15);
+            let d = with_jitter(base);
+            assert!(d >= base && d <= base + Duration::from_secs(3));
+        }
+    }
+
+    #[test]
+    fn ws_url_scheme_mapping() {
+        assert_eq!(
+            build_ws_url("https://p.example.com/").unwrap(),
+            "wss://p.example.com/ws/worker"
+        );
+        assert_eq!(
+            build_ws_url("http://10.0.0.1:8080").unwrap(),
+            "ws://10.0.0.1:8080/ws/worker"
+        );
+        assert!(build_ws_url("").is_err());
+    }
 }

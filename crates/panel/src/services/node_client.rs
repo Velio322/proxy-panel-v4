@@ -93,34 +93,51 @@ pub fn base_url(
     ))
 }
 
+/// Hard upper bound for any read-only node HTTP call (connect + headers + body).
+/// A single unreachable node must never stall the scheduler cycle.
+pub const NODE_GET_TIMEOUT: Duration = Duration::from_secs(7);
+/// reqwest-level timeout; slightly below the outer guard so the inner error wins when possible.
+const NODE_GET_HTTP_TIMEOUT: Duration = Duration::from_secs(6);
+
 async fn node_get(state: &AppState, node: &NodeTarget, path: &str) -> AppResult<Value> {
     let (base, _) = base_url(node, state.cfg.allow_private_nodes, state.cfg.node_api_plaintext)?;
     let url = format!("{base}{path}");
-    let resp = state
-        .http_client
-        .get(&url)
-        .bearer_auth(&node.secret)
-        .header("X-Node-Secret", &node.secret)
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await
-        .map_err(|e| AppError::service_unavailable(format!("Node request failed: {e}")))?;
+    let fetch = async {
+        let resp = state
+            .http_client
+            .get(&url)
+            .bearer_auth(&node.secret)
+            .header("X-Node-Secret", &node.secret)
+            .timeout(NODE_GET_HTTP_TIMEOUT)
+            .send()
+            .await
+            .map_err(|e| AppError::service_unavailable(format!("Node request failed: {e}")))?;
 
-    if !resp.status().is_success() {
-        return Err(AppError::service_unavailable(format!(
-            "Node returned HTTP {}",
-            resp.status()
-        )));
-    }
-    let bytes = resp
-        .bytes()
+        if !resp.status().is_success() {
+            return Err(AppError::service_unavailable(format!(
+                "Node returned HTTP {}",
+                resp.status()
+            )));
+        }
+        let bytes = resp.bytes().await.map_err(|e| {
+            AppError::service_unavailable(format!("Node response read failed: {e}"))
+        })?;
+        if bytes.len() > 8 * 1024 * 1024 {
+            return Err(AppError::payload_too_large("Node response exceeded 8 MiB"));
+        }
+        serde_json::from_slice(&bytes)
+            .map_err(|e| AppError::service_unavailable(format!("Invalid JSON from node: {e}")))
+    };
+
+    tokio::time::timeout(NODE_GET_TIMEOUT, fetch)
         .await
-        .map_err(|e| AppError::service_unavailable(format!("Node response read failed: {e}")))?;
-    if bytes.len() > 8 * 1024 * 1024 {
-        return Err(AppError::payload_too_large("Node response exceeded 8 MiB"));
-    }
-    serde_json::from_slice(&bytes)
-        .map_err(|e| AppError::service_unavailable(format!("Invalid JSON from node: {e}")))
+        .map_err(|_| {
+            tracing::warn!(node_id = %node.id, path, "node GET exceeded hard timeout");
+            AppError::service_unavailable(format!(
+                "Node request timed out after {}s",
+                NODE_GET_TIMEOUT.as_secs()
+            ))
+        })?
 }
 
 async fn node_post<T: serde::Serialize>(
@@ -309,7 +326,7 @@ pub async fn check_status(state: &AppState, node: &NodeTarget) -> AppResult<Valu
 
             let _ = sqlx::query(
                 r#"UPDATE "Node"
-                   SET status = $2, "lastCheckAt" = $3, "lastPingMs" = $4,
+                   SET status = $2, "lastCheckAt" = $3, "lastOnlineAt" = $3, "lastPingMs" = $4,
                        version = COALESCE($5, version),
                        "xrayVersion" = COALESCE($6, "xrayVersion"),
                        "singboxVersion" = COALESCE($7, "singboxVersion"),
@@ -352,7 +369,7 @@ pub async fn check_status(state: &AppState, node: &NodeTarget) -> AppResult<Valu
         Err(_) => {
             if state.hub.is_connected(&node.id) {
                 let _ = sqlx::query(
-                    r#"UPDATE "Node" SET status = $2, "lastCheckAt" = $3, "updatedAt" = $3 WHERE id = $1"#,
+                    r#"UPDATE "Node" SET status = $2, "lastCheckAt" = $3, "lastOnlineAt" = $3, "updatedAt" = $3 WHERE id = $1"#,
                 )
                 .bind(&node.id)
                 .bind(NodeStatus::Online)

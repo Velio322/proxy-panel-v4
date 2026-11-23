@@ -418,6 +418,14 @@ pub(crate) async fn resolve_host_to_ip(state: &AppState, host: &str) -> Option<S
     resolved
 }
 
+/// How long a node that stopped reporting ONLINE stays in subscriptions.
+/// Absorbs health-check flaps and panel restarts so client configs are not rebuilt.
+const NODE_ONLINE_GRACE: chrono::Duration = chrono::Duration::minutes(15);
+
+fn node_grace_cutoff() -> NaiveDateTime {
+    crate::db::now() - NODE_ONLINE_GRACE
+}
+
 pub(crate) async fn load_client_entries(
     state: &AppState,
     client_id: &str,
@@ -452,6 +460,7 @@ pub(crate) async fn load_client_entries(
            ORDER BY i."createdAt" ASC, i.id ASC"#,
     )
     .bind(client_id)
+    .bind(node_grace_cutoff())
     .fetch_all(&state.db)
     .await?;
 
