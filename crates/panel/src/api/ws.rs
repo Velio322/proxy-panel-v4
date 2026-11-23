@@ -198,14 +198,23 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 state.hub.resolve_ack(ack.clone());
                 let now = crate::db::now();
                 if ack.ok {
+                    // `error` on a successful ack is a warning (applied, but e.g. a port is not listening).
+                    let warning: Option<String> = ack
+                        .error
+                        .as_deref()
+                        .map(|w| w.chars().take(1000).collect());
+                    if let Some(w) = &warning {
+                        tracing::warn!(node_id = %node_id, warning = %w, "config applied with warnings");
+                    }
                     let _ = sqlx::query(
                         r#"UPDATE "NodeCommand"
-                           SET status = 'ACKNOWLEDGED', "acknowledgedAt" = $2, "lastError" = NULL
+                           SET status = 'ACKNOWLEDGED', "acknowledgedAt" = $2, "lastError" = $4
                            WHERE id = $1 AND "nodeId" = $3 AND status = 'PENDING'"#,
                     )
                     .bind(&ack.command_id)
                     .bind(now)
                     .bind(&node_id)
+                    .bind(warning)
                     .execute(&state.db)
                     .await;
                 } else {
@@ -231,6 +240,9 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 let info = core_updates::extract_core_info(sr.cores.as_ref());
                 let uptime_secs = crate::services::node_client::extract_report_uptime(&sr);
                 crate::services::core_provision::spawn_if_needed(&state, &node_id, sr.cores.as_ref());
+                if let Ok(v) = serde_json::to_value(&sr) {
+                    state.hub.set_status(&node_id, v);
+                }
 
                 let _ = sqlx::query(
                     r#"UPDATE "Node"

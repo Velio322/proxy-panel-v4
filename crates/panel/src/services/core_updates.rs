@@ -596,6 +596,13 @@ pub async fn trigger_core_update(
 
     let (resolved_ver, resolved_url, resolved_sha) = match (req_url, req_sha) {
         (Some(u), Some(s)) => {
+            if !mypanel_proto::is_allowed_core_download_url(u)
+                && std::env::var("ALLOW_CUSTOM_CORE_URLS").map(|v| v != "true").unwrap_or(true)
+            {
+                return Err(AppError::bad_request(
+                    "downloadUrl must be an official GitHub release URL of Xray-core, sing-box, klzgrad/forwardproxy or enfein/mieru (set ALLOW_CUSTOM_CORE_URLS=true to override)",
+                ));
+            }
             let clean_sha = normalize_sha256(s).ok_or_else(|| {
                 AppError::bad_request("sha256 must be 64 hexadecimal characters")
             })?;

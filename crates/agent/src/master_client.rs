@@ -5,8 +5,8 @@ use crate::process::ProcessManager;
 use crate::traffic::CumulativeTrafficTracker;
 use futures_util::{SinkExt, StreamExt};
 use mypanel_proto::{
-    ApplyConfigRequest, CommandAck, EmptyPayload, Envelope, RegisterRequest, RegisterSystemInfo,
-    SessionsList, TrafficReport,
+    ApplyConfigRequest, CommandAck, EmptyPayload, Envelope, NodeControlAction, RegisterRequest,
+    RegisterSystemInfo, SessionsList, TrafficReport,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -341,10 +341,14 @@ where
             ))
             .ok();
             if fingerprint.is_some() && fingerprint == *last_applied_json {
+                let problems = {
+                    let guard = pm.lock().await;
+                    guard.problems().to_vec()
+                };
                 let ack = CommandAck {
                     command_id: cmd.command_id,
                     ok: true,
-                    error: None,
+                    error: (!problems.is_empty()).then(|| problems.join("; ")),
                 };
                 return send_envelope(write, &Envelope::CommandAck(ack)).await;
             }
@@ -363,6 +367,10 @@ where
             let ack = match apply_res {
                 Ok(_) => {
                     *last_applied_json = fingerprint;
+                    let problems = {
+                        let guard = pm.lock().await;
+                        guard.problems().to_vec()
+                    };
                     let desired = ApplyConfigRequest {
                         inbounds: cmd.inbounds,
                         routing_rules: cmd.routing_rules,
@@ -371,10 +379,12 @@ where
                     if let Ok(bytes) = serde_json::to_vec_pretty(&desired) {
                         let _ = write_atomic_0600(&cfg.desired_config_path(), &bytes).await;
                     }
+                    // Applied, but some inbound may not have come up: ok=true keeps the command from
+                    // being re-queued forever, `error` carries the warning for the panel to store.
                     CommandAck {
                         command_id: cmd.command_id,
                         ok: true,
-                        error: None,
+                        error: (!problems.is_empty()).then(|| problems.join("; ")),
                     }
                 }
                 Err(err) => CommandAck {
@@ -400,6 +410,30 @@ where
                     let _ = write_atomic_0600(&cfg.desired_config_path(), &bytes).await;
                 }
             }
+        }
+        Envelope::NodeControlCmd(cmd) => {
+            let result: Result<(), String> = match cmd.action {
+                NodeControlAction::Restart => {
+                    let mut guard = pm.lock().await;
+                    guard.restart().await.map(|_| ())
+                }
+                NodeControlAction::Stop => {
+                    let mut guard = pm.lock().await;
+                    guard.stop_all().await;
+                    Ok(())
+                }
+                NodeControlAction::Report => Ok(()),
+            };
+            // Always follow up with a fresh status so the panel sees the new state immediately.
+            if let Ok(status) = status_snapshot(pm).await {
+                let _ = send_envelope(write, &Envelope::StatusReport(status)).await;
+            }
+            let ack = CommandAck {
+                command_id: cmd.command_id,
+                ok: result.is_ok(),
+                error: result.err(),
+            };
+            send_envelope(write, &Envelope::CommandAck(ack)).await?;
         }
         Envelope::TrafficAck(ack) => {
             let mut tr = tracker.lock().await;

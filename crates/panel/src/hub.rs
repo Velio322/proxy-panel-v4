@@ -29,6 +29,8 @@ pub struct WorkerHub {
     pending_acks: DashMap<String, oneshot::Sender<CommandAck>>,
     logs: DashMap<String, VecDeque<StoredLogEntry>>,
     sessions: DashMap<String, Vec<ActiveSession>>,
+    /// Latest `StatusReport` per node, serialised as JSON (served as metrics without any HTTP call).
+    last_status: DashMap<String, (std::time::Instant, serde_json::Value)>,
     log_tx: broadcast::Sender<StoredLogEntry>,
     next_conn_id: std::sync::atomic::AtomicU64,
 }
@@ -47,6 +49,7 @@ impl WorkerHub {
             pending_acks: DashMap::new(),
             logs: DashMap::new(),
             sessions: DashMap::new(),
+            last_status: DashMap::new(),
             log_tx,
             next_conn_id: std::sync::atomic::AtomicU64::new(1),
         }
@@ -70,6 +73,22 @@ impl WorkerHub {
             }
         }
         false
+    }
+
+    /// Remembers the newest status report pushed by a node over WebSocket.
+    pub fn set_status(&self, node_id: &str, status: serde_json::Value) {
+        self.last_status
+            .insert(node_id.to_string(), (std::time::Instant::now(), status));
+    }
+
+    /// Last WebSocket status of `node_id` when it is younger than `max_age`.
+    pub fn fresh_status(
+        &self,
+        node_id: &str,
+        max_age: std::time::Duration,
+    ) -> Option<serde_json::Value> {
+        let e = self.last_status.get(node_id)?;
+        (e.0.elapsed() <= max_age).then(|| e.1.clone())
     }
 
     pub fn is_connected(&self, node_id: &str) -> bool {

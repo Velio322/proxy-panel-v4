@@ -92,6 +92,18 @@ pub async fn run(cfg: AgentConfig) -> Result<()> {
     let router = api::build_router(state);
 
     let bind_addr = format!("{}:{}", cfg.worker_host, cfg.worker_port);
+    let loopback = cfg
+        .worker_host
+        .parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false);
+    if !loopback && cfg.allowed_panel_ips.is_empty() {
+        tracing::warn!(
+            addr = %bind_addr,
+            "HTTP API is reachable from any address and protected only by the node secret; \
+             set WORKER_HOST=127.0.0.1 (the panel controls the node over WebSocket) or ALLOWED_PANEL_IPS"
+        );
+    }
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     tracing::info!(
         addr = %bind_addr,

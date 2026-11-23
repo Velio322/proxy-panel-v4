@@ -63,6 +63,7 @@ OS_NAME=""
 PUBLIC_IP=""
 AGENT_WORKER_PORT="2222"
 AGENT_WORKER_HOST="0.0.0.0"
+EXPOSE_API="false"
 
 PANEL_STATUS="not-installed"
 AGENT_STATUS="not-installed"
@@ -191,6 +192,8 @@ usage() {
   --skip-cores                  Синоним --cores none
   --bbr / --no-bbr              Настройка fq + TCP BBR (по умолчанию включено для node/both)
   --no-ufw                      Не изменять правила UFW
+  --expose-api                  Открыть HTTP API агента (:порт управления) наружу. По умолчанию агент
+                                слушает только 127.0.0.1, а панель управляет нодой через WebSocket
 
 Автоматизация:
   --answers <FILE|->            Читать ответы мастера построчно из файла или stdin
@@ -357,6 +360,10 @@ parse_args() {
                 ;;
             --no-bbr)
                 ENABLE_BBR="false"
+                shift
+                ;;
+            --expose-api)
+                EXPOSE_API="true"
                 shift
                 ;;
             --no-ufw)
@@ -1250,7 +1257,9 @@ configure_firewall() {
         ufw allow 2053/tcp comment 'mypanel3-mieru-tcp' >/dev/null 2>&1 || true
         ufw allow 2053/udp comment 'mypanel3-mieru-udp' >/dev/null 2>&1 || true
 
-        if [[ -n "$PANEL_IP" ]]; then
+        if [[ "$AGENT_WORKER_HOST" == "127.0.0.1" ]]; then
+            : # API агента на loopback: порт управления наружу не открываем
+        elif [[ -n "$PANEL_IP" ]]; then
             local ip_entry=""
             IFS=',' read -ra _panel_entries <<< "$PANEL_IP"
             for ip_entry in "${_panel_entries[@]}"; do
@@ -1435,7 +1444,12 @@ write_node_env() {
         fi
         case "$TLS_MODE" in
             none)
-                AGENT_WORKER_HOST="0.0.0.0"
+                # Панель управляет нодой через исходящий WebSocket агента; HTTP API снаружи не нужен.
+                if [[ "$EXPOSE_API" == "true" ]]; then
+                    AGENT_WORKER_HOST="0.0.0.0"
+                else
+                    AGENT_WORKER_HOST="127.0.0.1"
+                fi
                 AGENT_WORKER_PORT="$API_PORT"
                 ;;
             port2222)
@@ -2603,6 +2617,9 @@ check_node_port_listening() {
 }
 
 check_node_ufw_rule() {
+    if [[ "$AGENT_WORKER_HOST" == "127.0.0.1" ]]; then
+        return 0
+    fi
     if ! command -v ufw >/dev/null 2>&1; then
         return 0
     fi

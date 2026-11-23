@@ -467,6 +467,14 @@ pub async fn download_and_install_core(
     download_url: &str,
     expected_sha256: &str,
 ) -> Result<UpdateCoreResult, String> {
+    if !mypanel_proto::is_allowed_core_download_url(download_url)
+        && std::env::var("ALLOW_CUSTOM_CORE_URLS").map(|v| v != "true").unwrap_or(true)
+    {
+        return Err(
+            "Core download URL is not on the allow-list (https://github.com/<xray|sing-box|forwardproxy|mieru> releases only)"
+                .into(),
+        );
+    }
     let parsed = url::Url::parse(download_url)
         .map_err(|e| format!("Invalid core download URL: {e}"))?;
     if !matches!(parsed.scheme(), "https" | "http") {

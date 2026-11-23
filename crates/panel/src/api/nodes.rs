@@ -515,19 +515,18 @@ async fn push_config(
     user.require_admin()?;
     valid_id(&id)?;
     let node = node_client::NodeTarget::fetch(&state, &id).await?;
-    let mut success = node_client::push_config_http(&state, &node).await.unwrap_or(false);
-    let transport = if success {
-        "http"
-    } else if state.hub.is_connected(&id) {
-        if crate::services::outbox::push_config(&state, &id).await.is_ok() {
-            success = true;
-            "websocket"
-        } else {
-            "none"
-        }
-    } else {
-        "none"
-    };
+    let mut success = false;
+    let mut transport = "none";
+    if state.hub.is_connected(&id)
+        && crate::services::outbox::push_config(&state, &id).await.is_ok()
+    {
+        success = true;
+        transport = "websocket";
+    }
+    if !success && node_client::push_config_http(&state, &node).await.unwrap_or(false) {
+        success = true;
+        transport = "http";
+    }
     audit::spawn(
         &state.db,
         AuditEntry::new("PUSH_CONFIG", "node")

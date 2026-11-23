@@ -5,6 +5,7 @@ pub mod core_updates;
 pub mod enforcement;
 pub mod event_export;
 pub mod host_telemetry;
+pub mod inbound_checks;
 pub mod node_client;
 pub mod node_config;
 pub mod outbox;

@@ -299,9 +299,16 @@ async fn record_telemetry_snapshot(
 pub async fn check_status(state: &AppState, node: &NodeTarget) -> AppResult<Value> {
     let started = Instant::now();
     let now = crate::db::now();
-    match node_get(state, node, "/api/status").await {
+    // A node that pushes status over WebSocket needs no HTTP poll (its API port may be closed).
+    let (polled, over_ws) = match state.hub.fresh_status(&node.id, Duration::from_secs(90)) {
+        Some(v) => (Ok(v), true),
+        None => (node_get(state, node, "/api/status").await, false),
+    };
+    match polled {
         Ok(val) => {
-            let ping_ms = i32::try_from(started.elapsed().as_millis()).unwrap_or(0);
+            // Latency is only meaningful for a real HTTP round trip.
+            let ping_ms: Option<i32> = (!over_ws)
+                .then(|| i32::try_from(started.elapsed().as_millis()).unwrap_or(0));
             let parsed: Option<StatusReport> = serde_json::from_value(val.clone()).ok();
 
             let (version, info) = match &parsed {
@@ -327,7 +334,7 @@ pub async fn check_status(state: &AppState, node: &NodeTarget) -> AppResult<Valu
 
             let _ = sqlx::query(
                 r#"UPDATE "Node"
-                   SET status = $2, "lastCheckAt" = $3, "lastOnlineAt" = $3, "lastPingMs" = $4,
+                   SET status = $2, "lastCheckAt" = $3, "lastOnlineAt" = $3, "lastPingMs" = COALESCE($4, "lastPingMs"),
                        version = COALESCE($5, version),
                        "xrayVersion" = COALESCE($6, "xrayVersion"),
                        "singboxVersion" = COALESCE($7, "singboxVersion"),
@@ -364,6 +371,7 @@ pub async fn check_status(state: &AppState, node: &NodeTarget) -> AppResult<Valu
                 obj.insert("nodeId".into(), json!(node.id));
                 obj.insert("status".into(), json!("ONLINE"));
                 obj.insert("pingMs".into(), json!(ping_ms));
+                obj.insert("transport".into(), json!(if over_ws { "websocket" } else { "http" }));
             }
             Ok(out)
         }
@@ -421,14 +429,73 @@ pub async fn push_config_http(state: &AppState, node: &NodeTarget) -> AppResult<
     }
 }
 
+/// Sends a control action over the node's WebSocket; `None` when the node is not connected.
+async fn control_via_ws(
+    state: &AppState,
+    node_id: &str,
+    action: mypanel_proto::NodeControlAction,
+) -> Option<AppResult<bool>> {
+    if !state.hub.is_connected(node_id) {
+        return None;
+    }
+    // Agents older than this feature ignore the command and never ack; only use WS when the node
+    // advertised the capability, otherwise the caller falls back to the HTTP API immediately.
+    let supports = state
+        .hub
+        .fresh_status(node_id, Duration::from_secs(300))
+        .is_some_and(|st| {
+            st.pointer("/cores/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|c| c.iter().any(|v| v.as_str() == Some("node_control")))
+        });
+    if !supports {
+        return None;
+    }
+    let command_id = format!("ctl-{}", crate::db::new_id());
+    let msg = mypanel_proto::Envelope::NodeControlCmd(mypanel_proto::NodeControlCmd {
+        command_id: command_id.clone(),
+        action,
+    });
+    Some(
+        match state
+            .hub
+            .send_and_wait_ack(node_id, &command_id, msg, Duration::from_secs(60))
+            .await
+        {
+            Ok(ack) => {
+                if !ack.ok {
+                    tracing::warn!(node_id, error = ?ack.error, "node control command failed");
+                }
+                Ok(ack.ok)
+            }
+            Err(e) => Err(AppError::service_unavailable(e)),
+        },
+    )
+}
+
+/// Restarts the node's proxy cores. WebSocket first (works behind NAT), HTTP API as a fallback.
 pub async fn restart_node(state: &AppState, node: &NodeTarget) -> AppResult<bool> {
+    if let Some(res) =
+        control_via_ws(state, &node.id, mypanel_proto::NodeControlAction::Restart).await
+    {
+        if let Ok(ok) = res {
+            return Ok(ok);
+        }
+    }
     match node_post(state, node, "/api/restart", &json!({})).await {
         Ok(v) => Ok(v.get("success").and_then(Value::as_bool).unwrap_or(true)),
         Err(_) => Ok(false),
     }
 }
 
+/// Stops the node's proxy cores. WebSocket first, HTTP API as a fallback.
 pub async fn stop_node(state: &AppState, node: &NodeTarget) -> AppResult<bool> {
+    if let Some(res) = control_via_ws(state, &node.id, mypanel_proto::NodeControlAction::Stop).await
+    {
+        if let Ok(ok) = res {
+            return Ok(ok);
+        }
+    }
     match node_post(state, node, "/api/stop", &json!({})).await {
         Ok(v) => Ok(v.get("success").and_then(Value::as_bool).unwrap_or(true)),
         Err(_) => Ok(false),
@@ -441,8 +508,14 @@ pub async fn get_metrics(state: &AppState, node: &NodeTarget) -> AppResult<Optio
         return Ok(Some(cached));
     }
 
-    let Ok(val) = node_get(state, node, "/api/metrics").await else {
-        return Ok(None);
+    // A status pushed over WebSocket in the last 90s is as good as an HTTP poll and works for
+    // nodes whose API port is unreachable (NAT).
+    let val = match state.hub.fresh_status(&node.id, Duration::from_secs(90)) {
+        Some(v) => v,
+        None => match node_get(state, node, "/api/metrics").await {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        },
     };
 
     let cpu = val.get("cpuUsage").and_then(Value::as_f64);

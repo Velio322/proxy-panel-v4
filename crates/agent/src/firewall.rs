@@ -115,15 +115,41 @@ async fn run_ufw(args: &[&str]) -> Result<(bool, String), String> {
     ))
 }
 
-/// Adds the required allow rules; returns human-readable warnings (never fails the config apply).
-pub async fn open_ports_for_inbounds(inbounds: &[InboundConfig]) -> Vec<String> {
+const STATE_FILE: &str = "firewall-managed.json";
+
+/// Rules this agent added itself, persisted so stale ones can be removed later.
+fn load_managed(path: &std::path::Path) -> Vec<(String, String)> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Vec<(String, String)>>(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn save_managed(path: &std::path::Path, rules: &[(String, String)]) {
+    if let Ok(raw) = serde_json::to_vec(rules) {
+        let _ = std::fs::write(path, raw);
+    }
+}
+
+/// Makes UFW match the enabled Naive/Mieru inbounds: adds missing `allow` rules and deletes rules
+/// that this agent previously added for inbounds that no longer exist. Rules not created by the
+/// agent are never touched. Returns human-readable warnings (never fails the config apply).
+pub async fn sync_ports_for_inbounds(
+    state_dir: &std::path::Path,
+    inbounds: &[InboundConfig],
+) -> Vec<String> {
     if !management_enabled() {
         return Vec::new();
     }
-    let mut rules: Vec<FirewallRule> = inbounds.iter().flat_map(rules_for_inbound).collect();
-    rules.sort_by(|a, b| (&a.port, a.proto).cmp(&(&b.port, b.proto)));
-    rules.dedup_by(|a, b| a.port == b.port && a.proto == b.proto);
-    if rules.is_empty() {
+    let wanted: Vec<FirewallRule> = {
+        let mut r: Vec<FirewallRule> = inbounds.iter().flat_map(rules_for_inbound).collect();
+        r.sort_by(|a, b| (&a.port, a.proto).cmp(&(&b.port, b.proto)));
+        r.dedup_by(|a, b| a.port == b.port && a.proto == b.proto);
+        r
+    };
+    let state_path = state_dir.join(STATE_FILE);
+    let previous = load_managed(&state_path);
+    if wanted.is_empty() && previous.is_empty() {
         return Vec::new();
     }
 
@@ -134,14 +160,41 @@ pub async fn open_ports_for_inbounds(inbounds: &[InboundConfig]) -> Vec<String> 
     }
 
     let mut warnings = Vec::new();
-    for rule in rules {
+    let mut managed: Vec<(String, String)> = Vec::new();
+
+    for rule in &wanted {
         let spec = rule.spec();
         match run_ufw(&["allow", &spec, "comment", &rule.comment]).await {
-            Ok((true, _)) => tracing::info!(rule = %spec, "ufw allow ensured"),
+            Ok((true, _)) => {
+                tracing::info!(rule = %spec, "ufw allow ensured");
+                managed.push((rule.port.clone(), rule.proto.to_string()));
+            }
             Ok((false, out)) => warnings.push(format!("ufw allow {spec} failed: {}", out.trim())),
             Err(e) => warnings.push(format!("ufw allow {spec} failed: {e}")),
         }
     }
+
+    for (port, proto) in previous {
+        if managed.iter().any(|(p, pr)| *p == port && *pr == proto) {
+            continue;
+        }
+        let spec = format!("{port}/{proto}");
+        match run_ufw(&["--force", "delete", "allow", &spec]).await {
+            Ok((true, _)) => tracing::info!(rule = %spec, "stale ufw rule removed"),
+            Ok((false, out)) => {
+                warnings.push(format!("ufw delete allow {spec} failed: {}", out.trim()));
+                managed.push((port, proto));
+            }
+            Err(e) => {
+                warnings.push(format!("ufw delete allow {spec} failed: {e}"));
+                managed.push((port, proto));
+            }
+        }
+    }
+
+    managed.sort();
+    managed.dedup();
+    save_managed(&state_path, &managed);
     warnings
 }
 

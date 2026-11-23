@@ -174,7 +174,7 @@ pub async fn build(state: &AppState, node_id: &str) -> AppResult<Vec<InboundConf
             if !protocol_allowed(&link.protocols, protocol) {
                 continue;
             }
-            let secret = resolve_user_secret(
+            let Some(secret) = resolve_user_secret(
                 state,
                 &mut secret_cache,
                 &link.client_id,
@@ -182,7 +182,10 @@ pub async fn build(state: &AppState, node_id: &str) -> AppResult<Vec<InboundConf
                 protocol,
                 ss_method,
             )
-            .await?;
+            .await?
+            else {
+                continue;
+            };
 
             users.push(NodeUser {
                 id: link.uuid.clone(),
@@ -228,7 +231,7 @@ pub async fn build(state: &AppState, node_id: &str) -> AppResult<Vec<InboundConf
                 ) {
                     continue;
                 }
-                let secret = resolve_user_secret(
+                let Some(secret) = resolve_user_secret(
                     state,
                     &mut secret_cache,
                     &link.client_id,
@@ -236,7 +239,10 @@ pub async fn build(state: &AppState, node_id: &str) -> AppResult<Vec<InboundConf
                     share.protocol,
                     share_ss_method,
                 )
-                .await?;
+                .await?
+                else {
+                    continue;
+                };
                 share_users.push(NodeUser {
                     id: link.uuid.clone(),
                     username: link.username.clone(),
@@ -355,6 +361,11 @@ fn protocol_allowed(protocols_json: &Value, target: Protocol) -> bool {
     }
 }
 
+/// Returns the credential a node must accept for `client` on `protocol`.
+///
+/// UUID-auth protocols use the client UUID. Every other protocol needs its own stored secret;
+/// when `ENCRYPTION_KEY` is not configured there is none, and the user is skipped (`None`) instead
+/// of reusing the UUID, which would leak the VLESS identity as a Naive/Mieru/SS/Trojan password.
 async fn resolve_user_secret(
     state: &AppState,
     cache: &mut HashMap<(String, Protocol), String>,
@@ -362,19 +373,24 @@ async fn resolve_user_secret(
     client_uuid: &str,
     protocol: Protocol,
     ss_method: Option<&str>,
-) -> AppResult<String> {
+) -> AppResult<Option<String>> {
     if protocol.is_uuid_auth() {
-        return Ok(client_uuid.to_string());
+        return Ok(Some(client_uuid.to_string()));
     }
     if let Some(cached) = cache.get(&(client_id.to_string(), protocol)) {
-        return Ok(normalize_ss_secret(cached, protocol, ss_method));
+        return Ok(Some(normalize_ss_secret(cached, protocol, ss_method)));
     }
     if state.encryption_key().is_some() {
         let sec = get_protocol_secret(state, client_id, protocol, ss_method).await?;
         cache.insert((client_id.to_string(), protocol), sec.clone());
-        return Ok(sec);
+        return Ok(Some(sec));
     }
-    Ok(client_uuid.to_string())
+    tracing::warn!(
+        client_id,
+        protocol = protocol.as_str(),
+        "ENCRYPTION_KEY is not configured: skipping user for non-UUID protocol"
+    );
+    Ok(None)
 }
 
 fn clean_settings_with_users(raw: &Value, users: &[NodeUser]) -> Value {

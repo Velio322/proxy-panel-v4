@@ -4,7 +4,7 @@ use crate::auth::extract::AuthUser;
 use crate::db::enums::{DbProtocol, Protocol};
 use crate::error::{AppError, AppResult};
 use crate::net::{user_agent, ClientIp};
-use crate::services::{node_client, node_config, outbox, xray_studio};
+use crate::services::{inbound_checks, node_client, node_config, outbox, xray_studio};
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -287,6 +287,32 @@ fn validate_inbound_config(
     Ok(())
 }
 
+/// Loads the other inbounds of `node_id` so port conflicts can be detected before saving.
+async fn load_siblings(
+    pool: &sqlx::PgPool,
+    node_id: &str,
+) -> AppResult<Vec<inbound_checks::Sibling>> {
+    let rows = sqlx::query(
+        r#"SELECT id, tag, protocol, port, settings, stream
+           FROM "Inbound" WHERE "nodeId" = $1 AND enable = true"#,
+    )
+    .bind(node_id)
+    .fetch_all(pool)
+    .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        out.push(inbound_checks::Sibling {
+            id: r.try_get("id")?,
+            tag: r.try_get("tag")?,
+            protocol: r.try_get::<DbProtocol, _>("protocol")?.into(),
+            port: u16::try_from(r.try_get::<i32, _>("port")?).unwrap_or(0),
+            settings: r.try_get("settings")?,
+            stream: r.try_get("stream")?,
+        });
+    }
+    Ok(out)
+}
+
 fn row_to_inbound(r: &sqlx::postgres::PgRow) -> AppResult<InboundDto> {
     Ok(InboundDto {
         id: r.try_get("id")?,
@@ -507,6 +533,11 @@ async fn create(
     let stream = body.stream.unwrap_or_else(|| json!({}));
     let routing = body.routing.unwrap_or_else(|| json!({}));
     validate_inbound_config(body.protocol, &body.tag, body.port, &body.settings, &stream)?;
+    inbound_checks::check_static(body.protocol, body.port, &body.settings, &stream)?;
+    if body.enable.unwrap_or(true) {
+        let siblings = load_siblings(&state.db, &body.node_id).await?;
+        inbound_checks::check_conflicts(None, body.protocol, body.port, &body.settings, &stream, &siblings)?;
+    }
 
     let dup: i64 = sqlx::query_scalar(
         r#"SELECT COUNT(*) FROM "Inbound" WHERE "nodeId" = $1 AND tag = $2"#,
@@ -621,6 +652,11 @@ async fn update(
     let enable = body.enable.unwrap_or(ex.enable);
 
     validate_inbound_config(protocol, &tag, port, &settings, &stream)?;
+    inbound_checks::check_static(protocol, port, &settings, &stream)?;
+    if enable {
+        let siblings = load_siblings(&state.db, &ex.node_id).await?;
+        inbound_checks::check_conflicts(Some(&id), protocol, port, &settings, &stream, &siblings)?;
+    }
     let now = crate::db::now();
 
     let r = sqlx::query(

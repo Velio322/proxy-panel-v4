@@ -151,6 +151,8 @@ pub enum Envelope {
     #[serde(alias = "core_update")]
     CoreUpdateCmd(CoreUpdateCmd),
     ApplyConfigRequest(ApplyConfigRequest),
+    /// Restart / stop / metrics request delivered over the already-open WebSocket.
+    NodeControlCmd(NodeControlCmd),
 
     // Worker -> Master
     ConfigRequest(EmptyPayload),
@@ -750,6 +752,57 @@ pub struct CoreUpdateCmd {
     pub sha256: String,
 }
 
+/// Control action carried by [`NodeControlCmd`].
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeControlAction {
+    Restart,
+    Stop,
+    /// Ask for a fresh `StatusReport` (used for on-demand metrics).
+    Report,
+}
+
+/// Master -> Worker control command (answered with a [`CommandAck`]).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeControlCmd {
+    pub command_id: String,
+    pub action: NodeControlAction,
+}
+
+/// Repositories core binaries may be downloaded from (`/api/core-update`, `CoreUpdateCmd`).
+const CORE_DOWNLOAD_ALLOWED: [(&str, &str); 4] = [
+    ("github.com", "/XTLS/Xray-core/releases/download/"),
+    ("github.com", "/SagerNet/sing-box/releases/download/"),
+    ("github.com", "/klzgrad/forwardproxy/releases/download/"),
+    ("github.com", "/enfein/mieru/releases/download/"),
+];
+
+/// Accepts only `https://github.com/<allowed repo>/releases/download/...` URLs without credentials
+/// or non-default ports, so a leaked node secret cannot be used to install an arbitrary binary.
+pub fn is_allowed_core_download_url(raw: &str) -> bool {
+    let Ok(u) = url::Url::parse(raw) else {
+        return false;
+    };
+    if u.scheme() != "https"
+        || !u.username().is_empty()
+        || u.password().is_some()
+        || u.port().is_some()
+    {
+        return false;
+    }
+    let Some(host) = u.host_str() else {
+        return false;
+    };
+    let path = u.path();
+    if path.contains("..") || path.contains("//") {
+        return false;
+    }
+    CORE_DOWNLOAD_ALLOWED
+        .iter()
+        .any(|(h, prefix)| host.eq_ignore_ascii_case(h) && path.starts_with(prefix))
+}
+
 fn default_true() -> bool {
     true
 }
@@ -821,4 +874,48 @@ where
     }
 
     deserializer.deserialize_any(SniffingVisitor)
+}
+
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+
+    #[test]
+    fn core_download_allow_list() {
+        let ok = [
+            "https://github.com/enfein/mieru/releases/download/v3.39.0/mita_3.39.0_linux_amd64.tar.gz",
+            "https://github.com/XTLS/Xray-core/releases/download/v26.11.9/Xray-linux-64.zip",
+            "https://github.com/klzgrad/forwardproxy/releases/download/v2.11.7-naive2/caddy-forwardproxy-naive.tar.xz",
+            "https://GitHub.com/SagerNet/sing-box/releases/download/v1.14.4/x.tar.gz",
+        ];
+        for u in ok {
+            assert!(is_allowed_core_download_url(u), "{u}");
+        }
+        let bad = [
+            "http://github.com/enfein/mieru/releases/download/v1/x.tar.gz",
+            "https://evil.com/enfein/mieru/releases/download/v1/x.tar.gz",
+            "https://github.com.evil.com/enfein/mieru/releases/download/v1/x",
+            "https://github.com/evil/mieru/releases/download/v1/x",
+            "https://github.com/enfein/mieru/releases/download/../../../evil/x",
+            "https://user:pw@github.com/enfein/mieru/releases/download/v1/x",
+            "https://github.com:8443/enfein/mieru/releases/download/v1/x",
+            "file:///etc/passwd",
+            "not a url",
+        ];
+        for u in bad {
+            assert!(!is_allowed_core_download_url(u), "{u}");
+        }
+    }
+
+    #[test]
+    fn control_cmd_roundtrip() {
+        let env = Envelope::NodeControlCmd(NodeControlCmd {
+            command_id: "c1".into(),
+            action: NodeControlAction::Restart,
+        });
+        let json = serde_json::to_string(&env).unwrap();
+        assert!(json.contains("node_control_cmd") && json.contains("restart"));
+        let back: Envelope = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, Envelope::NodeControlCmd(c) if c.action == NodeControlAction::Restart));
+    }
 }

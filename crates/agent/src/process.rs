@@ -118,6 +118,10 @@ pub struct ProcessManager {
     restart_counts: HashMap<String, u32>,
     core_versions: HashMap<String, String>,
     core_versions_probed: bool,
+    /// Per-core input fingerprints of the last successful apply; unchanged cores are not restarted.
+    core_fingerprints: HashMap<String, String>,
+    /// Problems found by the last apply (missing binary, port not listening, mita errors).
+    problems: Vec<String>,
 }
 
 impl ProcessManager {
@@ -144,7 +148,14 @@ impl ProcessManager {
             restart_counts: HashMap::new(),
             core_versions: HashMap::new(),
             core_versions_probed: false,
+            core_fingerprints: HashMap::new(),
+            problems: Vec::new(),
         }
+    }
+
+    /// Problems detected by the last config apply (empty when everything started cleanly).
+    pub fn problems(&self) -> &[String] {
+        &self.problems
     }
 
     /// Replaces the Xray gRPC `HandlerService` client (used in unit tests to mock hot-reload).
@@ -416,6 +427,14 @@ impl ProcessManager {
                                 .push("agent", "warn", format!("Xray hot-reload failed ({err}), falling back to full restart"))
                                 .await;
                         } else {
+                            if let Ok(remapped) = remap_inbounds(&inbounds) {
+                                self.core_fingerprints = core_fingerprints(
+                                    &remapped,
+                                    &routing_rules,
+                                    xray_profile.as_ref(),
+                                    self.config.xray_api_port,
+                                );
+                            }
                             self.current_inbounds = inbounds;
                             self.current_routing_rules = routing_rules;
                             return Ok(ApplyOutcome::HotReload(ops.len()));
@@ -431,15 +450,33 @@ impl ProcessManager {
             .await?;
 
         let remapped = remap_inbounds(&inbounds)?;
-        self.stop_all().await;
+        let fingerprints = core_fingerprints(
+            &remapped,
+            &routing_rules,
+            xray_profile.as_ref(),
+            self.config.xray_api_port,
+        );
+        let previous = if force_restart {
+            HashMap::new()
+        } else {
+            self.core_fingerprints.clone()
+        };
+        let unchanged = |key: &str| {
+            previous.get(key).is_some() && previous.get(key) == fingerprints.get(key)
+        };
+        let mut problems: Vec<String> = Vec::new();
 
+        // --- Xray: restart only when its own inputs changed (or it is not running)
         let xray_inbounds: Vec<InboundConfig> = remapped
             .inbounds
             .iter()
             .filter(|i| i.enable && xray::is_xray_protocol(i.protocol))
             .cloned()
             .collect();
-        if !xray_inbounds.is_empty() {
+        if xray_inbounds.is_empty() {
+            self.stop_xray().await;
+        } else if !(unchanged("xray") && self.xray_running()) {
+            self.stop_xray().await;
             let cfg_val = xray::generate_config_with_profile(
                 &xray_inbounds,
                 &routing_rules,
@@ -464,13 +501,17 @@ impl ProcessManager {
             }
         }
 
+        // --- sing-box
         let singbox_inbounds: Vec<InboundConfig> = remapped
             .inbounds
             .iter()
             .filter(|i| i.enable && singbox::is_singbox_protocol(i.protocol))
             .cloned()
             .collect();
-        if !singbox_inbounds.is_empty() {
+        if singbox_inbounds.is_empty() {
+            self.stop_singbox().await;
+        } else if !(unchanged("singbox") && self.singbox_running()) {
+            self.stop_singbox().await;
             let cfg_val = singbox::generate_config_with_routing(
                 &singbox_inbounds,
                 &routing_rules,
@@ -497,11 +538,31 @@ impl ProcessManager {
             }
         }
 
-        for ib in remapped
+        // --- NaiveProxy: one process per inbound
+        prune_dead_children(&mut self.naive_procs);
+        let naive_inbounds: Vec<&InboundConfig> = remapped
             .inbounds
             .iter()
             .filter(|i| i.enable && i.protocol == Protocol::Naiveproxy)
-        {
+            .collect();
+        let stale_naive: Vec<String> = self
+            .naive_procs
+            .keys()
+            .filter(|id| !naive_inbounds.iter().any(|i| &i.id == *id))
+            .cloned()
+            .collect();
+        for id in stale_naive {
+            if let Some(mut mc) = self.naive_procs.remove(&id) {
+                terminate_child(&mut mc.child).await;
+            }
+        }
+        for ib in naive_inbounds {
+            if unchanged(&format!("naive:{}", ib.id)) && self.naive_procs.contains_key(&ib.id) {
+                continue;
+            }
+            if let Some(mut mc) = self.naive_procs.remove(&ib.id) {
+                terminate_child(&mut mc.child).await;
+            }
             let caddyfile = naive::generate_caddyfile(ib, &self.config.naive_access_log_path())?;
             let path = naive::caddyfile_path(&self.config.config_dir, &ib.id)?;
             write_atomic_0600(&path, caddyfile.as_bytes()).await?;
@@ -532,98 +593,158 @@ impl ProcessManager {
                     )
                     .await?;
                 self.naive_procs.insert(ib.id.clone(), child);
+                if !wait_listening(&probe_host(&ib.listen), ib.port, Duration::from_secs(8)).await {
+                    problems.push(format!(
+                        "naive inbound '{}' is not listening on port {} after start",
+                        ib.tag, ib.port
+                    ));
+                }
             } else {
                 self.warn_missing_core("naive", &self.config.naive_bin.clone(), &ib.tag)
                     .await;
+                problems.push(format!(
+                    "naive binary missing: inbound '{}' is not running",
+                    ib.tag
+                ));
             }
         }
 
-        for ib in remapped
+        // --- Mieru (mita): one process per inbound
+        prune_dead_children(&mut self.mieru_procs);
+        let mieru_inbounds: Vec<&InboundConfig> = remapped
             .inbounds
             .iter()
             .filter(|i| i.enable && i.protocol == Protocol::Mieru)
-        {
+            .collect();
+        let stale_mieru: Vec<String> = self
+            .mieru_procs
+            .keys()
+            .filter(|id| !mieru_inbounds.iter().any(|i| &i.id == *id))
+            .cloned()
+            .collect();
+        for id in stale_mieru {
+            if let Some(mut mc) = self.mieru_procs.remove(&id) {
+                terminate_child(&mut mc.child).await;
+            }
+        }
+        for ib in mieru_inbounds {
+            if unchanged(&format!("mieru:{}", ib.id)) && self.mieru_procs.contains_key(&ib.id) {
+                continue;
+            }
+            if let Some(mut mc) = self.mieru_procs.remove(&ib.id) {
+                terminate_child(&mut mc.child).await;
+            }
             let cfg_val = mieru::generate_config(ib)?;
             let path = mieru::mieru_config_path(&self.config.config_dir, &ib.id)?;
             let bytes = serde_json::to_vec_pretty(&cfg_val)
                 .map_err(|e| format!("Failed to serialize mieru config: {e}"))?;
             write_atomic_0600(&path, &bytes).await?;
 
-            if binary_exists(&self.config.mieru_bin).await {
-                if let Err(e) = mieru::ensure_mita_runtime().await {
-                    self.logs
-                        .push("mieru", "error", format!("mita runtime setup failed: {e}"))
-                        .await;
-                }
-                let path_str = path.to_string_lossy().to_string();
-                let child = self
-                    .spawn_core(
-                        "mieru",
-                        &self.config.mieru_bin.clone(),
-                        &["run"],
-                        vec![
-                            ("MITA_CONFIG_JSON_FILE".to_string(), path_str.clone()),
-                            ("MITA_LOG_NO_TIMESTAMP".to_string(), "true".to_string()),
-                            ("MIERU_CONF_FILE".to_string(), path_str.clone()),
-                        ],
-                    )
-                    .await?;
-                self.mieru_procs.insert(ib.id.clone(), child);
-
-                // Wait briefly for /var/run/mita/mita.sock to be ready, then run
-                // `mita replace config <path>` and `mita reload` so Mieru hashes user passwords
-                // into `hashedPassword` and removes any deleted users from its state.
-                let sock_path = Path::new("/var/run/mita/mita.sock");
-                for _ in 0..40 {
-                    if tokio::fs::metadata(sock_path).await.is_ok() {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                }
-                let mut replace_cmd = Command::new(&self.config.mieru_bin);
-                replace_cmd
-                    .args(["replace", "config", &path_str])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped());
-                if let Ok(Ok(out)) =
-                    tokio::time::timeout(Duration::from_secs(5), replace_cmd.output()).await
-                {
-                    if !out.status.success() {
-                        let err_msg = String::from_utf8_lossy(&out.stderr);
-                        self.logs
-                            .push(
-                                "mieru",
-                                "warn",
-                                format!("mita replace config exited with {}: {}", out.status, err_msg.trim()),
-                            )
-                            .await;
-                    }
-                }
-                let mut reload_cmd = Command::new(&self.config.mieru_bin);
-                reload_cmd
-                    .args(["reload"])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null());
-                let _ = tokio::time::timeout(Duration::from_secs(5), reload_cmd.output()).await;
-            } else {
+            if !binary_exists(&self.config.mieru_bin).await {
                 self.warn_missing_core("mieru", &self.config.mieru_bin.clone(), &ib.tag)
                     .await;
+                problems.push(format!(
+                    "mieru binary missing: inbound '{}' is not running",
+                    ib.tag
+                ));
+                continue;
+            }
+            if let Err(e) = mieru::ensure_mita_runtime().await {
+                self.logs
+                    .push("mieru", "error", format!("mita runtime setup failed: {e}"))
+                    .await;
+                problems.push(format!("mita runtime setup failed: {e}"));
+            }
+            let path_str = path.to_string_lossy().to_string();
+            let child = self
+                .spawn_core(
+                    "mieru",
+                    &self.config.mieru_bin.clone(),
+                    &["run"],
+                    vec![
+                        ("MITA_CONFIG_JSON_FILE".to_string(), path_str.clone()),
+                        ("MITA_LOG_NO_TIMESTAMP".to_string(), "true".to_string()),
+                        ("MIERU_CONF_FILE".to_string(), path_str.clone()),
+                    ],
+                )
+                .await?;
+            self.mieru_procs.insert(ib.id.clone(), child);
+
+            // Wait briefly for /var/run/mita/mita.sock, then `mita replace config` + `mita reload`
+            // so Mieru hashes user passwords into `hashedPassword` and drops deleted users.
+            let sock_path = Path::new("/var/run/mita/mita.sock");
+            for _ in 0..40 {
+                if tokio::fs::metadata(sock_path).await.is_ok() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            let mut replace_cmd = Command::new(&self.config.mieru_bin);
+            replace_cmd
+                .args(["replace", "config", &path_str])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            match tokio::time::timeout(Duration::from_secs(5), replace_cmd.output()).await {
+                Ok(Ok(out)) if out.status.success() => {}
+                Ok(Ok(out)) => {
+                    let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    let msg = format!(
+                        "mita replace config for '{}' exited with {}: {}",
+                        ib.tag, out.status, err_msg
+                    );
+                    self.logs.push("mieru", "warn", msg.clone()).await;
+                    problems.push(msg);
+                }
+                Ok(Err(e)) => problems.push(format!("mita replace config could not run: {e}")),
+                Err(_) => problems.push("mita replace config timed out".to_string()),
+            }
+            let mut reload_cmd = Command::new(&self.config.mieru_bin);
+            reload_cmd
+                .args(["reload"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let _ = tokio::time::timeout(Duration::from_secs(5), reload_cmd.output()).await;
+
+            if let Some((port, tcp)) = mieru_probe_target(ib) {
+                let ok = if tcp {
+                    wait_listening("127.0.0.1", port, Duration::from_secs(8)).await
+                } else {
+                    wait_udp_bound(port, Duration::from_secs(8)).await
+                };
+                if !ok {
+                    problems.push(format!(
+                        "mieru inbound '{}' is not listening on {}/{} after start",
+                        ib.tag,
+                        port,
+                        if tcp { "tcp" } else { "udp" }
+                    ));
+                }
             }
         }
 
-        if let Err(err) = self.port_share.apply(&remapped.groups).await {
-            self.logs
-                .push("port-share", "error", format!("PortShare apply failed: {err}"))
-                .await;
-            return Err(err);
+        if !unchanged("portshare") {
+            if let Err(err) = self.port_share.apply(&remapped.groups).await {
+                self.logs
+                    .push("port-share", "error", format!("PortShare apply failed: {err}"))
+                    .await;
+                return Err(err);
+            }
         }
 
-        for warning in crate::firewall::open_ports_for_inbounds(&inbounds).await {
+        for warning in
+            crate::firewall::sync_ports_for_inbounds(&self.config.config_dir, &inbounds).await
+        {
             self.logs.push("firewall", "warn", warning).await;
         }
 
+        for p in &problems {
+            tracing::warn!(problem = %p, "config applied with problems");
+            self.logs.push("agent", "warn", p.clone()).await;
+        }
+        self.problems = problems;
+        self.core_fingerprints = fingerprints;
         self.current_inbounds = inbounds;
         self.current_routing_rules = routing_rules;
         self.current_xray_profile = xray_profile;
@@ -681,8 +802,21 @@ impl ProcessManager {
         self.apply_config_inner(inbounds, rules, profile, true).await
     }
 
+    async fn stop_xray(&mut self) {
+        if let Some(mut mc) = self.xray_proc.take() {
+            terminate_child(&mut mc.child).await;
+        }
+    }
+
+    async fn stop_singbox(&mut self) {
+        if let Some(mut mc) = self.singbox_proc.take() {
+            terminate_child(&mut mc.child).await;
+        }
+    }
+
     /// Stops all running proxy cores and SNI port-share listeners, retaining `current_inbounds`.
     pub async fn stop_all(&mut self) {
+        self.core_fingerprints.clear();
         self.port_share.stop().await;
 
         if let Some(mut mc) = self.xray_proc.take() {
@@ -1091,6 +1225,8 @@ impl ProcessManager {
                     "installed": binary_exists(&self.config.naive_bin).await,
                     "version": self.core_versions.get("naive").cloned(),
                 },
+                "problems": self.problems.clone(),
+                "capabilities": ["node_control"],
                 "mieru": {
                     "running": mieru_running,
                     "installed": binary_exists(&self.config.mieru_bin).await,
@@ -1230,5 +1366,183 @@ async fn terminate_child(child: &mut Child) {
         .is_err()
     {
         let _ = child.kill().await;
+    }
+}
+
+fn fingerprint<T: serde::Serialize + ?Sized>(v: &T) -> String {
+    use sha2::{Digest, Sha256};
+    let bytes = serde_json::to_vec(v).unwrap_or_default();
+    hex::encode(Sha256::digest(&bytes))
+}
+
+/// Hashes every core's own inputs so an apply restarts only the cores whose configuration changed.
+fn core_fingerprints(
+    remapped: &crate::port_share::RemappedConfig,
+    rules: &[RoutingRuleConfig],
+    profile: Option<&serde_json::Value>,
+    xray_api_port: u16,
+) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let xray: Vec<&InboundConfig> = remapped
+        .inbounds
+        .iter()
+        .filter(|i| i.enable && xray::is_xray_protocol(i.protocol))
+        .collect();
+    out.insert("xray".to_string(), fingerprint(&(&xray, rules, profile, xray_api_port)));
+    let singbox: Vec<&InboundConfig> = remapped
+        .inbounds
+        .iter()
+        .filter(|i| i.enable && singbox::is_singbox_protocol(i.protocol))
+        .collect();
+    out.insert("singbox".to_string(), fingerprint(&(&singbox, rules)));
+    for ib in remapped.inbounds.iter().filter(|i| i.enable) {
+        match ib.protocol {
+            Protocol::Naiveproxy => {
+                out.insert(format!("naive:{}", ib.id), fingerprint(ib));
+            }
+            Protocol::Mieru => {
+                out.insert(format!("mieru:{}", ib.id), fingerprint(ib));
+            }
+            _ => {}
+        }
+    }
+    out.insert("portshare".to_string(), fingerprint(&format!("{:?}", remapped.groups)));
+    out
+}
+
+/// Loopback address to probe for an inbound bound to `listen`.
+fn probe_host(listen: &str) -> String {
+    match listen.trim() {
+        "" | "0.0.0.0" => "127.0.0.1".to_string(),
+        "::" | "[::]" => "::1".to_string(),
+        other => other.trim_matches(|c| c == '[' || c == ']').to_string(),
+    }
+}
+
+/// Polls a TCP port until it accepts a connection or `timeout` elapses.
+async fn wait_listening(host: &str, port: u16, timeout: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let attempt = tokio::time::timeout(
+            Duration::from_millis(500),
+            tokio::net::TcpStream::connect((host, port)),
+        )
+        .await;
+        if matches!(attempt, Ok(Ok(_))) {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// True when some socket in `/proc/net/udp{,6}` is bound to `port` (non-Linux: assume true).
+fn udp_port_bound(port: u16) -> bool {
+    let needle = format!(":{port:04X}");
+    ["/proc/net/udp", "/proc/net/udp6"].iter().any(|f| {
+        std::fs::read_to_string(f)
+            .map(|c| {
+                c.lines()
+                    .skip(1)
+                    .filter_map(|l| l.split_whitespace().nth(1))
+                    .any(|local| local.ends_with(&needle))
+            })
+            .unwrap_or(cfg!(not(target_os = "linux")))
+    })
+}
+
+async fn wait_udp_bound(port: u16, timeout: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if udp_port_bound(port) {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// `(port, is_tcp)` to probe for a Mieru inbound: first TCP binding, else first UDP binding.
+fn mieru_probe_target(ib: &InboundConfig) -> Option<(u16, bool)> {
+    let bindings = mieru::build_port_bindings(ib).ok()?;
+    let pick = |proto: &str| {
+        bindings.iter().find_map(|b| {
+            if b.get("protocol").and_then(|v| v.as_str()) != Some(proto) {
+                return None;
+            }
+            if let Some(p) = b.get("port").and_then(|v| v.as_u64()) {
+                return u16::try_from(p).ok();
+            }
+            b.get("portRange")
+                .and_then(|v| v.as_str())
+                .and_then(|r| r.split('-').next())
+                .and_then(|a| a.trim().parse::<u16>().ok())
+        })
+    };
+    pick("TCP")
+        .map(|p| (p, true))
+        .or_else(|| pick("UDP").map(|p| (p, false)))
+}
+
+#[cfg(test)]
+mod apply_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ib(id: &str, protocol: &str, port: u16, settings: serde_json::Value) -> InboundConfig {
+        serde_json::from_value(json!({
+            "id": id, "tag": id, "protocol": protocol, "port": port, "settings": settings
+        }))
+        .unwrap()
+    }
+
+    fn remap(list: &[InboundConfig]) -> crate::port_share::RemappedConfig {
+        remap_inbounds(list).unwrap()
+    }
+
+    #[test]
+    fn fingerprint_changes_only_for_the_touched_core() {
+        let a = vec![
+            ib("v", "VLESS", 443, json!({})),
+            ib("m", "MIERU", 2053, json!({"transport":"tcp"})),
+        ];
+        let mut b = a.clone();
+        b[1] = ib("m", "MIERU", 2053, json!({"transport":"both"}));
+        let fa = core_fingerprints(&remap(&a), &[], None, 10085);
+        let fb = core_fingerprints(&remap(&b), &[], None, 10085);
+        assert_eq!(fa["xray"], fb["xray"], "xray must not restart for a mieru change");
+        assert_ne!(fa["mieru:m"], fb["mieru:m"]);
+        assert_eq!(fa["portshare"], fb["portshare"]);
+    }
+
+    #[test]
+    fn probe_host_maps_wildcards_to_loopback() {
+        assert_eq!(probe_host("0.0.0.0"), "127.0.0.1");
+        assert_eq!(probe_host(""), "127.0.0.1");
+        assert_eq!(probe_host("::"), "::1");
+        assert_eq!(probe_host("10.1.2.3"), "10.1.2.3");
+    }
+
+    #[test]
+    fn mieru_probe_prefers_tcp_then_udp_and_uses_range_start() {
+        let both = ib("a", "MIERU", 2053, json!({"transport":"both"}));
+        assert_eq!(mieru_probe_target(&both), Some((2053, true)));
+        let udp = ib("b", "MIERU", 2053, json!({"transport":"udp"}));
+        assert_eq!(mieru_probe_target(&udp), Some((2053, false)));
+        let range = ib("c", "MIERU", 30000, json!({"transport":"tcp","portRange":"30000-30100"}));
+        assert_eq!(mieru_probe_target(&range), Some((30000, true)));
+    }
+
+    #[tokio::test]
+    async fn wait_listening_detects_open_and_closed_ports() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        assert!(wait_listening("127.0.0.1", port, Duration::from_secs(2)).await);
+        drop(l);
+        assert!(!wait_listening("127.0.0.1", port, Duration::from_millis(600)).await);
     }
 }
