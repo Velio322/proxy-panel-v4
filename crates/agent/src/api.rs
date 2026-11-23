@@ -1,6 +1,7 @@
 use crate::config::AGENT_VERSION;
 use crate::cores::write_atomic_0600;
 use crate::process::ProcessManager;
+use crate::traffic::CumulativeTrafficTracker;
 use crate::updater::{
     download_and_install_core, rollback_binary, CoreKind, UpdateCoreResult,
 };
@@ -13,6 +14,7 @@ use axum::{Json, Router};
 use chrono::Utc;
 use mypanel_proto::{
     ApplyConfigRequest, ApplyConfigResponse, CoreUpdateCmd, DropSessionCmd, SessionsList,
+    TrafficAckRequest, TrafficCollectResponse,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -33,6 +35,8 @@ pub struct ApiState {
     pub node_secret: String,
     pub allowed_panel_ips: Arc<Vec<ipnet::IpNet>>,
     pub started_at: Instant,
+    /// Traffic tracker used by `/api/traffic/collect` and `/api/traffic/ack` (pull mode).
+    pub tracker: Option<Arc<Mutex<CumulativeTrafficTracker>>>,
 }
 
 impl ApiState {
@@ -43,7 +47,13 @@ impl ApiState {
             node_secret,
             allowed_panel_ips: Arc::new(Vec::new()),
             started_at: Instant::now(),
+            tracker: None,
         }
+    }
+
+    pub fn with_tracker(mut self, tracker: Arc<Mutex<CumulativeTrafficTracker>>) -> Self {
+        self.tracker = Some(tracker);
+        self
     }
 
     /// Restricts incoming HTTP API calls to the configured panel IPs/CIDRs (plus loopback).
@@ -120,6 +130,8 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/api/restart", post(handle_restart))
         .route("/api/stop", post(handle_stop))
         .route("/api/traffic", get(handle_traffic))
+        .route("/api/traffic/collect", post(handle_traffic_collect))
+        .route("/api/traffic/ack", post(handle_traffic_ack))
         .route("/api/inbounds", get(handle_inbounds))
         .route("/api/logs", get(handle_logs))
         .route("/api/sessions", get(handle_sessions))
@@ -172,16 +184,19 @@ async fn handle_apply_config(
             if let Ok(bytes) = serde_json::to_vec_pretty(&req) {
                 let _ = write_atomic_0600(&desired_path, &bytes).await;
             }
+            let warnings = state.pm.lock().await.problems().to_vec();
             Json(ApplyConfigResponse {
                 success: true,
                 timestamp: ts,
                 error: None,
+                warnings,
             })
         }
         Err(err) => Json(ApplyConfigResponse {
             success: false,
             timestamp: ts,
             error: Some(err),
+            warnings: Vec::new(),
         }),
     }
 }
@@ -204,6 +219,59 @@ async fn handle_traffic(State(state): State<ApiState>) -> impl IntoResponse {
     let mut pm = state.pm.lock().await;
     let stats = pm.collect_traffic().await;
     Json(stats)
+}
+
+/// Maximum unacknowledged batches returned by one `/api/traffic/collect` call.
+const MAX_COLLECT_REPORTS: usize = 100;
+
+/// Pull mode: computes the traffic delta since the last call and returns *every* unacknowledged
+/// batch (older ones are replayed until the panel acks them via `/api/traffic/ack`).
+async fn handle_traffic_collect(State(state): State<ApiState>) -> Response {
+    let Some(tracker) = state.tracker.clone() else {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({ "error": "traffic tracker not available" })),
+        )
+            .into_response();
+    };
+    let cur = {
+        let mut pm = state.pm.lock().await;
+        match tokio::time::timeout(std::time::Duration::from_secs(20), pm.collect_traffic()).await {
+            Ok(c) => c,
+            Err(_) => {
+                return (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    Json(json!({ "error": "traffic collection timed out" })),
+                )
+                    .into_response()
+            }
+        }
+    };
+    let mut tr = tracker.lock().await;
+    if let Err(e) = tr.compute_delta(&cur).await {
+        tracing::warn!(error = %e, "traffic delta computation failed");
+    }
+    let mut reports = tr.pending_reports();
+    reports.truncate(MAX_COLLECT_REPORTS);
+    Json(TrafficCollectResponse { reports }).into_response()
+}
+
+/// Pull mode: drops batches the panel has durably recorded.
+async fn handle_traffic_ack(
+    State(state): State<ApiState>,
+    Json(req): Json<TrafficAckRequest>,
+) -> Response {
+    let Some(tracker) = state.tracker.clone() else {
+        return StatusCode::NOT_IMPLEMENTED.into_response();
+    };
+    let mut tr = tracker.lock().await;
+    let mut removed = 0usize;
+    for id in req.batch_ids.iter().take(MAX_COLLECT_REPORTS * 2) {
+        if tr.acknowledge_batch(id).await.unwrap_or(false) {
+            removed += 1;
+        }
+    }
+    Json(json!({ "success": true, "acknowledged": removed })).into_response()
 }
 
 /// Uses `tokio::fs::read_to_string` (never `std::fs::read_to_string`) in async handler.

@@ -8,6 +8,7 @@ pub mod host_telemetry;
 pub mod inbound_checks;
 pub mod node_client;
 pub mod node_config;
+pub mod node_pull;
 pub mod outbox;
 pub mod protocol_credentials;
 pub mod retention;

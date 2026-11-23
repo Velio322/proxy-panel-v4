@@ -110,7 +110,7 @@ async fn check_node_guarded(state: &AppState, node: &node_client::NodeTarget) {
 
 async fn node_healthcheck_cycle(state: AppState) {
     let Ok(rows) = sqlx::query(
-        r#"SELECT id, name, host, "apiPort", secret FROM "Node" WHERE active = true"#,
+        r#"SELECT id, name, host, "apiPort", secret, "apiMode" FROM "Node" WHERE active = true AND "apiMode" <> 'pull'"#,
     )
     .fetch_all(&state.db)
     .await
@@ -129,6 +129,7 @@ async fn node_healthcheck_cycle(state: AppState) {
                 host: r.try_get("host").ok()?,
                 api_port: r.try_get("apiPort").ok()?,
                 secret: r.try_get("secret").ok()?,
+                api_mode: r.try_get("apiMode").unwrap_or_else(|_| "ws".to_string()),
             })
         })
         .collect();
@@ -169,6 +170,17 @@ pub fn start(state: AppState) {
             period: Duration::from_secs(120),
             max_cycle: Duration::from_secs(100),
             run: Arc::new(|st| Box::pin(node_healthcheck_cycle(st))),
+        },
+    );
+
+    // 2b. Pull-mode nodes: status, traffic (collect/ack) and sessions over mTLS HTTPS (every 30s)
+    supervise(
+        state.clone(),
+        JobSpec {
+            name: "node_pull",
+            period: Duration::from_secs(30),
+            max_cycle: Duration::from_secs(120),
+            run: Arc::new(|st| Box::pin(crate::services::node_pull::poll_cycle(st))),
         },
     );
 

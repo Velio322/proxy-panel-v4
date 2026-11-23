@@ -15,12 +15,18 @@ pub struct NodeTarget {
     pub host: String,
     pub api_port: i32,
     pub secret: String,
+    /// `"pull"`: reach the node over mTLS HTTPS; anything else: plain/HTTP API or WebSocket.
+    pub api_mode: String,
 }
 
 impl NodeTarget {
+    pub fn is_pull(&self) -> bool {
+        self.api_mode == "pull"
+    }
+
     pub async fn fetch(state: &AppState, node_id: &str) -> AppResult<Self> {
         let row = sqlx::query(
-            r#"SELECT id, name, host, "apiPort", secret FROM "Node" WHERE id = $1"#,
+            r#"SELECT id, name, host, "apiPort", secret, "apiMode" FROM "Node" WHERE id = $1"#,
         )
         .bind(node_id)
         .fetch_optional(&state.db)
@@ -33,6 +39,7 @@ impl NodeTarget {
             host: row.try_get("host")?,
             api_port: row.try_get("apiPort")?,
             secret: row.try_get("secret")?,
+            api_mode: row.try_get("apiMode").unwrap_or_else(|_| "ws".to_string()),
         })
     }
 }
@@ -71,7 +78,7 @@ pub fn base_url(
     }
 
     let is_loopback = is_loopback_host(host);
-    let scheme = if node.api_port == 443 || (!allow_plaintext && !is_loopback) {
+    let scheme = if node.is_pull() || node.api_port == 443 || (!allow_plaintext && !is_loopback) {
         "https"
     } else {
         "http"
@@ -99,12 +106,20 @@ pub const NODE_GET_TIMEOUT: Duration = Duration::from_secs(7);
 /// reqwest-level timeout; slightly below the outer guard so the inner error wins when possible.
 const NODE_GET_HTTP_TIMEOUT: Duration = Duration::from_secs(6);
 
-async fn node_get(state: &AppState, node: &NodeTarget, path: &str) -> AppResult<Value> {
+/// HTTP client for `node`: the mTLS client for pull-mode nodes, the shared client otherwise.
+fn client_for<'a>(state: &'a AppState, node: &NodeTarget) -> &'a reqwest::Client {
+    if node.is_pull() {
+        &state.node_mtls_client
+    } else {
+        &state.http_client
+    }
+}
+
+pub(crate) async fn node_get(state: &AppState, node: &NodeTarget, path: &str) -> AppResult<Value> {
     let (base, _) = base_url(node, state.cfg.allow_private_nodes, state.cfg.node_api_plaintext)?;
     let url = format!("{base}{path}");
     let fetch = async {
-        let resp = state
-            .http_client
+        let resp = client_for(state, node)
             .get(&url)
             .bearer_auth(&node.secret)
             .header("X-Node-Secret", &node.secret)
@@ -140,7 +155,7 @@ async fn node_get(state: &AppState, node: &NodeTarget, path: &str) -> AppResult<
         })?
 }
 
-async fn node_post<T: serde::Serialize>(
+pub(crate) async fn node_post<T: serde::Serialize>(
     state: &AppState,
     node: &NodeTarget,
     path: &str,
@@ -158,8 +173,7 @@ async fn node_post_with_timeout<T: serde::Serialize>(
 ) -> AppResult<Value> {
     let (base, _) = base_url(node, state.cfg.allow_private_nodes, state.cfg.node_api_plaintext)?;
     let url = format!("{base}{path}");
-    let resp = state
-        .http_client
+    let resp = client_for(state, node)
         .post(&url)
         .bearer_auth(&node.secret)
         .header("X-Node-Secret", &node.secret)
@@ -449,6 +463,25 @@ async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bo
             }))
         }
     }
+}
+
+/// Pushes the node's full config over HTTP(S) and returns the agent's structured response
+/// (success flag, error and start-up warnings).
+pub async fn push_config_detailed(
+    state: &AppState,
+    node: &NodeTarget,
+) -> AppResult<mypanel_proto::ApplyConfigResponse> {
+    let inbounds = node_config::build(state, &node.id).await?;
+    let routing_rules = node_config::build_routing_rules(state, &node.id).await?;
+    let xray_profile = node_config::build_xray_profile(state, &node.id).await?;
+    let req = ApplyConfigRequest {
+        inbounds,
+        routing_rules,
+        xray_profile,
+    };
+    let v = node_post_with_timeout(state, node, "/api/config", &req, Duration::from_secs(60)).await?;
+    serde_json::from_value(v)
+        .map_err(|e| AppError::service_unavailable(format!("Unexpected /api/config response: {e}")))
 }
 
 pub async fn push_config_http(state: &AppState, node: &NodeTarget) -> AppResult<bool> {

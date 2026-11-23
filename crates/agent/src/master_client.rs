@@ -59,6 +59,8 @@ pub async fn register_node(
         system: Some(RegisterSystemInfo {
             release: AGENT_VERSION.to_string(),
         }),
+        csr_pem: None,
+        api_mode: Some("ws".to_string()),
     };
 
     let mut last_err = String::new();

@@ -62,6 +62,19 @@ pub struct AgentConfig {
     pub mtls_client_key: Option<String>,
     /// Optional panel IP / CIDR allow-list (`ALLOWED_PANEL_IPS` or `PANEL_IP`). Empty allows any source IP.
     pub allowed_panel_ips: Vec<ipnet::IpNet>,
+    /// How the panel talks to this node (`API_MODE`): `ws` (agent keeps a WebSocket to the panel,
+    /// default) or `pull` (agent serves an mTLS HTTPS API the panel polls; no persistent session).
+    pub api_mode: ApiMode,
+}
+
+/// Control channel between panel and node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ApiMode {
+    /// Agent dials the panel and holds a WebSocket (works behind NAT without an open port).
+    #[default]
+    Ws,
+    /// Panel dials the node over HTTPS with mutual TLS (like Remnawave); a panel restart changes nothing.
+    Pull,
 }
 
 impl Default for AgentConfig {
@@ -86,6 +99,7 @@ impl Default for AgentConfig {
             mtls_client_cert: None,
             mtls_client_key: None,
             allowed_panel_ips: Vec::new(),
+            api_mode: ApiMode::Ws,
         }
     }
 }
@@ -174,6 +188,13 @@ impl AgentConfig {
         if let Some(sa) = get("SINGBOX_API_ADDR") {
             cfg.singbox_api_addr = sa;
         }
+        if let Some(mode) = get("API_MODE") {
+            cfg.api_mode = match mode.to_ascii_lowercase().as_str() {
+                "ws" | "websocket" => ApiMode::Ws,
+                "pull" | "mtls" => ApiMode::Pull,
+                other => bail!("Invalid API_MODE '{other}' (expected ws or pull)"),
+            };
+        }
         cfg.mtls_ca_cert = get("MTLS_CA_CERT");
         cfg.mtls_client_cert = get("MTLS_CLIENT_CERT");
         cfg.mtls_client_key = get("MTLS_CLIENT_KEY");
@@ -227,6 +248,21 @@ impl AgentConfig {
     /// Path to `<CONFIG_DIR>/singbox.json`.
     pub fn singbox_config_path(&self) -> PathBuf {
         self.config_dir.join("singbox.json")
+    }
+
+    /// `<CONFIG_DIR>/node-tls.key` - node TLS private key (generated on the node, never sent anywhere).
+    pub fn tls_key_path(&self) -> PathBuf {
+        self.config_dir.join("node-tls.key")
+    }
+
+    /// `<CONFIG_DIR>/node-tls.crt` - node TLS certificate signed by the panel CA.
+    pub fn tls_cert_path(&self) -> PathBuf {
+        self.config_dir.join("node-tls.crt")
+    }
+
+    /// `<CONFIG_DIR>/panel-ca.crt` - panel CA used to authenticate the panel's client certificate.
+    pub fn panel_ca_path(&self) -> PathBuf {
+        self.config_dir.join("panel-ca.crt")
     }
 
     /// Path to `<CONFIG_DIR>/traffic-pending.json`.
@@ -283,6 +319,16 @@ fn default_hostname() -> String {
 mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn api_mode_parses_and_rejects_garbage() {
+        let pairs = |m: &str| vec![("API_MODE".to_string(), m.to_string())];
+        assert_eq!(AgentConfig::from_pairs(&pairs("pull")).unwrap().api_mode, ApiMode::Pull);
+        assert_eq!(AgentConfig::from_pairs(&pairs("WS")).unwrap().api_mode, ApiMode::Ws);
+        assert!(AgentConfig::from_pairs(&pairs("carrier-pigeon")).is_err());
+        let none: Vec<(String, String)> = vec![];
+        assert_eq!(AgentConfig::from_pairs(&none).unwrap().api_mode, ApiMode::Ws);
+    }
 
     #[test]
     fn default_worker_port_is_2222() {

@@ -29,6 +29,8 @@ pub struct AppState {
     pub backup_running: Arc<AtomicBool>,
     pub mtls_ca: MtlsCa,
     pub http_client: reqwest::Client,
+    /// mTLS client for pull-mode nodes (panel -> node HTTPS with a CA-signed identity).
+    pub node_mtls_client: reqwest::Client,
     pub passkey_reg_states: Arc<DashMap<String, PasskeyRegistration>>,
     pub passkey_auth_states: Arc<DashMap<String, (Option<String>, PasskeyAuthentication)>>,
 }
@@ -66,6 +68,11 @@ impl AppState {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
+        let node_mtls_client = mtls_ca.build_node_client().unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "could not build node mTLS client; pull-mode nodes will be unreachable");
+            reqwest::Client::new()
+        });
+
         Self {
             db,
             cfg: Arc::new(cfg),
@@ -82,6 +89,7 @@ impl AppState {
             backup_running: Arc::new(AtomicBool::new(false)),
             mtls_ca,
             http_client,
+            node_mtls_client,
             passkey_reg_states: Arc::new(DashMap::new()),
             passkey_auth_states: Arc::new(DashMap::new()),
         }

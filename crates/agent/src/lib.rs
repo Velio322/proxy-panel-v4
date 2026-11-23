@@ -6,7 +6,9 @@ pub mod master_client;
 pub mod mtls;
 pub mod port_share;
 pub mod process;
+pub mod pull;
 pub mod telemetry;
+pub mod tls_server;
 pub mod traffic;
 pub mod updater;
 
@@ -88,60 +90,85 @@ pub async fn run(cfg: AgentConfig) -> Result<()> {
     }
 
     let state = api::ApiState::new(pm.clone(), http_client.clone(), cfg.node_secret.clone())
-        .with_allowed_panel_ips(cfg.allowed_panel_ips.clone());
+        .with_allowed_panel_ips(cfg.allowed_panel_ips.clone())
+        .with_tracker(tracker.clone());
     let router = api::build_router(state);
 
     let bind_addr = format!("{}:{}", cfg.worker_host, cfg.worker_port);
+    let pull = cfg.api_mode == config::ApiMode::Pull && !cfg.master_url.is_empty();
     let loopback = cfg
         .worker_host
         .parse::<std::net::IpAddr>()
         .map(|ip| ip.is_loopback())
         .unwrap_or(false);
-    if !loopback && cfg.allowed_panel_ips.is_empty() {
+    if !pull && !loopback && cfg.allowed_panel_ips.is_empty() {
         tracing::warn!(
             addr = %bind_addr,
             "HTTP API is reachable from any address and protected only by the node secret; \
-             set WORKER_HOST=127.0.0.1 (the panel controls the node over WebSocket) or ALLOWED_PANEL_IPS"
+             set WORKER_HOST=127.0.0.1 (the panel controls the node over WebSocket), \
+             ALLOWED_PANEL_IPS, or API_MODE=pull (mTLS)"
         );
     }
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+    let tcp = tokio::net::TcpListener::bind(&bind_addr).await?;
     tracing::info!(
         addr = %bind_addr,
         allowed_panel_ips = cfg.allowed_panel_ips.len(),
-        "mypanel-agent HTTP API listening"
+        mode = if pull { "pull (mTLS HTTPS)" } else { "ws (plain HTTP API)" },
+        "mypanel-agent API listening"
     );
 
     let cancel = CancellationToken::new();
-    let master_handle = if !cfg.master_url.is_empty() {
-        let m_cfg = cfg.clone();
-        let m_client = http_client.clone();
-        let m_pm = pm.clone();
-        let m_tracker = tracker.clone();
-        let m_cancel = cancel.clone();
-        Some(tokio::spawn(async move {
-            master_client::run_master_loop(m_cfg, m_client, m_pm, m_tracker, m_cancel).await;
-        }))
-    } else {
-        None
-    };
-
+    let mut background: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let server_cancel = cancel.clone();
-    let server_task = tokio::spawn(async move {
-        let _ = axum::serve(
-            listener,
-            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .with_graceful_shutdown(async move {
-            server_cancel.cancelled().await;
+
+    let server_task = if pull {
+        let slot = tls_server::new_shared_config();
+        let listener = tls_server::TlsListener::new(tcp, slot.clone())?;
+        {
+            let (c, h, tok) = (cfg.clone(), http_client.clone(), cancel.clone());
+            background.push(tokio::spawn(async move {
+                pull::run_identity_loop(c, h, slot, tok).await;
+            }));
+        }
+        tokio::spawn(async move {
+            use axum::serve::ListenerExt;
+            let _ = axum::serve(
+                listener.tap_io(|_| {}),
+                router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                server_cancel.cancelled().await;
+            })
+            .await;
         })
-        .await;
-    });
+    } else {
+        if !cfg.master_url.is_empty() {
+            let m_cfg = cfg.clone();
+            let m_client = http_client.clone();
+            let m_pm = pm.clone();
+            let m_tracker = tracker.clone();
+            let m_cancel = cancel.clone();
+            background.push(tokio::spawn(async move {
+                master_client::run_master_loop(m_cfg, m_client, m_pm, m_tracker, m_cancel).await;
+            }));
+        }
+        tokio::spawn(async move {
+            let _ = axum::serve(
+                tcp,
+                router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                server_cancel.cancelled().await;
+            })
+            .await;
+        })
+    };
 
     wait_for_shutdown_signal().await;
     tracing::info!("Shutdown signal received, stopping proxy cores");
     cancel.cancel();
 
-    if let Some(h) = master_handle {
+    for h in background {
         let _ = h.await;
     }
     let _ = server_task.await;

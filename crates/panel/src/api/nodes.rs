@@ -130,6 +130,7 @@ fn node_row_to_json(r: &sqlx::postgres::PgRow, include_secret: bool) -> AppResul
         "arch": r.try_get::<Option<String>, _>("arch").ok().flatten().unwrap_or_else(|| "amd64".to_string()),
         "features": r.try_get::<Value, _>("features")?,
         "tags": r.try_get::<Option<Vec<String>>, _>("tags")?.unwrap_or_default(),
+        "apiMode": r.try_get::<String, _>("apiMode").unwrap_or_else(|_| "ws".to_string()),
         "mtlsFingerprint": r.try_get::<Option<String>, _>("mtlsFingerprint").ok().flatten(),
         "mtlsExpiresAt": mtls_exp.map(|d| crate::db::ts::format_iso(&d)),
         "active": r.try_get::<bool, _>("active")?,

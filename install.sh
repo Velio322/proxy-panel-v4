@@ -64,6 +64,7 @@ PUBLIC_IP=""
 AGENT_WORKER_PORT="2222"
 AGENT_WORKER_HOST="0.0.0.0"
 EXPOSE_API="false"
+API_MODE="ws"
 
 PANEL_STATUS="not-installed"
 AGENT_STATUS="not-installed"
@@ -192,6 +193,10 @@ usage() {
   --skip-cores                  Синоним --cores none
   --bbr / --no-bbr              Настройка fq + TCP BBR (по умолчанию включено для node/both)
   --no-ufw                      Не изменять правила UFW
+  --api-mode <ws|pull>          Канал панель<->нода. ws (по умолчанию): агент держит WebSocket к панели,
+                                входящий порт не нужен. pull: панель сама опрашивает ноду по HTTPS с взаимным
+                                TLS (как в Remnawave), рестарт панели ничего не обрывает; нужен открытый
+                                порт управления для IP панели
   --expose-api                  Открыть HTTP API агента (:порт управления) наружу. По умолчанию агент
                                 слушает только 127.0.0.1, а панель управляет нодой через WebSocket
 
@@ -365,6 +370,12 @@ parse_args() {
             --expose-api)
                 EXPOSE_API="true"
                 shift
+                ;;
+            --api-mode)
+                [[ $# -ge 2 ]] || die "--api-mode требует значение (ws или pull)"
+                API_MODE="$2"
+                case "$API_MODE" in ws|pull) ;; *) die "Недопустимый --api-mode '$API_MODE' (ожидается ws или pull)" ;; esac
+                shift 2
                 ;;
             --no-ufw)
                 CONFIGURE_UFW="false"
@@ -1444,8 +1455,9 @@ write_node_env() {
         fi
         case "$TLS_MODE" in
             none)
-                # Панель управляет нодой через исходящий WebSocket агента; HTTP API снаружи не нужен.
-                if [[ "$EXPOSE_API" == "true" ]]; then
+                # ws: панель управляет нодой через исходящий WebSocket агента, HTTP API снаружи не нужен.
+                # pull: панель сама подключается к ноде (HTTPS+mTLS), порт должен слушать наружу.
+                if [[ "$EXPOSE_API" == "true" ]] || [[ "$API_MODE" == "pull" ]]; then
                     AGENT_WORKER_HOST="0.0.0.0"
                 else
                     AGENT_WORKER_HOST="127.0.0.1"
@@ -1475,6 +1487,7 @@ NODE_RPC_SECRET=${secret}
 NODE_SECRET=${secret}
 NODE_HOST=${effective_node_host}
 NODE_NAME=${effective_node_name}
+API_MODE=${API_MODE}
 WORKER_HOST=${AGENT_WORKER_HOST}
 WORKER_PORT=${AGENT_WORKER_PORT}
 ALLOWED_PANEL_IPS=${PANEL_IP}

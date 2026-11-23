@@ -193,6 +193,46 @@ async fn register(
     .await?;
 
     state.metrics.set_node_status(&node_id, &name, true);
+
+    // Pull mode: sign the node's CSR with the panel CA and record that this node is polled.
+    let wants_pull = body.get("apiMode").and_then(Value::as_str) == Some("pull");
+    let mut tls_cert_pem: Option<String> = None;
+    if wants_pull {
+        let csr = body
+            .get("csrPem")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|c| !c.is_empty() && c.len() < 16 * 1024)
+            .ok_or_else(|| AppError::bad_request("csrPem is required for apiMode=pull"))?;
+        let host_for_cert: String =
+            sqlx::query_scalar(r#"SELECT host FROM "Node" WHERE id = $1"#)
+                .bind(&node_id)
+                .fetch_one(&state.db)
+                .await?;
+        let issued = state.mtls_ca.sign_node_csr(csr, &node_id, &host_for_cert)?;
+        sqlx::query(
+            r#"UPDATE "Node"
+               SET "apiMode" = 'pull', "mtlsCertPem" = $2, "mtlsSerial" = $3,
+                   "mtlsFingerprint" = $4, "mtlsExpiresAt" = $5, "updatedAt" = $6
+               WHERE id = $1"#,
+        )
+        .bind(&node_id)
+        .bind(&issued.cert_pem)
+        .bind(&issued.serial)
+        .bind(&issued.fingerprint)
+        .bind(issued.expires_at)
+        .bind(crate::db::now())
+        .execute(&state.db)
+        .await?;
+        tls_cert_pem = Some(issued.cert_pem);
+    } else {
+        sqlx::query(r#"UPDATE "Node" SET "apiMode" = 'ws', "updatedAt" = $2 WHERE id = $1 AND "apiMode" <> 'ws'"#)
+            .bind(&node_id)
+            .bind(crate::db::now())
+            .execute(&state.db)
+            .await?;
+    }
+
     let state_bg = state.clone();
     let node_id_bg = node_id.clone();
     tokio::spawn(async move {
@@ -202,7 +242,9 @@ async fn register(
     Ok(Json(json!({
         "nodeId": node_id,
         "status": "re-registered",
-        "message": "Node updated successfully"
+        "message": "Node updated successfully",
+        "tlsCertPem": tls_cert_pem,
+        "caPem": wants_pull.then(|| state.mtls_ca.ca_pem().to_string()),
     })))
 }
 

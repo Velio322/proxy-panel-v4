@@ -1,4 +1,5 @@
 use crate::error::AppResult;
+use crate::services::node_client::{self, NodeTarget};
 use crate::services::node_config;
 use crate::state::AppState;
 use mypanel_proto::{ConfigUpdate, Envelope};
@@ -63,6 +64,11 @@ pub async fn push_config(state: &AppState, node_id: &str) -> AppResult<()> {
         (id, 0)
     };
 
+    if node_is_pull(state, node_id).await {
+        deliver_pull(state, node_id, &cmd_id).await;
+        return Ok(());
+    }
+
     if state.hub.is_connected(node_id) {
         let inbounds = node_config::build(state, node_id).await?;
         let routing_rules = node_config::build_routing_rules(state, node_id).await?;
@@ -81,8 +87,78 @@ pub async fn push_config(state: &AppState, node_id: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// True when the node is polled over mTLS HTTPS instead of holding a WebSocket.
+pub async fn node_is_pull(state: &AppState, node_id: &str) -> bool {
+    sqlx::query_scalar::<_, String>(r#"SELECT "apiMode" FROM "Node" WHERE id = $1 AND active = true"#)
+        .bind(node_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|m| m == "pull")
+}
+
+/// Ids of active nodes that are reached over mTLS HTTPS.
+pub async fn pull_node_ids(state: &AppState) -> Vec<String> {
+    sqlx::query_scalar::<_, String>(r#"SELECT id FROM "Node" WHERE active = true AND "apiMode" = 'pull'"#)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+}
+
+/// Pushes the node's config over mTLS HTTPS and settles the `NodeCommand`.
+///
+/// Failures leave the command `PENDING`; the outbox loop retries it, so a node that is briefly
+/// unreachable (or a panel that restarts mid-delivery) still converges.
+async fn deliver_pull(state: &AppState, node_id: &str, cmd_id: &str) {
+    let target = match NodeTarget::fetch(state, node_id).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(node_id, error = %e, "pull delivery: node lookup failed");
+            return;
+        }
+    };
+    let result = tokio::time::timeout(
+        Duration::from_secs(60),
+        node_client::push_config_detailed(state, &target),
+    )
+    .await;
+    let (ok, note) = match result {
+        Ok(Ok(resp)) if resp.success => (
+            true,
+            (!resp.warnings.is_empty()).then(|| resp.warnings.join("; ")),
+        ),
+        Ok(Ok(resp)) => (false, resp.error),
+        Ok(Err(e)) => (false, Some(e.to_string())),
+        Err(_) => (false, Some("timed out delivering config".to_string())),
+    };
+    let note: Option<String> = note.map(|n| n.chars().take(1000).collect());
+    if ok {
+        let _ = sqlx::query(
+            r#"UPDATE "NodeCommand"
+               SET status = 'ACKNOWLEDGED', "acknowledgedAt" = $2, "lastError" = $3
+               WHERE id = $1 AND status = 'PENDING'"#,
+        )
+        .bind(cmd_id)
+        .bind(crate::db::now())
+        .bind(note)
+        .execute(&state.db)
+        .await;
+    } else {
+        tracing::warn!(node_id, error = ?note, "pull config delivery failed; will retry");
+        let _ = sqlx::query(r#"UPDATE "NodeCommand" SET "lastError" = $2 WHERE id = $1 AND status = 'PENDING'"#)
+            .bind(cmd_id)
+            .bind(note)
+            .execute(&state.db)
+            .await;
+    }
+}
+
 pub async fn broadcast_config_update(state: &AppState) {
-    let connected = state.hub.connected_node_ids();
+    let mut connected = state.hub.connected_node_ids();
+    connected.extend(pull_node_ids(state).await);
+    connected.sort();
+    connected.dedup();
     for nid in connected {
         if let Err(e) = push_config(state, &nid).await {
             tracing::warn!(node_id = %nid, error = %e, "broadcast_config_update failed");
@@ -96,7 +172,7 @@ pub async fn push_config_many(state: &AppState, node_ids: &[String]) {
         if !seen.insert(nid.as_str()) {
             continue;
         }
-        if state.hub.is_connected(nid) {
+        if state.hub.is_connected(nid) || node_is_pull(state, nid).await {
             if let Err(e) = push_config(state, nid).await {
                 tracing::warn!(node_id = %nid, error = %e, "push_config_many failed");
             }
@@ -109,7 +185,10 @@ pub fn spawn_outbox_loop(state: AppState) {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
-            let connected = state.hub.connected_node_ids();
+            let mut connected = state.hub.connected_node_ids();
+            connected.extend(pull_node_ids(&state).await);
+            connected.sort();
+            connected.dedup();
             if connected.is_empty() {
                 continue;
             }

@@ -201,6 +201,9 @@ pub struct ApplyConfigResponse {
     pub timestamp: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Applied, but some inbound did not come up (missing binary, port not listening, ...).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// User entry materialized inside an inbound or port-share configuration.
@@ -667,6 +670,13 @@ pub struct RegisterRequest {
     pub api_port: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<RegisterSystemInfo>,
+    /// PEM PKCS#10 request for the node's TLS server certificate (pull mode). The private key
+    /// never leaves the node; the panel signs the CSR with its internal CA.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub csr_pem: Option<String>,
+    /// `"pull"` when the node serves an mTLS HTTPS API the panel polls; absent/`"ws"` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_mode: Option<String>,
 }
 
 /// Node self-registration response.
@@ -750,6 +760,22 @@ pub struct CoreUpdateCmd {
     pub version: String,
     pub download_url: String,
     pub sha256: String,
+}
+
+/// Response of `POST /api/traffic/collect` (pull mode): every unacknowledged batch, newest included.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrafficCollectResponse {
+    #[serde(default)]
+    pub reports: Vec<TrafficReport>,
+}
+
+/// Request of `POST /api/traffic/ack` (pull mode): batches the panel has durably recorded.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrafficAckRequest {
+    #[serde(default)]
+    pub batch_ids: Vec<String>,
 }
 
 /// Control action carried by [`NodeControlCmd`].
@@ -879,6 +905,27 @@ where
 #[cfg(test)]
 mod control_tests {
     use super::*;
+
+    #[test]
+    fn register_request_is_backward_compatible() {
+        // Old agents send neither field; both must default to None.
+        let old: RegisterRequest = serde_json::from_str(r#"{"token":"x"}"#).unwrap();
+        assert!(old.csr_pem.is_none() && old.api_mode.is_none());
+        let json = serde_json::to_string(&old).unwrap();
+        assert!(!json.contains("csrPem") && !json.contains("apiMode"));
+        let new: RegisterRequest =
+            serde_json::from_str(r#"{"token":"x","csrPem":"PEM","apiMode":"pull"}"#).unwrap();
+        assert_eq!(new.api_mode.as_deref(), Some("pull"));
+    }
+
+    #[test]
+    fn apply_response_omits_empty_warnings() {
+        let r = ApplyConfigResponse { success: true, timestamp: 1, error: None, warnings: vec![] };
+        assert!(!serde_json::to_string(&r).unwrap().contains("warnings"));
+        let back: ApplyConfigResponse =
+            serde_json::from_str(r#"{"success":true,"timestamp":1,"warnings":["a"]}"#).unwrap();
+        assert_eq!(back.warnings, vec!["a".to_string()]);
+    }
 
     #[test]
     fn core_download_allow_list() {
