@@ -205,7 +205,7 @@ async fn flush_tx(
     let batch_ids: Vec<Option<&str>> = items.iter().map(|i| i.batch_id.as_deref()).collect();
     let node_ids: Vec<&str> = items.iter().map(|i| i.node_id.as_str()).collect();
     let created: Vec<NaiveDateTime> = items.iter().map(|i| i.record_at).collect();
-    let inserted_ids: HashSet<String> = sqlx::query_scalar(
+    let mut inserted_ids: HashSet<String> = sqlx::query_scalar(
         r#"INSERT INTO "TrafficReceipt" (id, "batchId", "nodeId", "createdAt")
            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::timestamp[])
            ON CONFLICT (id) DO NOTHING
@@ -227,7 +227,9 @@ async fn flush_tx(
         if let Some(batch) = item.batch_id.as_deref().filter(|b| !b.is_empty()) {
             committed_batches.insert(batch.to_string());
         }
-        if !inserted_ids.contains(&item.receipt_id) {
+        // `remove`, not `contains`: the same receipt can sit in the queue twice (a replayed
+        // batch arriving while its first copy is still queued). Only the first copy counts.
+        if !inserted_ids.remove(&item.receipt_id) {
             continue;
         }
         if !existing.contains(&item.client_id) {

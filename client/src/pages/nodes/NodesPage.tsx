@@ -74,6 +74,8 @@ export function NodesPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [checkingAll, setCheckingAll] = useState(false);
+  const [joinCmd, setJoinCmd] = useState<{ command: string; ttlMinutes: number } | null>(null);
+  const [joinBusy, setJoinBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<{ id: string; action: string } | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -429,12 +431,62 @@ export function NodesPage() {
               <span>{isRu ? 'Таблица' : 'Table'}</span>
             </Button>
           </div>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              setJoinBusy(true);
+              try {
+                const res = await nodesApi.createJoinToken();
+                setJoinCmd({ command: res.command, ttlMinutes: res.ttlMinutes });
+              } catch (err) {
+                toast({ title: getApiErrorMessage(err), variant: 'destructive' });
+              } finally {
+                setJoinBusy(false);
+              }
+            }}
+            loading={joinBusy}
+          >
+            <Plus className="h-4 w-4" />
+            {isRu ? 'Добавить одной командой' : 'One-command add'}
+          </Button>
           <Button onClick={openCreate}>
             <Plus className="h-4 w-4" />
             {t('nodes.addNode')}
           </Button>
         </div>
       </div>
+
+      {joinCmd && (
+        <Card>
+          <CardContent className="space-y-2 p-4">
+            <p className="text-sm font-medium">
+              {isRu
+                ? `Выполните на новом сервере от root (токен одноразовый, действует ${joinCmd.ttlMinutes} мин):`
+                : `Run on the new server as root (single-use token, valid ${joinCmd.ttlMinutes} min):`}
+            </p>
+            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{joinCmd.command}</pre>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(joinCmd.command);
+                    toast({ title: isRu ? 'Скопировано' : 'Copied', variant: 'success' });
+                  } catch {
+                    toast({ title: isRu ? 'Не удалось скопировать' : 'Copy failed', variant: 'destructive' });
+                  }
+                }}
+              >
+                {isRu ? 'Копировать' : 'Copy'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setJoinCmd(null)}>
+                {isRu ? 'Скрыть' : 'Hide'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Fleet Telemetry Ribbon */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

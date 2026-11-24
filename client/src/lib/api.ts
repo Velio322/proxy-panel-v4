@@ -454,6 +454,12 @@ export const clientsApi = {
 };
 
 export const nodesApi = {
+  createJoinToken: async (
+    name?: string,
+  ): Promise<{ token: string; expiresAt: string; ttlMinutes: number; panelUrl: string; command: string }> => {
+    const { data } = await api.post('/nodes/join-tokens', name ? { name } : {});
+    return data;
+  },
   list: async (params?: { search?: string; status?: string }): Promise<NodeItem[]> => {
     const { data } = await api.get<NodeItem[]>('/nodes', { params });
     return Array.isArray(data) ? data : [];
