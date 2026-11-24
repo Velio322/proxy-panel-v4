@@ -70,6 +70,25 @@ fn cleared_cookie(secure: bool) -> HeaderValue {
     }
 }
 
+const TOTP_AAD: &str = "user.totpSecret";
+
+/// Encrypts a TOTP secret for storage (plain text only when no `ENCRYPTION_KEY` is configured).
+pub fn seal_totp_secret(state: &AppState, secret: &str) -> AppResult<String> {
+    match state.encryption_key() {
+        Some(_) => crate::auth::crypto::encrypt_str(state.encryption_key(), secret, TOTP_AAD),
+        None => Ok(secret.to_string()),
+    }
+}
+
+/// Returns the plain base32 secret from either an encrypted (`v1.`) or a legacy plain value.
+pub fn open_totp_secret(state: &AppState, stored: &str) -> AppResult<String> {
+    if stored.starts_with("v1.") {
+        crate::auth::crypto::decrypt_str(state.encryption_key(), stored, TOTP_AAD)
+    } else {
+        Ok(stored.to_string())
+    }
+}
+
 pub fn verify_totp_code(secret_b32: &str, code: &str) -> bool {
     let Ok(bytes) = Secret::Encoded(secret_b32.to_string()).to_bytes() else {
         return false;
@@ -150,6 +169,8 @@ pub(crate) async fn complete_login(
     Ok(res)
 }
 
+static DUMMY_HASH: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+
 async fn login(
     State(state): State<AppState>,
     ip: ClientIp,
@@ -169,17 +190,22 @@ async fn login(
     .await?;
 
     let Some(row) = row else {
+        // Spend the same bcrypt time as for a real user so response timing does not reveal
+        // which usernames exist.
+        let dummy = DUMMY_HASH
+            .get_or_try_init(|| hash_password("mypanel3-dummy-password", 12))
+            .await?;
+        let _ = verify_password(&body.password, dummy).await;
         return Err(AppError::unauthorized("Invalid credentials"));
     };
-
-    let banned: bool = row.try_get("banned")?;
-    if banned {
-        return Err(AppError::forbidden("Account is banned"));
-    }
 
     let pw_hash: String = row.try_get("password")?;
     if !verify_password(&body.password, &pw_hash).await? {
         return Err(AppError::unauthorized("Invalid credentials"));
+    }
+    let banned: bool = row.try_get("banned")?;
+    if banned {
+        return Err(AppError::forbidden("Account is banned"));
     }
 
     let user_id: String = row.try_get("id")?;
@@ -196,7 +222,11 @@ async fn login(
             let valid = body
                 .totp_code
                 .as_deref()
-                .is_some_and(|c| verify_totp_code(sec, c));
+                .is_some_and(|c| {
+                    open_totp_secret(&state, sec)
+                        .map(|plain| verify_totp_code(&plain, c))
+                        .unwrap_or(false)
+                });
             if !valid {
                 let challenge = state
                     .jwt
@@ -250,7 +280,8 @@ async fn login_2fa(
     let Some(sec) = totp_secret.as_deref().filter(|s| !s.is_empty()) else {
         return Err(AppError::bad_request("2FA is not configured"));
     };
-    if !verify_totp_code(sec, &body.code) {
+    let plain_sec = open_totp_secret(&state, sec)?;
+    if !verify_totp_code(&plain_sec, &body.code) {
         return Err(AppError::unauthorized("Invalid 2FA code"));
     }
 

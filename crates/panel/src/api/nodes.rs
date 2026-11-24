@@ -233,11 +233,10 @@ async fn list(
         }
     }
 
-    let is_admin = user.is_admin();
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
         let nid: String = r.try_get("id")?;
-        let mut obj = node_row_to_json(&r, is_admin)?;
+        let mut obj = node_row_to_json(&r, false)?;
         let ibs = inbounds_map.remove(&nid).unwrap_or_default();
         let ib_count = ibs.len();
         let ms = metrics_map.remove(&nid).unwrap_or_default();
@@ -270,7 +269,7 @@ async fn get_one(
     .await?
     .ok_or_else(|| AppError::not_found("Node not found"))?;
 
-    let mut obj = node_row_to_json(&r, user.is_admin())?;
+    let mut obj = node_row_to_json(&r, false)?;
     let inbounds = fetch_inbounds_of_node(&state.db, &id).await?;
     let ib_ids: Vec<String> = inbounds.iter().map(|i| i.id.clone()).collect();
     let shares = fetch_port_shares_bulk(&state.db, &ib_ids).await?;
@@ -585,10 +584,11 @@ async fn stop(
 
 async fn stats(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Path(id): Path<String>,
     Query(q): Query<StatsQuery>,
 ) -> AppResult<Json<Vec<Value>>> {
+    user.require_admin()?;
     valid_id(&id)?;
     let days = q
         .days
@@ -647,9 +647,10 @@ async fn node_inbounds(
 
 async fn metrics(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
+    user.require_admin()?;
     valid_id(&id)?;
     let node = node_client::NodeTarget::fetch(&state, &id).await?;
     let m = node_client::get_metrics(&state, &node).await?;
@@ -976,9 +977,10 @@ struct CoreVersionsQuery {
 
 async fn list_core_versions(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Query(q): Query<CoreVersionsQuery>,
 ) -> AppResult<Json<Value>> {
+    user.require_admin()?;
     let rows = sqlx::query(
         r#"SELECT id, name, status, arch, "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion"
            FROM "Node" WHERE active = true ORDER BY name ASC"#,

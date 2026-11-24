@@ -14,10 +14,16 @@ ExecStart=/usr/local/bin/mypanel3 agent
 Restart=always
 RestartSec=5s
 LimitNOFILE=1048576
+TasksMax=4096
+OOMScoreAdjust=-500
 
 # Security hardening (retains CAP_NET_BIND_SERVICE/CAP_NET_ADMIN for proxy cores)
 PrivateTmp=true
 ProtectHome=true
+NoNewPrivileges=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target

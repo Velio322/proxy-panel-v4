@@ -34,11 +34,30 @@ pub struct BinaryQuery {
     pub arch: Option<String>,
 }
 
+#[cfg(unix)]
+async fn override_is_trusted(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match tokio::fs::metadata(path).await {
+        Ok(m) => m.uid() == 0 && m.mode() & 0o022 == 0,
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(unix))]
+async fn override_is_trusted(_path: &Path) -> bool {
+    false
+}
+
 async fn resolve_install_script(state: &AppState) -> String {
+    // The data dir is writable by the panel user, so a compromised panel could otherwise plant
+    // a script that every new node runs as root. Only a root-owned, non-group/world-writable
+    // override is honored.
     let override_path = state.cfg.data_dir.join("install.sh");
-    if let Ok(content) = tokio::fs::read_to_string(&override_path).await {
-        if !content.trim().is_empty() {
-            return content;
+    if override_is_trusted(&override_path).await {
+        if let Ok(content) = tokio::fs::read_to_string(&override_path).await {
+            if !content.trim().is_empty() {
+                return content;
+            }
         }
     }
     EMBEDDED_INSTALL_SH.to_string()

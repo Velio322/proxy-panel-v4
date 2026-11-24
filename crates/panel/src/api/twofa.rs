@@ -1,4 +1,4 @@
-use crate::api::auth::verify_totp_code;
+use crate::api::auth::{open_totp_secret, seal_totp_secret, verify_totp_code};
 use crate::api::common::{ok, AppJson};
 use crate::auth::extract::AuthUser;
 use crate::error::{AppError, AppResult};
@@ -59,7 +59,7 @@ async fn setup(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<
 
     sqlx::query(r#"UPDATE "User" SET "totpSecret" = $2, "updatedAt" = $3 WHERE id = $1"#)
         .bind(&user.id)
-        .bind(&b32)
+        .bind(seal_totp_secret(&state, &b32)?)
         .bind(crate::db::now())
         .execute(&state.db)
         .await?;
@@ -83,7 +83,7 @@ async fn enable(
     let secret = sec
         .filter(|s| !s.is_empty())
         .ok_or_else(|| AppError::bad_request("Call /2fa/setup first"))?;
-    if !verify_totp_code(&secret, &body.code) {
+    if !verify_totp_code(&open_totp_secret(&state, &secret)?, &body.code) {
         return Err(AppError::bad_request("Invalid TOTP code"));
     }
 
@@ -108,7 +108,7 @@ async fn disable(
     let sec: Option<String> = row.try_get("totpSecret")?;
     if enabled {
         if let Some(s) = sec.as_deref().filter(|s| !s.is_empty()) {
-            if !verify_totp_code(s, &body.code) {
+            if !verify_totp_code(&open_totp_secret(&state, s)?, &body.code) {
                 return Err(AppError::bad_request("Invalid TOTP code"));
             }
         }

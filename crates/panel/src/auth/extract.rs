@@ -103,7 +103,7 @@ fn api_key_from_headers(headers: &HeaderMap) -> Option<String> {
 
 /// Checks if an API key's `permissions` array allows the request method and path.
 ///
-/// Empty permissions array (`[]`) or `["*"]` or `["admin"]` or `["write"]` permits all actions;
+/// An empty permissions array grants nothing. `["*"]` or `["admin"]` or `["write"]` permits all actions;
 /// `["read"]` / `["readonly"]` / `["*:read"]` only permits `GET`/`HEAD`/`OPTIONS`.
 /// Resource-scoped permissions such as `"clients:write"`, `"clients:read"`, `"nodes:*"` are also matched.
 pub fn check_api_key_permissions(
@@ -112,7 +112,9 @@ pub fn check_api_key_permissions(
     path: &str,
 ) -> AppResult<()> {
     if perms.is_empty() {
-        return Ok(());
+        return Err(AppError::forbidden(
+            "Forbidden: API key has no permissions assigned",
+        ));
     }
     let is_read = matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS);
     let resource = path

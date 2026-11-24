@@ -24,6 +24,8 @@ pub struct AppState {
     pub global_limiter: Arc<RateLimiter>,
     pub auth_limiter: Arc<RateLimiter>,
     pub transfer_limiter: Arc<RateLimiter>,
+    /// Per-IP limiter for authenticated-looking node endpoints (replaces a blanket exemption).
+    pub node_limiter: Arc<RateLimiter>,
     pub started_at: Instant,
     pub encryption_key: Option<[u8; 32]>,
     pub backup_running: Arc<AtomicBool>,
@@ -52,6 +54,7 @@ impl AppState {
             cfg.auth_rate_limit_max.max(1),
         ));
         let transfer_limiter = Arc::new(RateLimiter::new(Duration::from_secs(60), 5));
+        let node_limiter = Arc::new(RateLimiter::new(Duration::from_secs(60), 1200));
 
         let mtls_ca = MtlsCa::load_or_generate(Some(&cfg.data_dir))
             .unwrap_or_else(|_| {
@@ -64,7 +67,11 @@ impl AppState {
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(true)
+            // Certificates are verified. Only an explicit opt-in (self-signed https nodes in a
+            // trusted network) turns that off.
+            .danger_accept_invalid_certs(
+                std::env::var("NODE_TLS_INSECURE").is_ok_and(|v| v.eq_ignore_ascii_case("true")),
+            )
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -84,6 +91,7 @@ impl AppState {
             global_limiter,
             auth_limiter,
             transfer_limiter,
+            node_limiter,
             started_at: Instant::now(),
             encryption_key,
             backup_running: Arc::new(AtomicBool::new(false)),

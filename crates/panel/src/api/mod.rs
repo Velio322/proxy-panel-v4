@@ -56,8 +56,20 @@ pub fn router(state: AppState) -> Router {
     let v1 = Router::new()
         .nest("/auth", auth_router)
         .nest("/auth/2fa", twofa::router())
-        .nest("/auth/passkeys", passkeys::router())
-        .nest("/auth/telegram", tg_oauth::router())
+        .nest(
+            "/auth/passkeys",
+            passkeys::router().layer(mw::from_fn_with_state(
+                state.clone(),
+                middleware::auth_rate_limit,
+            )),
+        )
+        .nest(
+            "/auth/telegram",
+            tg_oauth::router().layer(mw::from_fn_with_state(
+                state.clone(),
+                middleware::auth_rate_limit,
+            )),
+        )
         .nest("/users", users::router())
         .nest("/clients", clients::router())
         .nest("/nodes/self", node_api::router())
@@ -162,14 +174,14 @@ async fn health(State(st): State<AppState>) -> Response {
             })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "status": "error",
-                "error": e.to_string()
-            })),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "health check: database unreachable");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "status": "error" })),
+            )
+                .into_response()
+        }
     }
 }
 

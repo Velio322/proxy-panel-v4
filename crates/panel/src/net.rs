@@ -30,18 +30,20 @@ pub fn extract_ip(
     trust_proxy: bool,
 ) -> String {
     if trust_proxy {
-        if let Some(xff) = headers
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-        {
-            if let Some(first) = xff.split(',').next().map(str::trim).filter(|s| !s.is_empty()) {
-                return first.to_string();
-            }
-        }
+        // The reverse proxy sets X-Real-IP itself, so a client cannot inject it. For X-Forwarded-For
+        // only the rightmost hop is added by our own proxy; earlier entries are client-controlled.
         if let Some(real_ip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
             let trimmed = real_ip.trim();
             if !trimmed.is_empty() {
                 return trimmed.to_string();
+            }
+        }
+        if let Some(xff) = headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+        {
+            if let Some(last) = xff.rsplit(',').next().map(str::trim).filter(|s| !s.is_empty()) {
+                return last.to_string();
             }
         }
     }
@@ -162,4 +164,32 @@ pub fn validate_node_host(raw_host: &str, allow_private: bool) -> AppResult<()> 
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod client_ip_tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(*k, HeaderValue::from_str(v).unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn real_ip_wins_and_spoofed_xff_prefix_is_ignored() {
+        let h = headers(&[("x-real-ip", "203.0.113.9"), ("x-forwarded-for", "1.1.1.1, 203.0.113.9")]);
+        assert_eq!(extract_ip(&h, None, true), "203.0.113.9");
+        let h = headers(&[("x-forwarded-for", "6.6.6.6, 198.51.100.4")]);
+        assert_eq!(extract_ip(&h, None, true), "198.51.100.4");
+    }
+
+    #[test]
+    fn untrusted_proxy_headers_are_ignored() {
+        let h = headers(&[("x-real-ip", "203.0.113.9")]);
+        assert_eq!(extract_ip(&h, None, false), "127.0.0.1");
+    }
 }

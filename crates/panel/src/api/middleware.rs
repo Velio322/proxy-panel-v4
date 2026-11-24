@@ -10,6 +10,15 @@ use serde_json::json;
 use std::net::SocketAddr;
 use std::time::Instant;
 
+const CSP_APP: &str = "default-src 'self'; script-src 'self' https://telegram.org; \
+style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; \
+connect-src 'self' https: wss:; frame-src https://oauth.telegram.org; frame-ancestors 'self'; \
+object-src 'none'; base-uri 'self'; form-action 'self'";
+
+const CSP_SUB_PAGE: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; \
+img-src 'self' data: https:; font-src data:; connect-src 'self'; frame-ancestors 'none'; \
+base-uri 'none'; form-action 'none'";
+
 /// Applies Helmet-equivalent security headers (``: HSTS only on HTTPS or trusted proxy).
 pub async fn security_headers(
     State(st): State<AppState>,
@@ -24,8 +33,20 @@ pub async fn security_headers(
                 .and_then(|v| v.to_str().ok())
                 .is_some_and(|p| p.eq_ignore_ascii_case("https")));
 
+    // The public subscription page ships its own inline script and style; everything else is
+    // the SPA, which only needs same-origin scripts.
+    let csp = if req.uri().path().starts_with("/sub/") {
+        CSP_SUB_PAGE
+    } else {
+        CSP_APP
+    };
     let mut res = next.run(req).await;
     let headers = res.headers_mut();
+    if !headers.contains_key("content-security-policy") {
+        if let Ok(v) = HeaderValue::from_str(csp) {
+            headers.insert(HeaderName::from_static("content-security-policy"), v);
+        }
+    }
     let static_headers = [
         ("cross-origin-opener-policy", "same-origin"),
         ("cross-origin-resource-policy", "same-origin"),
@@ -143,23 +164,24 @@ pub async fn global_rate_limit(
             .map(str::trim)
             .is_some_and(|s| (16..=256).contains(&s.len()));
 
-    let exempt = path == "/api/health"
-        || path.starts_with("/assets/")
-        || (path.starts_with("/api/v1/nodes/self/")
-            && path != "/api/v1/nodes/self/register"
-            && has_node_cred)
-        || (path == "/ws/worker" && has_node_cred);
-
+    let exempt = path == "/api/health" || path.starts_with("/assets/");
     if exempt {
         return next.run(req).await;
     }
+
+    // Node traffic carrying a credential-shaped header gets its own (larger) per-IP budget.
+    // The header is not validated here, so it must not buy an unlimited request rate.
+    let node_traffic = has_node_cred
+        && ((path.starts_with("/api/v1/nodes/self/") && path != "/api/v1/nodes/self/register")
+            || path == "/ws/worker");
 
     let ip = extract_ip(
         req.headers(),
         req.extensions().get::<ConnectInfo<SocketAddr>>(),
         st.cfg.trust_proxy,
     );
-    let outcome = st.global_limiter.check(&ip);
+    let limiter = if node_traffic { &st.node_limiter } else { &st.global_limiter };
+    let outcome = limiter.check(&ip);
     if !outcome.allowed {
         return (
             StatusCode::TOO_MANY_REQUESTS,
@@ -182,11 +204,23 @@ pub async fn global_rate_limit(
     res
 }
 
+/// True for the endpoints that verify credentials; `/auth/me`, `/auth/logout` etc. are not
+/// counted so a polling SPA cannot lock a legitimate user out.
+fn is_credential_endpoint(path: &str) -> bool {
+    path.ends_with("/login")
+        || path.ends_with("/login/2fa")
+        || path.ends_with("/login/start")
+        || path.ends_with("/login/finish")
+}
+
 pub async fn auth_rate_limit(
     State(st): State<AppState>,
     req: Request,
     next: Next,
 ) -> Response {
+    if !is_credential_endpoint(req.uri().path()) {
+        return next.run(req).await;
+    }
     let ip = extract_ip(
         req.headers(),
         req.extensions().get::<ConnectInfo<SocketAddr>>(),
@@ -244,4 +278,19 @@ pub async fn metrics_middleware(
         start.elapsed().as_secs_f64(),
     );
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_credential_endpoint;
+
+    #[test]
+    fn only_credential_routes_are_limited() {
+        for p in ["/login", "/login/2fa", "/login/start", "/login/finish", "/api/v1/auth/login"] {
+            assert!(is_credential_endpoint(p), "{p}");
+        }
+        for p in ["/me", "/logout", "/change-password", "/", "/register/start"] {
+            assert!(!is_credential_endpoint(p), "{p}");
+        }
+    }
 }

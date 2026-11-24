@@ -2,10 +2,10 @@ use anyhow::{bail, Result};
 use std::env;
 use std::path::{Path, PathBuf};
 
-/// Default HTTP port for the worker node agent API (`0.0.0.0:2222`).
+/// Default HTTP port for the worker node agent API (`127.0.0.1:2222`).
 pub const DEFAULT_WORKER_PORT: u16 = 2222;
 /// Default listen address for the worker node agent HTTP API.
-pub const DEFAULT_WORKER_HOST: &str = "0.0.0.0";
+pub const DEFAULT_WORKER_HOST: &str = "127.0.0.1";
 /// Default directory for rendered core configuration and runtime state files.
 pub const DEFAULT_CONFIG_DIR: &str = "/var/lib/mypanel3-node";
 /// Default Xray-core binary path.
@@ -34,7 +34,7 @@ pub struct AgentConfig {
     pub node_name: String,
     /// Public host or domain of this node (`NODE_HOST`).
     pub node_host: String,
-    /// Bind address for the worker HTTP server (`WORKER_HOST`, default `"0.0.0.0"`).
+    /// Bind address for the worker HTTP server (`WORKER_HOST`, default `"127.0.0.1"`).
     pub worker_host: String,
     /// Bind port for the worker HTTP server (`WORKER_PORT`, default `2222`).
     pub worker_port: u16,

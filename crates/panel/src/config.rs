@@ -168,6 +168,19 @@ fn parse_duration(key: &str, default: &str) -> Duration {
         .unwrap_or_else(|| Duration::from_secs(60))
 }
 
+/// Placeholder used when `JWT_SECRET` is unset; must never be accepted in production.
+const DEFAULT_JWT_SECRET: &str = "change-this-in-production";
+
+/// Refuses to start in production with a missing, default or short `JWT_SECRET`.
+fn validate_production_secrets(jwt_secret: &str) -> Result<()> {
+    if jwt_secret == DEFAULT_JWT_SECRET || jwt_secret.len() < 32 {
+        return Err(anyhow!(
+            "JWT_SECRET must be set to a random value of at least 32 characters in production"
+        ));
+    }
+    Ok(())
+}
+
 impl Config {
     pub fn from_env() -> Result<Self> {
         let database_url = env_opt("DATABASE_URL")
@@ -207,6 +220,9 @@ impl Config {
         let jwt_secret = env_opt("JWT_SECRET")
             .unwrap_or_else(|| "change-this-in-production".into());
         let jwt_expires_in = parse_duration("JWT_EXPIRES_IN", "7d");
+        if production {
+            validate_production_secrets(&jwt_secret)?;
+        }
         let encryption_key = env_opt("ENCRYPTION_KEY");
         let trust_proxy = parse_bool("TRUST_PROXY", false);
         let rate_limit_window_ms = parse_num("RATE_LIMIT_WINDOW", 900_000u64)?;
@@ -282,5 +298,18 @@ impl Config {
             clickhouse_table: env_opt("CLICKHOUSE_TABLE")
                 .unwrap_or_else(|| "mypanel3_events".into()),
         })
+    }
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::validate_production_secrets;
+
+    #[test]
+    fn production_rejects_default_and_short_jwt_secrets() {
+        assert!(validate_production_secrets("change-this-in-production").is_err());
+        assert!(validate_production_secrets("short").is_err());
+        assert!(validate_production_secrets(&"a".repeat(31)).is_err());
+        assert!(validate_production_secrets(&"a".repeat(32)).is_ok());
     }
 }

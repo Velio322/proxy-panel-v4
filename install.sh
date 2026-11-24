@@ -824,6 +824,21 @@ ensure_swap() {
     fi
 }
 
+configure_logrotate() {
+    cat > /etc/logrotate.d/mypanel3-xray <<'LOGROTATE_EOF'
+/var/log/xray/*.log {
+    daily
+    rotate 3
+    maxsize 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
+LOGROTATE_EOF
+}
+
 configure_bbr() {
     if [[ "$ENABLE_BBR" != "true" ]]; then
         return 0
@@ -832,9 +847,18 @@ configure_bbr() {
     cat > /etc/sysctl.d/99-mypanel3.conf <<'EOF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_notsent_lowat = 131072
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
+net.ipv4.tcp_rmem = 4096 131072 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.core.netdev_max_backlog = 16384
+net.core.somaxconn = 8192
 EOF
+    modprobe tcp_bbr 2>/dev/null || true
+    echo tcp_bbr > /etc/modules-load.d/bbr.conf 2>/dev/null || true
     sysctl --system >/dev/null 2>&1 || warn "sysctl --system вернул предупреждения (нормально для части контейнеров)"
 }
 
@@ -1340,6 +1364,12 @@ write_panel_env() {
     enc_key="$(read_existing_env "$PANEL_ENV" "ENCRYPTION_KEY")"
     metrics_token="$(read_existing_env "$PANEL_ENV" "METRICS_TOKEN")"
 
+    # Plain HTTP to a private-address agent is only needed when panel and node share a host.
+    local node_api_flags=""
+    if [[ "$MODE" == "both" ]]; then
+        node_api_flags=$'ALLOW_PRIVATE_NODES=true\nNODE_API_PLAINTEXT=true\n'
+    fi
+
     [[ -n "$jwt_secret" ]] || jwt_secret="$(openssl rand -hex 32)"
     [[ -n "$enc_key" ]] || enc_key="$(openssl rand -hex 32)"
     [[ -n "$metrics_token" ]] || metrics_token="$(openssl rand -hex 24)"
@@ -1389,9 +1419,7 @@ TRUST_PROXY=${trust_proxy}
 RATE_LIMIT_WINDOW=900000
 RATE_LIMIT_MAX=300
 AUTH_RATE_LIMIT_MAX=20
-ALLOW_PRIVATE_NODES=true
-NODE_API_PLAINTEXT=true
-PROMETHEUS_ENABLED=true
+${node_api_flags}PROMETHEUS_ENABLED=true
 METRICS_TOKEN=${metrics_token}
 BACKUP_ENABLED=false
 BACKUP_INTERVAL="0 3 * * *"
@@ -1502,7 +1530,7 @@ RUST_LOG=info
 LOG_FORMAT=text
 EOF
     chown root:root "$NODE_ENV_FILE"
-    chmod 0640 "$NODE_ENV_FILE"
+    chmod 0600 "$NODE_ENV_FILE"
 }
 
 write_certbot_deploy_hook() {
@@ -2169,8 +2197,14 @@ ExecStart=/usr/local/bin/mypanel3 agent
 Restart=always
 RestartSec=5s
 LimitNOFILE=1048576
+TasksMax=4096
+OOMScoreAdjust=-500
 PrivateTmp=true
 ProtectHome=true
+NoNewPrivileges=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target
@@ -3108,6 +3142,7 @@ main() {
     ensure_swap
     install_base_packages
     configure_bbr
+    configure_logrotate
 
     step "2/6 Установка бинарника mypanel3"
     install_binary
