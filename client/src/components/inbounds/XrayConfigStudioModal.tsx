@@ -468,7 +468,7 @@ export function XrayConfigStudioModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
+      <DialogContent size="5xl">
         <DialogHeader>
           <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
             <div>

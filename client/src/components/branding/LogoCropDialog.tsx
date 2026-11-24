@@ -257,7 +257,7 @@ export function LogoCropDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md border-border/90 bg-zinc-950 text-zinc-100 p-5 shadow-2xl">
+      <DialogContent size="md" className="border-border/90 bg-zinc-950 text-zinc-100 p-5 shadow-2xl">
         <DialogHeader className="space-y-1">
           <div className="flex items-center justify-between gap-2">
             <DialogTitle className="text-base font-bold text-zinc-100">

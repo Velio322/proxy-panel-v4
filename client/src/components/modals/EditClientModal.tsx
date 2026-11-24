@@ -287,7 +287,7 @@ export function EditClientModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="2xl">
         <DialogHeader>
           <DialogTitle>
             {isRu ? `Клиент: ${client.username}` : `Edit Client: ${client.username}`}

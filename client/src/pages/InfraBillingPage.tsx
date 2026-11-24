@@ -478,7 +478,7 @@ export function InfraBillingPage() {
 
       {/* Provider Modal */}
       <Dialog open={providerModalOpen} onOpenChange={setProviderModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>
               {editingProvider
@@ -537,7 +537,7 @@ export function InfraBillingPage() {
 
       {/* Server Billing Modal */}
       <Dialog open={billingModalOpen} onOpenChange={setBillingModalOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle>
               {editingBilling

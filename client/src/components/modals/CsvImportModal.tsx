@@ -58,7 +58,7 @@ export function CsvImportModal({ open, onOpenChange, onImported }: CsvImportModa
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="2xl">
         <DialogHeader>
           <DialogTitle>Import Clients from CSV</DialogTitle>
           <DialogDescription>

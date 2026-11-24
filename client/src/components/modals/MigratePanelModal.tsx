@@ -53,7 +53,7 @@ export function MigratePanelModal({ open, onOpenChange, onMigrated }: MigratePan
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="2xl">
         <DialogHeader>
           <DialogTitle>Migrate from Marzban / Hiddify</DialogTitle>
           <DialogDescription>

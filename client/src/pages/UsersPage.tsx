@@ -376,7 +376,7 @@ export function UsersPage() {
       </Card>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>
               {editing
@@ -466,7 +466,7 @@ export function UsersPage() {
       </Dialog>
 
       <Dialog open={Boolean(revealedPassword)} onOpenChange={(o) => !o && setRevealedPassword(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>
               {isRu

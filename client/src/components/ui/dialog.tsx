@@ -23,16 +23,35 @@ export const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = 'DialogOverlay';
 
+/**
+ * Dialog widths follow the viewport instead of a fixed pixel cap: each size grows with the
+ * screen between a floor and a ceiling and never exceeds the viewport minus a small gutter.
+ * Heights use `dvh`, so mobile browser toolbars do not push the dialog off screen.
+ */
+export type DialogSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
+
+const DIALOG_SIZES: Record<DialogSize, string> = {
+  sm: 'max-w-[min(calc(100vw-1.5rem),clamp(20rem,28vw,26rem))]',
+  md: 'max-w-[min(calc(100vw-1.5rem),clamp(24rem,34vw,32rem))]',
+  lg: 'max-w-[min(calc(100vw-1.5rem),clamp(28rem,40vw,42rem))]',
+  xl: 'max-w-[min(calc(100vw-1.5rem),clamp(32rem,46vw,52rem))]',
+  '2xl': 'max-w-[min(calc(100vw-1.5rem),clamp(36rem,54vw,64rem))]',
+  '3xl': 'max-w-[min(calc(100vw-1.5rem),clamp(40rem,62vw,76rem))]',
+  '4xl': 'max-w-[min(calc(100vw-1.5rem),clamp(44rem,70vw,92rem))]',
+  '5xl': 'max-w-[min(calc(100vw-1.5rem),clamp(48rem,78vw,104rem))]',
+};
+
 export const DialogContent = React.forwardRef<
   React.ElementRef<typeof RadixDialog.Content>,
-  React.ComponentPropsWithoutRef<typeof RadixDialog.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof RadixDialog.Content> & { size?: DialogSize }
+>(({ className, children, size = 'lg', ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <RadixDialog.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-[60] grid w-[calc(100%-1.5rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border bg-card p-5 sm:p-6 text-card-foreground shadow-2xl max-h-[85dvh] overflow-y-auto focus:outline-none',
+        'fixed left-1/2 top-1/2 z-[60] grid w-[calc(100%-1.5rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border bg-card p-4 text-card-foreground shadow-2xl max-h-[calc(100dvh-1.5rem)] overflow-y-auto focus:outline-none sm:p-6 sm:max-h-[90dvh]',
+        DIALOG_SIZES[size],
         className,
       )}
       {...props}

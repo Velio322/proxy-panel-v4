@@ -90,7 +90,7 @@ export function BulkAssignNodesModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>
             {isRu ? `Назначить ноды (клиентов: ${clientIds.length})` : `Assign Nodes (${clientIds.length} client(s))`}

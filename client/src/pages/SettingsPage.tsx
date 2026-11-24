@@ -1613,7 +1613,7 @@ export function SettingsPage() {
 
       {/* Disable 2FA Modal */}
       <Dialog open={disable2faOpen} onOpenChange={setDisable2faOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>{isRu ? 'Отключить 2FA' : 'Disable 2FA'}</DialogTitle>
             <DialogDescription>
@@ -1641,7 +1641,7 @@ export function SettingsPage() {
 
       {/* Create API Key Modal */}
       <Dialog open={newKeyModalOpen} onOpenChange={setNewKeyModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>{isRu ? 'Создать API-ключ' : 'Create API Key'}</DialogTitle>
           </DialogHeader>
@@ -1690,7 +1690,7 @@ export function SettingsPage() {
 
       {/* One-Time API Key Reveal */}
       <Dialog open={Boolean(createdKeyToken)} onOpenChange={(o) => !o && setCreatedKeyToken(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>{isRu ? 'API-ключ создан' : 'API Key Created'}</DialogTitle>
             <DialogDescription>
@@ -1721,7 +1721,7 @@ export function SettingsPage() {
 
       {/* Webhook Modal */}
       <Dialog open={whModalOpen} onOpenChange={setWhModalOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle>
               {editingWh

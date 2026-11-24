@@ -288,7 +288,7 @@ export function ResellersPage() {
       )}
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle>
               {editing
@@ -353,7 +353,7 @@ export function ResellersPage() {
       </Dialog>
 
       <Dialog open={Boolean(statsReseller)} onOpenChange={(o) => !o && setStatsReseller(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>
               {isRu ? `Квота реселлера: ${statsReseller?.name}` : `Reseller Quota: ${statsReseller?.name}`}
