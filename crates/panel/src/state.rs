@@ -26,6 +26,8 @@ pub struct AppState {
     pub transfer_limiter: Arc<RateLimiter>,
     /// Per-IP limiter for authenticated-looking node endpoints (replaces a blanket exemption).
     pub node_limiter: Arc<RateLimiter>,
+    /// Public join endpoint: few attempts per IP and minute.
+    pub join_limiter: Arc<RateLimiter>,
     pub started_at: Instant,
     pub encryption_key: Option<[u8; 32]>,
     pub backup_running: Arc<AtomicBool>,
@@ -55,6 +57,7 @@ impl AppState {
         ));
         let transfer_limiter = Arc::new(RateLimiter::new(Duration::from_secs(60), 5));
         let node_limiter = Arc::new(RateLimiter::new(Duration::from_secs(60), 1200));
+        let join_limiter = Arc::new(RateLimiter::new(Duration::from_secs(60), 10));
 
         let mtls_ca = MtlsCa::load_or_generate(Some(&cfg.data_dir))
             .unwrap_or_else(|_| {
@@ -92,6 +95,7 @@ impl AppState {
             auth_limiter,
             transfer_limiter,
             node_limiter,
+            join_limiter,
             started_at: Instant::now(),
             encryption_key,
             backup_running: Arc::new(AtomicBool::new(false)),

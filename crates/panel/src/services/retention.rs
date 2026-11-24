@@ -46,6 +46,7 @@ pub async fn cleanup_old_records(pool: &PgPool) -> AppResult<()> {
     prune(pool, "AuditLog", "createdAt", "true", days(180)).await?;
     // Delivered commands are history; commands pending for a month belong to nodes that are gone
     // (a connecting node always receives the full current config anyway).
+    prune(pool, "NodeJoinToken", "expiresAt", "true", days(7)).await?;
     prune(pool, "NodeCommand", "createdAt", "status = 'ACKNOWLEDGED'", days(7)).await?;
     prune(pool, "NodeCommand", "createdAt", "status = 'PENDING'", days(30)).await?;
 

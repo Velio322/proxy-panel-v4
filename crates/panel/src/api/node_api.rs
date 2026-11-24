@@ -17,6 +17,7 @@ use sqlx::Row;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
+        .route("/join", post(crate::api::node_join::join))
         .route("/heartbeat", post(heartbeat))
         .route("/config", get(get_config))
         .route("/binary", get(crate::api::install_assets::download_node_binary))

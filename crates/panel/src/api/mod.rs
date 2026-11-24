@@ -14,6 +14,7 @@ pub mod logs;
 pub mod middleware;
 pub mod monitoring;
 pub mod node_api;
+pub mod node_join;
 pub mod nodes;
 pub mod notifications;
 pub mod openapi;

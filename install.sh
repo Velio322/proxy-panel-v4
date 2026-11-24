@@ -41,6 +41,7 @@ PANEL_IP=""
 NODE_DOMAIN=""
 NODE_NAME=""
 NODE_SECRET=""
+JOIN_TOKEN=""
 API_PORT="2222"
 API_PORT_EXPLICIT="false"
 CORES_SPEC="all"
@@ -181,6 +182,7 @@ usage() {
   --panel-ip <IP[,CIDR...]>     IP/CIDR управляющей панели (для UFW и привязки порта агента)
   --node-domain <DOMAIN|IP>     Домен или публичный IPv4/IPv6 ноды
   --node-name <NAME>            Отображаемое имя ноды (по умолчанию: hostname)
+  --join <TOKEN>                Одноразовый токен из панели (Ноды -> Добавить ноду): секрет и имя создаются автоматически
   --node-secret <SECRET>        Секрет ноды NODE_SECRET (16–256 символов из веб-интерфейса панели)
   --api-port <PORT>             Порт управления нодой (по умолчанию: 2222)
   --tls-mode <none|port2222|auto|internal>
@@ -333,6 +335,12 @@ parse_args() {
             --node-name)
                 [[ $# -ge 2 ]] || die "--node-name требует значение"
                 NODE_NAME="$2"
+                shift 2
+                ;;
+            --join)
+                [[ $# -ge 2 ]] || die "--join требует значение"
+                JOIN_TOKEN="$(sanitize_secret "$2")"
+                NON_INTERACTIVE="true"
                 shift 2
                 ;;
             --node-secret)
@@ -3121,6 +3129,42 @@ print_summary() {
     printf '%s╚══════════════════════════════════════════════════════════════════════╝%s\n\n' "$bc" "$C_RESET"
 }
 
+# Exchanges a one-time --join token for this node's secret (created server-side) and fills in
+# every value the interactive node wizard would otherwise ask for.
+redeem_join_token() {
+    [[ -n "$JOIN_TOKEN" ]] || return 0
+    [[ -n "$MASTER_URL" ]] || die "--join требует --master-url (команда из панели содержит его)"
+    MODE="${MODE:-node}"
+    [[ "$MODE" == "node" ]] || die "--join работает только с --mode node"
+    [[ -z "$NODE_SECRET" ]] || die "--join нельзя сочетать с --node-secret"
+
+    local host="${NODE_DOMAIN:-$(detect_public_ipv4)}"
+    [[ -n "$host" ]] || die "Не удалось определить публичный адрес ноды; укажите --node-domain"
+    local name="${NODE_NAME:-$(hostname -s 2>/dev/null || hostname)}"
+    # Values go into a JSON body by hand: keep them to a safe character set.
+    host="$(printf '%s' "$host" | tr -cd 'A-Za-z0-9._:-')"
+    name="$(printf '%s' "$name" | tr -cd 'A-Za-z0-9._ -')"
+
+    log "Регистрирую ноду в панели по одноразовому токену..."
+    local resp=""
+    resp="$(curl -fsS --max-time 20 -X POST "${MASTER_URL%/}/api/v1/nodes/self/join" \
+        -H 'Content-Type: application/json' \
+        --data "$(printf '{"token":"%s","host":"%s","name":"%s","apiPort":%s,"arch":"%s"}' \
+            "$JOIN_TOKEN" "$host" "$name" "${API_PORT:-2222}" "${ARCH:-amd64}")")" \
+        || die "Панель отклонила токен (истёк, уже использован или неверный). Создайте новый в панели."
+
+    local secret="" node_name=""
+    secret="$(printf '%s' "$resp" | sed -n 's/.*"secret":"\([^"]*\)".*/\1/p')"
+    node_name="$(printf '%s' "$resp" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
+    validate_node_secret "$secret" || die "Панель вернула некорректный ответ при регистрации ноды"
+
+    NODE_SECRET="$secret"
+    NODE_DOMAIN="$host"
+    [[ -n "$NODE_NAME" ]] || NODE_NAME="${node_name:-$name}"
+    JOIN_TOKEN=""
+    ok "Нода зарегистрирована: ${NODE_NAME}"
+}
+
 main() {
     init_colors
     parse_args "$@"
@@ -3129,6 +3173,7 @@ main() {
     ensure_curl
     detect_public_ipv4 >/dev/null || true
     print_banner
+    redeem_join_token
 
     if [[ "$UPGRADE_ONLY" == "true" ]]; then
         run_upgrade

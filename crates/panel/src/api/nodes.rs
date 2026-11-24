@@ -26,6 +26,7 @@ use std::time::Duration;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list).post(create))
+        .route("/join-tokens", post(crate::api::node_join::create_join_token))
         .route("/{id}", get(get_one).put(update).delete(remove))
         .route("/{id}/check", post(check))
         .route("/{id}/push-config", post(push_config))
@@ -715,7 +716,7 @@ fn is_domain_host(host: &str) -> bool {
     !h.is_empty() && h.parse::<std::net::IpAddr>().is_err()
 }
 
-fn resolve_panel_urls(state: &AppState, headers: &HeaderMap) -> (String, String) {
+pub(crate) fn resolve_panel_urls(state: &AppState, headers: &HeaderMap) -> (String, String) {
     let req_host = headers
         .get("x-forwarded-host")
         .or_else(|| headers.get(axum::http::header::HOST))
