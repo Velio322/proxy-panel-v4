@@ -20,6 +20,8 @@ RUN apt-get update \
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY crates ./crates
+COPY install.sh ./install.sh
+COPY deploy ./deploy
 COPY .sqlx ./.sqlx
 COPY --from=client /build/client/dist ./client/dist
 ENV SQLX_OFFLINE=true

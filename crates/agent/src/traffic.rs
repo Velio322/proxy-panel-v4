@@ -377,11 +377,37 @@ fn json_u64(v: &Value) -> Option<u64> {
         .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
 }
 
+/// Persisted reader position, so an agent restart or a log rotation neither re-counts nor drops
+/// traffic: `totals` stays a monotonic cumulative that the traffic tracker can baseline against.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct NaiveReaderState {
+    #[serde(default)]
+    inode: Option<u64>,
+    #[serde(default)]
+    offset: u64,
+    #[serde(default)]
+    totals: HashMap<String, TrafficCounter>,
+}
+
 /// Incremental Caddy JSON access log reader for NaiveProxy (`<CONFIG_DIR>/naive-access.log`).
 #[derive(Debug, Default)]
 pub struct NaiveAccessLogReader {
     offset: u64,
+    inode: Option<u64>,
     totals: HashMap<String, TrafficCounter>,
+    state_path: Option<PathBuf>,
+    state_loaded: bool,
+}
+
+#[cfg(unix)]
+fn inode_of(meta: &std::fs::Metadata) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    Some(meta.ino())
+}
+
+#[cfg(not(unix))]
+fn inode_of(_meta: &std::fs::Metadata) -> Option<u64> {
+    None
 }
 
 impl NaiveAccessLogReader {
@@ -389,36 +415,87 @@ impl NaiveAccessLogReader {
         Self::default()
     }
 
-    /// Reads any newly appended JSON lines from `log_path` since the last offset
-    /// (handling log rotation/truncation) and returns cumulative per-user counters (`unmetered: false`).
-    pub async fn poll(&mut self, log_path: &Path) -> HashMap<String, TrafficCounter> {
-        let Ok(meta) = tokio::fs::metadata(log_path).await else {
-            return self.totals.clone();
-        };
-        let len = meta.len();
-        if len < self.offset {
-            // File was truncated or rotated
-            self.offset = 0;
+    /// Reader that persists its position and totals to `state_path` (loaded lazily on first poll).
+    pub fn with_state_file(state_path: impl AsRef<Path>) -> Self {
+        Self {
+            state_path: Some(state_path.as_ref().to_path_buf()),
+            ..Self::default()
         }
-        if len == self.offset {
-            return self.totals.clone();
-        }
+    }
 
-        let Ok(mut file) = tokio::fs::File::open(log_path).await else {
-            return self.totals.clone();
-        };
-        if file.seek(std::io::SeekFrom::Start(self.offset)).await.is_err() {
-            return self.totals.clone();
+    async fn load_state(&mut self) {
+        if self.state_loaded {
+            return;
         }
+        self.state_loaded = true;
+        let Some(path) = &self.state_path else { return };
+        let Ok(raw) = tokio::fs::read_to_string(path).await else { return };
+        if let Ok(st) = serde_json::from_str::<NaiveReaderState>(&raw) {
+            self.inode = st.inode;
+            self.offset = st.offset;
+            self.totals = st.totals;
+        }
+    }
 
+    async fn save_state(&self) {
+        let Some(path) = &self.state_path else { return };
+        let st = NaiveReaderState {
+            inode: self.inode,
+            offset: self.offset,
+            totals: self.totals.clone(),
+        };
+        if let Ok(bytes) = serde_json::to_vec(&st) {
+            if let Err(e) = write_atomic_0600(path, &bytes).await {
+                tracing::warn!(error = %e, "failed to persist naive reader state");
+            }
+        }
+    }
+
+    /// Finds the rotated sibling of `log_path` that still has inode `old_inode` (Caddy renames
+    /// the file on rotation, so the inode survives; compressed `.gz` copies are not readable).
+    async fn find_rotated(log_path: &Path, old_inode: u64) -> Option<PathBuf> {
+        let dir = log_path.parent()?;
+        let stem = log_path.file_stem()?.to_string_lossy().to_string();
+        let mut rd = tokio::fs::read_dir(dir).await.ok()?;
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            let path = entry.path();
+            if path == log_path {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(&stem) || name.ends_with(".gz") {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata().await {
+                if inode_of(&meta) == Some(old_inode) {
+                    return Some(path);
+                }
+            }
+        }
+        None
+    }
+
+    /// Ingests complete lines of `path` from `from`, returning the new offset. A trailing
+    /// partial line (Caddy mid-write) is left for the next poll instead of being parsed half.
+    async fn read_from(&mut self, path: &Path, from: u64) -> u64 {
+        let Ok(mut file) = tokio::fs::File::open(path).await else {
+            return from;
+        };
+        if file.seek(std::io::SeekFrom::Start(from)).await.is_err() {
+            return from;
+        }
         let mut reader = BufReader::new(file);
+        let mut offset = from;
         let mut line = String::new();
         loop {
             line.clear();
             match reader.read_line(&mut line).await {
                 Ok(0) => break,
                 Ok(n) => {
-                    self.offset = self.offset.saturating_add(n as u64);
+                    if !line.ends_with('\n') {
+                        break;
+                    }
+                    offset = offset.saturating_add(n as u64);
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
                         self.ingest_line(trimmed);
@@ -427,7 +504,53 @@ impl NaiveAccessLogReader {
                 Err(_) => break,
             }
         }
+        offset
+    }
 
+    /// Reads any newly appended JSON lines from `log_path` since the last offset and returns
+    /// cumulative per-user counters (`unmetered: false`). Rotation is detected by inode change;
+    /// the unread tail of the rotated file is consumed first so no bytes are lost.
+    pub async fn poll(&mut self, log_path: &Path) -> HashMap<String, TrafficCounter> {
+        self.load_state().await;
+        let Ok(meta) = tokio::fs::metadata(log_path).await else {
+            return self.totals.clone();
+        };
+        let len = meta.len();
+        let ino = inode_of(&meta);
+        let before = (self.offset, self.inode, self.totals.len());
+
+        let rotated = matches!((self.inode, ino), (Some(old), Some(new)) if old != new);
+        if rotated {
+            let old_inode = self.inode.unwrap_or_default();
+            match Self::find_rotated(log_path, old_inode).await {
+                Some(old_path) => {
+                    let from = self.offset;
+                    self.read_from(&old_path, from).await;
+                }
+                None => tracing::warn!(
+                    "naive access log rotated and the old file is gone or compressed; \
+                     its unread tail could not be counted"
+                ),
+            }
+            self.offset = 0;
+        } else if len < self.offset {
+            // Truncated in place.
+            self.offset = 0;
+        }
+        self.inode = ino;
+
+        if len > self.offset {
+            let from = self.offset;
+            self.offset = self.read_from(log_path, from).await;
+        }
+
+        let after_len = self.totals.len();
+        if before.0 != self.offset || before.1 != self.inode || before.2 != after_len || rotated {
+            self.save_state().await;
+        } else if self.state_path.is_some() {
+            // Totals may have changed without the offset moving only on rotation; cheap enough
+            // to skip here.
+        }
         self.totals.clone()
     }
 
@@ -1142,5 +1265,76 @@ mod tests {
         assert_eq!(replay.len(), 1);
         assert_eq!(replay[0].batch_id, first.batch_id);
         assert_eq!(t.pending_replay(1, &HashSet::new()).len(), 1);
+    }
+
+    fn naive_line(user: &str, up: u64, down: u64) -> String {
+        format!("{{\"user_id\":\"{user}\",\"bytes_read\":{up},\"size\":{down}}}\n")
+    }
+
+    fn tmp_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("mypanel-naive-{tag}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[tokio::test]
+    async fn naive_reader_resumes_after_restart_without_recounting() {
+        let dir = tmp_dir("resume");
+        let log = dir.join("naive-access.log");
+        let state = dir.join("naive-reader.json");
+        std::fs::write(&log, naive_line("a", 10, 100) + &naive_line("b", 1, 2)).unwrap();
+
+        let mut r1 = NaiveAccessLogReader::with_state_file(&state);
+        let t1 = r1.poll(&log).await;
+        assert_eq!((t1["a"].upload, t1["a"].download), (10, 100));
+
+        // "Agent restart": a new reader loads the persisted position and totals.
+        let mut r2 = NaiveAccessLogReader::with_state_file(&state);
+        let t2 = r2.poll(&log).await;
+        assert_eq!((t2["a"].upload, t2["a"].download), (10, 100), "must not recount");
+
+        let mut f = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+        std::io::Write::write_all(&mut f, naive_line("a", 5, 50).as_bytes()).unwrap();
+        let t3 = r2.poll(&log).await;
+        assert_eq!((t3["a"].upload, t3["a"].download), (15, 150));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn naive_reader_reads_tail_of_rotated_file_then_the_new_one() {
+        let dir = tmp_dir("rotate");
+        let log = dir.join("naive-access.log");
+        std::fs::write(&log, naive_line("a", 10, 100)).unwrap();
+        let mut r = NaiveAccessLogReader::with_state_file(dir.join("st.json"));
+        r.poll(&log).await;
+
+        // Unread line lands in the old file, then Caddy rotates and starts a fresh one.
+        let mut f = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+        std::io::Write::write_all(&mut f, naive_line("a", 7, 70).as_bytes()).unwrap();
+        drop(f);
+        std::fs::rename(&log, dir.join("naive-access-2026-11-24T10-00-00.000.log")).unwrap();
+        std::fs::write(&log, naive_line("a", 3, 30)).unwrap();
+
+        let t = r.poll(&log).await;
+        assert_eq!((t["a"].upload, t["a"].download), (20, 200));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn naive_reader_ignores_a_partial_trailing_line() {
+        let dir = tmp_dir("partial");
+        let log = dir.join("naive-access.log");
+        let full = naive_line("a", 4, 40);
+        let half = &naive_line("a", 9, 90)[..20];
+        std::fs::write(&log, format!("{full}{half}")).unwrap();
+        let mut r = NaiveAccessLogReader::new();
+        let t = r.poll(&log).await;
+        assert_eq!((t["a"].upload, t["a"].download), (4, 40));
+
+        // The writer finishes the line; it is counted exactly once.
+        std::fs::write(&log, format!("{full}{}", naive_line("a", 9, 90))).unwrap();
+        let t = r.poll(&log).await;
+        assert_eq!((t["a"].upload, t["a"].download), (13, 130));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -134,6 +134,7 @@ impl ProcessManager {
     pub fn new(config: AgentConfig, http_client: reqwest::Client) -> Self {
         let xray_tonic = TonicXrayClient::new(config.xray_api_port, &config.xray_bin);
         let xray_handler: Arc<dyn XrayHandlerClient> = Arc::new(xray_tonic.clone());
+        let naive_log_reader = NaiveAccessLogReader::with_state_file(config.naive_reader_state_path());
         Self {
             config,
             http_client,
@@ -149,7 +150,7 @@ impl ProcessManager {
             port_share: PortShareRuntime::new(),
             telemetry: TelemetryCollector::new(),
             singbox_tracker: SingboxConnectionTracker::new(),
-            naive_log_reader: NaiveAccessLogReader::new(),
+            naive_log_reader,
             logs: LogBuffer::new(),
             restart_counts: HashMap::new(),
             heal_failures: 0,
@@ -652,7 +653,16 @@ impl ProcessManager {
                 terminate_child(&mut mc.child).await;
             }
         }
-        for ib in mieru_inbounds {
+        for (idx, ib) in mieru_inbounds.into_iter().enumerate() {
+            if idx > 0 {
+                // All mita instances share /var/run/mita/mita.sock, so a second one would silently
+                // fight the first. Report it instead.
+                problems.push(format!(
+                    "mieru inbound '{}' skipped: only one mieru inbound per node is supported",
+                    ib.tag
+                ));
+                continue;
+            }
             if unchanged(&format!("mieru:{}", ib.id)) && self.mieru_procs.contains_key(&ib.id) {
                 continue;
             }
@@ -1122,6 +1132,20 @@ impl ProcessManager {
             || self.singbox_running()
             || self.naive_running()
             || self.mieru_running()
+    }
+
+    /// Polls sing-box `/connections` so short-lived connections (hysteria2, tuic, anytls) are
+    /// seen before they close; called every few seconds by the supervisor. The tracker keeps
+    /// per-connection baselines, so extra samples never double count.
+    pub async fn sample_singbox(&mut self) {
+        if !self.singbox_running() {
+            return;
+        }
+        if let Ok(body) =
+            fetch_singbox_connections_json(&self.http_client, &self.config.singbox_api_addr).await
+        {
+            let _ = self.singbox_tracker.ingest_connections_json(&body);
+        }
     }
 
     /// Collects cumulative per-user traffic counters across all 4 proxy cores (`unmetered: false`).

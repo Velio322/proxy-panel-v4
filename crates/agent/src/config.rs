@@ -270,6 +270,11 @@ impl AgentConfig {
         self.config_dir.join("traffic-pending.json")
     }
 
+    /// Path to `<CONFIG_DIR>/naive-reader.json` (persisted naive log position and totals).
+    pub fn naive_reader_state_path(&self) -> PathBuf {
+        self.config_dir.join("naive-reader.json")
+    }
+
     /// Path to `<CONFIG_DIR>/naive-access.log`.
     pub fn naive_access_log_path(&self) -> PathBuf {
         self.config_dir.join("naive-access.log")

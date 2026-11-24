@@ -199,6 +199,8 @@ pub fn generate_caddyfile(
     out.push_str(&format!("    output file {q_log_path} {{\n"));
     out.push_str("      roll_size 50mb\n");
     out.push_str("      roll_keep 3\n");
+    // Keep rotated files uncompressed so the agent can still read the unread tail by inode.
+    out.push_str("      roll_compression none\n");
     out.push_str("    }\n");
     // Request headers (Proxy-Authorization, cookies, ...) never belong in the log; the
     // traffic reader only needs `user_id`, `bytes_read` and `size`.

@@ -1880,7 +1880,11 @@ EOF
     {
         printf '{\n'
         [[ -n "$EMAIL" ]] && printf '\temail %s\n' "$EMAIL"
-        printf '\tauto_https off\n\tservers {\n\t\tprotocols h1 h2\n\t}\n}\n\n'
+        printf '\tauto_https off\n\tservers {\n\t\tprotocols h1 h2\n\t}\n'
+        # HAProxy forwards panel traffic with the PROXY protocol so Caddy (and the panel's rate
+        # limits / audit log) see real client IPs. Non-PROXY connections (Xray's Reality fallback)
+        # are still accepted because the wrapper is permissive for loopback.
+        printf '\tservers 127.0.0.1:9443 {\n\t\tprotocols h1 h2\n\t\tlistener_wrappers {\n\t\t\tproxy_protocol {\n\t\t\t\ttimeout 5s\n\t\t\t\tallow 127.0.0.1/32\n\t\t\t}\n\t\t\ttls\n\t\t}\n\t}\n}\n\n'
 
         for d in "${all_domains[@]}"; do
             cat <<EOF
@@ -2005,7 +2009,7 @@ backend be_xray_reality
     server xray 127.0.0.1:443
 
 backend be_caddy_sites
-    server caddy 127.0.0.1:9443
+    server caddy 127.0.0.1:9443 send-proxy
 EOF
     haproxy -c -f "$HAPROXY_FILE"
     systemctl enable --now haproxy

@@ -196,6 +196,7 @@ async fn supervise_cores(pm: Arc<Mutex<process::ProcessManager>>, cancel: Cancel
             _ = tick.tick() => {
                 let mut guard = pm.lock().await;
                 let _ = guard.heal_dead_cores().await;
+                guard.sample_singbox().await;
             }
         }
     }
