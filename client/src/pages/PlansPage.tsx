@@ -262,7 +262,7 @@ export function PlansPage() {
             return (
               <div
                 key={plan.id}
-                className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-4 pl-5 transition-colors hover:border-primary/45"
+                className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-colors hover:border-primary/45"
               >
                 <div
                   className={cn(
@@ -294,7 +294,7 @@ export function PlansPage() {
                     </span>
                   </div>
 
-                  <div className="rack-inset grid grid-cols-2 gap-2 rounded-lg p-3 text-xs">
+                  <div className="rack-inset grid grid-cols-2 gap-2 rounded-lg p-2 text-xs">
                     <div>
                       <div className="text-[10px] text-muted-foreground">{isRu ? 'Трафик' : 'Traffic'}</div>
                       <div className="font-mono font-semibold">

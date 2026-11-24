@@ -446,7 +446,7 @@ export function InfraBillingPage() {
               {providers.map((p) => (
                 <div
                   key={p.id}
-                  className="node-blade relative overflow-hidden rounded-xl border border-border/80 p-4 pl-5 space-y-2"
+                  className="node-blade relative overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 space-y-2"
                 >
                   <div className="absolute inset-y-0 left-0 w-1 bg-cyan-400" aria-hidden="true" />
                   <div className="flex items-center justify-between">

@@ -97,7 +97,7 @@ export function InboundBladeCard({
         aria-hidden="true"
       />
 
-      <div className="space-y-3.5 p-4 pl-5">
+      <div className="space-y-2 p-3 pl-4">
         {/* Header Row */}
         <div className="flex flex-wrap items-start justify-between gap-2.5">
           <div className="min-w-0 space-y-1">
@@ -197,7 +197,7 @@ export function InboundBladeCard({
         {/* 3-Cell Technical Spec Grid */}
         <div className="grid gap-2.5 sm:grid-cols-3 text-xs">
           {/* Target Node */}
-          <div className="rack-inset rounded-lg p-2.5 space-y-1">
+          <div className="rack-inset rounded-lg p-2 space-y-1">
             <div className="text-[11px] text-muted-foreground">{isRu ? 'Целевая нода' : 'Target Node'}</div>
             <Link
               to={`/nodes/${inbound.nodeId}`}
@@ -209,7 +209,7 @@ export function InboundBladeCard({
           </div>
 
           {/* Transport & TLS */}
-          <div className="rack-inset rounded-lg p-2.5 space-y-1">
+          <div className="rack-inset rounded-lg p-2 space-y-1">
             <div className="text-[11px] text-muted-foreground">
               {isRu ? 'Транспорт и защита' : 'Transport & Security'}
             </div>
@@ -237,7 +237,7 @@ export function InboundBladeCard({
           </div>
 
           {/* Port-Shares & Sniffing */}
-          <div className="rack-inset rounded-lg p-2.5 space-y-1">
+          <div className="rack-inset rounded-lg p-2 space-y-1">
             <div className="text-[11px] text-muted-foreground">
               {isRu ? 'Опции и Port-Share' : 'Options & Port-Share'}
             </div>

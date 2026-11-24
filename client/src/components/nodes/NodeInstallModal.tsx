@@ -423,7 +423,7 @@ export function NodeInstallModal({
               </div>
 
               {/* Options Grid */}
-              <div className="rack-inset space-y-3 rounded-xl p-3">
+              <div className="rack-inset space-y-3 rounded-xl p-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-medium text-foreground">
                     {isRu ? 'Параметры команды установки' : 'Installer Options'}

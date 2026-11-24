@@ -194,7 +194,7 @@ export function SubscriptionTemplatesPage() {
           {templates.map((tmpl) => (
             <div
               key={tmpl.id}
-              className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-4 pl-5 transition-colors hover:border-primary/45"
+              className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-colors hover:border-primary/45"
             >
               <div
                 className={cn(
@@ -216,7 +216,7 @@ export function SubscriptionTemplatesPage() {
                 <Badge variant="outline" className="font-mono text-[10px]">
                   {tmpl.templateType}
                 </Badge>
-                <pre className="rack-inset max-h-28 overflow-hidden rounded-lg p-2.5 font-mono text-[11px] text-muted-foreground">
+                <pre className="rack-inset max-h-28 overflow-hidden rounded-lg p-2 font-mono text-[11px] text-muted-foreground">
                   {tmpl.content}
                 </pre>
               </div>

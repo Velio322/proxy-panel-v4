@@ -273,7 +273,7 @@ export function AuditPage() {
                         {expanded && hasDetails && (
                           <tr className="border-b bg-muted/10">
                             <td colSpan={6} className="p-3">
-                              <pre className="rack-inset max-h-48 overflow-auto rounded-lg p-3 font-mono text-[11px]">
+                              <pre className="rack-inset max-h-48 overflow-auto rounded-lg p-2 font-mono text-[11px]">
                                 {JSON.stringify(entry.details, null, 2)}
                               </pre>
                             </td>

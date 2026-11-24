@@ -1172,7 +1172,7 @@ export function SettingsPage() {
                   {passkeys.map((pk) => (
                     <div
                       key={pk.id}
-                      className="rack-inset flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs"
+                      className="rack-inset flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs"
                     >
                       <div>
                         <div className="font-semibold">{pk.name || pk.id}</div>
@@ -1258,7 +1258,7 @@ export function SettingsPage() {
                   {apiKeys.map((k) => (
                     <div
                       key={k.id}
-                      className="rack-inset flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs"
+                      className="rack-inset flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs"
                     >
                       <div className="space-y-1">
                         <div className="font-semibold text-sm">{k.name}</div>
@@ -1346,7 +1346,7 @@ export function SettingsPage() {
                   {webhooks.map((wh) => (
                     <div
                       key={wh.id}
-                      className="rack-inset flex flex-wrap items-center justify-between gap-3 rounded-xl p-3.5 text-xs"
+                      className="rack-inset flex flex-wrap items-center justify-between gap-3 rounded-xl p-2 text-xs"
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -1480,7 +1480,7 @@ export function SettingsPage() {
               {coreCatalog.length > 0 && (
                 <div className="grid gap-2 sm:grid-cols-2">
                   {coreCatalog.map((c) => (
-                    <div key={c.core} className="rack-inset rounded-xl p-3.5 text-xs space-y-1">
+                    <div key={c.core} className="rack-inset rounded-xl p-2 text-xs space-y-1">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold">{c.name || c.core.toUpperCase()}</span>
                         {c.releaseUrl && (
@@ -1524,7 +1524,7 @@ export function SettingsPage() {
                   return (
                     <div
                       key={n.id}
-                      className="node-blade relative flex flex-wrap items-center justify-between gap-3 overflow-hidden rounded-xl border border-border/80 p-3.5 pl-5 text-xs"
+                      className="node-blade relative flex flex-wrap items-center justify-between gap-3 overflow-hidden rounded-xl border border-border/80 p-2 pl-5 text-xs"
                     >
                       <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400" aria-hidden="true" />
                       <div className="space-y-1">
@@ -1586,7 +1586,7 @@ export function SettingsPage() {
                   return (
                     <div
                       key={b.id}
-                      className="rack-inset flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs"
+                      className="rack-inset flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs"
                     >
                       <div>
                         <span className="font-semibold">{b.type}</span> · {b.destination} ·{' '}

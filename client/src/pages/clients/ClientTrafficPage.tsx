@@ -278,7 +278,7 @@ export function ClientTrafficPage() {
                     <Link
                       key={ns.nodeId}
                       to={`/nodes/${ns.nodeId}`}
-                      className="rack-inset block rounded-xl p-3 text-xs transition-colors hover:border-primary/45"
+                      className="rack-inset block rounded-xl p-2 text-xs transition-colors hover:border-primary/45"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold">{ns.nodeName || ns.nodeId}</span>
@@ -325,7 +325,7 @@ export function ClientTrafficPage() {
                 {devices.map((dev) => (
                   <div
                     key={dev.id}
-                    className="rack-inset flex items-center justify-between rounded-xl px-3 py-2.5 text-xs"
+                    className="rack-inset flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <Smartphone className="h-3.5 w-3.5 text-primary shrink-0" />

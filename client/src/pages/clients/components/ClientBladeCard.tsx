@@ -91,7 +91,7 @@ export function ClientBladeCard({
     >
       <div className={cn('absolute inset-y-0 left-0 w-1', railClass)} aria-hidden="true" />
 
-      <div className="space-y-3.5 p-4 pl-5">
+      <div className="space-y-2 p-3 pl-4">
         {/* Header Row */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
@@ -253,7 +253,7 @@ export function ClientBladeCard({
         {/* Middle 3-Column Telemetry Strip */}
         <div className="grid gap-2 md:grid-cols-3">
           {/* 1. Traffic Quota */}
-          <div className="rack-inset rounded-lg p-3 space-y-2">
+          <div className="rack-inset rounded-lg p-2 space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">{t('clients.colTraffic')}</span>
               <span className="font-mono font-bold tabular-nums">
@@ -273,7 +273,7 @@ export function ClientBladeCard({
           </div>
 
           {/* 2. Protocols & Node Pinning */}
-          <div className="rack-inset rounded-lg p-3 space-y-2">
+          <div className="rack-inset rounded-lg p-2 space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">{t('clients.colProtocols')}</span>
               <button
@@ -319,7 +319,7 @@ export function ClientBladeCard({
           </div>
 
           {/* 3. Lifecycle & Devices */}
-          <div className="rack-inset rounded-lg p-3 space-y-2 text-xs">
+          <div className="rack-inset rounded-lg p-2 space-y-2 text-xs">
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1 text-muted-foreground">
                 <Calendar className="h-3 w-3" />

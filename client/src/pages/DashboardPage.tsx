@@ -224,7 +224,7 @@ export function DashboardPage() {
       {/* Clickable 4-Card Tactical KPI Ribbon */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Link to="/clients" className="group block">
-          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-4 pl-5 transition-all group-hover:border-primary/45">
+          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-all group-hover:border-primary/45">
             <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400" aria-hidden="true" />
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>{t('dashboard.totalClients')}</span>
@@ -258,7 +258,7 @@ export function DashboardPage() {
         </Link>
 
         <Link to="/nodes" className="group block">
-          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-4 pl-5 transition-all group-hover:border-emerald-500/45">
+          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-all group-hover:border-emerald-500/45">
             <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400 shadow-[0_0_10px_hsl(162_84%_43%/0.6)]" aria-hidden="true" />
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>{t('dashboard.onlineNodes')}</span>
@@ -291,7 +291,7 @@ export function DashboardPage() {
         </Link>
 
         <Link to="/inbounds" className="group block">
-          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-4 pl-5 transition-all group-hover:border-cyan-500/45">
+          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-all group-hover:border-cyan-500/45">
             <div className="absolute inset-y-0 left-0 w-1 bg-cyan-400" aria-hidden="true" />
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>{t('dashboard.totalInbounds')}</span>
@@ -328,7 +328,7 @@ export function DashboardPage() {
         </Link>
 
         <Link to="/monitoring" className="group block">
-          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-4 pl-5 transition-all group-hover:border-teal-500/45">
+          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-all group-hover:border-teal-500/45">
             <div className="absolute inset-y-0 left-0 w-1 bg-teal-400" aria-hidden="true" />
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>{t('dashboard.trafficMonth')}</span>
@@ -387,9 +387,9 @@ export function DashboardPage() {
         <CardContent>
           {nodesLoading ? (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              <Skeleton className="h-36 w-full rounded-xl" />
-              <Skeleton className="h-36 w-full rounded-xl" />
-              <Skeleton className="h-36 w-full rounded-xl" />
+              <Skeleton className="h-28 w-full rounded-xl" />
+              <Skeleton className="h-28 w-full rounded-xl" />
+              <Skeleton className="h-28 w-full rounded-xl" />
             </div>
           ) : nodes.length === 0 ? (
             <RackEmptyState
@@ -415,7 +415,7 @@ export function DashboardPage() {
                 return (
                   <div
                     key={n.id}
-                    className="node-blade relative overflow-hidden rounded-xl border border-border/80 p-3.5 pl-4 transition-colors hover:border-primary/45"
+                    className="node-blade relative overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-colors hover:border-primary/45"
                   >
                     <div
                       className={cn(
@@ -471,7 +471,7 @@ export function DashboardPage() {
                         </span>
                       </div>
 
-                      <div className="rack-inset grid grid-cols-2 gap-2.5 rounded-lg p-2.5 text-[11px]">
+                      <div className="rack-inset grid grid-cols-2 gap-2.5 rounded-lg p-2 text-[11px]">
                         <div className="space-y-1">
                           <div className="flex justify-between font-mono tabular-nums">
                             <span className="text-muted-foreground">CPU</span>
@@ -631,12 +631,12 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-3.5 text-xs">
             <div className="grid grid-cols-2 gap-2.5">
-              <div className="rack-inset flex flex-col items-center justify-center rounded-xl p-3 text-center">
-                <RadialGauge value={cpuPct} tone="emerald" size={72} label="CPU" />
+              <div className="rack-inset flex flex-col items-center justify-center rounded-xl p-2 text-center">
+                <RadialGauge value={cpuPct} tone="emerald" size={56} label="CPU" />
                 <span className="mt-1.5 text-[11px] text-muted-foreground">{t('dashboard.cpuLoad')}</span>
               </div>
-              <div className="rack-inset flex flex-col items-center justify-center rounded-xl p-3 text-center">
-                <RadialGauge value={memPct} tone="cyan" size={72} label="RAM" />
+              <div className="rack-inset flex flex-col items-center justify-center rounded-xl p-2 text-center">
+                <RadialGauge value={memPct} tone="cyan" size={56} label="RAM" />
                 <span className="mt-1.5 text-[11px] text-muted-foreground">
                   {hostTelemetry?.memory.usedBytes && hostTelemetry?.memory.totalBytes
                     ? `${formatBytes(hostTelemetry.memory.usedBytes, { compact: true, locale: language })} / ${formatBytes(hostTelemetry.memory.totalBytes, { compact: true, locale: language })}`
@@ -646,7 +646,7 @@ export function DashboardPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums">
-              <div className="rack-inset rounded-lg p-2.5">
+              <div className="rack-inset rounded-lg p-2">
                 <div className="text-[10px] uppercase text-muted-foreground">Load Avg</div>
                 <div className="mt-0.5 font-semibold text-foreground">
                   {hostTelemetry?.cpu.loadAverage
@@ -654,7 +654,7 @@ export function DashboardPage() {
                     : '—'}
                 </div>
               </div>
-              <div className="rack-inset rounded-lg p-2.5">
+              <div className="rack-inset rounded-lg p-2">
                 <div className="text-[10px] uppercase text-muted-foreground">
                   {isRu ? 'Аптайм' : 'Uptime'}
                 </div>
@@ -662,14 +662,14 @@ export function DashboardPage() {
                   {formatUptime(hostTelemetry?.uptime.hostSeconds, isRu)}
                 </div>
               </div>
-              <div className="rack-inset rounded-lg p-2.5">
+              <div className="rack-inset rounded-lg p-2">
                 <div className="text-[10px] uppercase text-muted-foreground">TCP / UDP</div>
                 <div className="mt-0.5 font-semibold text-foreground">
                   {hostTelemetry?.connections.establishedTcp ?? '—'} /{' '}
                   {hostTelemetry?.connections.udpSockets ?? '—'}
                 </div>
               </div>
-              <div className="rack-inset rounded-lg p-2.5">
+              <div className="rack-inset rounded-lg p-2">
                 <div className="text-[10px] uppercase text-muted-foreground">
                   {isRu ? 'Сеть ↑/↓' : 'Net ↑/↓'}
                 </div>
@@ -719,7 +719,7 @@ export function DashboardPage() {
                     <Link
                       key={tc.clientId}
                       to={`/clients/${tc.clientId}/traffic`}
-                      className="rack-inset block rounded-xl p-3 text-xs transition-colors hover:border-primary/45"
+                      className="rack-inset block rounded-xl p-2 text-xs transition-colors hover:border-primary/45"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
@@ -780,7 +780,7 @@ export function DashboardPage() {
                 {recentAudit.map((entry) => (
                   <div
                     key={entry.id}
-                    className="rack-inset flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-xs"
+                    className="rack-inset flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-xs"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <Badge variant={auditBadgeVariant(entry.action)} className="font-mono text-[10px]">

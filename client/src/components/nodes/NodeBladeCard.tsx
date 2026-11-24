@@ -146,7 +146,7 @@ export function NodeBladeCard({
       {/* Left vertical status rail */}
       <div className={cn('absolute inset-y-0 left-0 w-1', theme.rail)} aria-hidden="true" />
 
-      <div className="flex flex-1 flex-col space-y-2.5 p-3.5 pl-4 sm:p-4 sm:pl-5">
+      <div className="flex flex-1 flex-col space-y-2 p-2.5 pl-3.5 sm:p-3 sm:pl-4">
         {/* Header Row 1: Identity + Quick Icon Dock */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1 space-y-1">
@@ -324,7 +324,7 @@ export function NodeBladeCard({
         {/* Middle 3-Column Compact Telemetry Strip */}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {/* CPU Box */}
-          <div className="min-w-0 rounded-lg border border-border/70 bg-background/55 p-2.5 space-y-1.5">
+          <div className="min-w-0 rounded-lg border border-border/70 bg-background/55 p-2 space-y-1">
             <div className="flex items-center justify-between gap-1.5">
               <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
                 <Cpu className="h-3 w-3 text-emerald-400" />
@@ -351,7 +351,7 @@ export function NodeBladeCard({
           </div>
 
           {/* RAM Box */}
-          <div className="min-w-0 rounded-lg border border-border/70 bg-background/55 p-2.5 space-y-1.5">
+          <div className="min-w-0 rounded-lg border border-border/70 bg-background/55 p-2 space-y-1">
             <div className="flex items-center justify-between gap-1.5">
               <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
                 <HardDrive className="h-3 w-3 text-cyan-400" />
@@ -378,7 +378,7 @@ export function NodeBladeCard({
           </div>
 
           {/* Traffic & Network Box */}
-          <div className="min-w-0 rounded-lg border border-border/70 bg-background/55 p-2.5 space-y-1.5">
+          <div className="min-w-0 rounded-lg border border-border/70 bg-background/55 p-2 space-y-1">
             <div className="flex items-center justify-between gap-1.5">
               <span className="text-[11px] text-muted-foreground break-words min-w-0">
                 {isRu ? 'Трафик' : 'Traffic'}
@@ -419,7 +419,7 @@ export function NodeBladeCard({
         {/* Bottom 2-Column Endpoints & Multi-Core Engine Matrix */}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {/* Active Protocol Endpoints */}
-          <div className="min-w-0 rounded-lg border border-border/60 bg-background/35 p-2.5 space-y-1.5">
+          <div className="min-w-0 rounded-lg border border-border/60 bg-background/35 p-2 space-y-1">
             <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
               <span>{isRu ? `Протоколы (${inbounds.length})` : `Endpoints (${inbounds.length})`}</span>
               <Link to="/inbounds" className="text-primary hover:underline">
@@ -463,7 +463,7 @@ export function NodeBladeCard({
           </div>
 
           {/* 4-Core Engine Versions 2x2 Matrix */}
-          <div className="min-w-0 rounded-lg border border-border/60 bg-background/35 p-2.5 space-y-1.5">
+          <div className="min-w-0 rounded-lg border border-border/60 bg-background/35 p-2 space-y-1">
             <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
               <span>{isRu ? 'Ядра прокси' : 'Core Engines'}</span>
               <Link to={`/nodes/${node.id}?tab=updates`} className="text-primary hover:underline">

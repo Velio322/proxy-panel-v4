@@ -294,7 +294,7 @@ export function ConfigTransferPage() {
               />
 
               {importResult && (
-                <div className="rack-inset rounded-lg p-3 text-xs space-y-1">
+                <div className="rack-inset rounded-lg p-2 text-xs space-y-1">
                   <div>
                     {isRu ? 'Создано:' : 'Created:'} <strong>{importResult.created ?? 0}</strong> ·{' '}
                     {isRu ? 'Обновлено:' : 'Updated:'} <strong>{importResult.updated ?? 0}</strong> ·{' '}

@@ -304,7 +304,7 @@ export function SrrRulesPage() {
           {sortedRules.map((r, idx) => (
             <div
               key={r.id}
-              className="node-blade relative flex flex-wrap items-center justify-between gap-2 overflow-hidden rounded-xl border border-border/80 p-3.5 pl-5 text-xs transition-colors hover:border-primary/45"
+              className="node-blade relative flex flex-wrap items-center justify-between gap-2 overflow-hidden rounded-xl border border-border/80 p-2 pl-5 text-xs transition-colors hover:border-primary/45"
             >
               <div
                 className={cn(

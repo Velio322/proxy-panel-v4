@@ -212,7 +212,7 @@ export function MonitoringPage() {
           </span>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
-          <div className="node-blade relative flex items-center gap-3.5 overflow-hidden rounded-xl border border-border/80 p-3.5 pl-4">
+          <div className="node-blade relative flex items-center gap-2.5 overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5">
             <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400" aria-hidden="true" />
             <RadialGauge value={hostCpu} tone="emerald" size={68} label="CPU" />
             <div className="min-w-0 space-y-1">
@@ -229,7 +229,7 @@ export function MonitoringPage() {
             </div>
           </div>
 
-          <div className="node-blade relative flex items-center gap-3.5 overflow-hidden rounded-xl border border-border/80 p-3.5 pl-4">
+          <div className="node-blade relative flex items-center gap-2.5 overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5">
             <div className="absolute inset-y-0 left-0 w-1 bg-cyan-400" aria-hidden="true" />
             <RadialGauge value={hostMem} tone="cyan" size={68} label="RAM" />
             <div className="min-w-0 space-y-1">
@@ -247,7 +247,7 @@ export function MonitoringPage() {
             </div>
           </div>
 
-          <div className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-3.5 pl-4">
+          <div className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5">
             <div className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
             <div className="flex items-center justify-between text-muted-foreground">
               <span>{isRu ? 'Сеть хоста (↑ / ↓)' : 'Network (Up / Down)'}</span>
@@ -263,7 +263,7 @@ export function MonitoringPage() {
             </div>
           </div>
 
-          <div className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-3.5 pl-4">
+          <div className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5">
             <div className="absolute inset-y-0 left-0 w-1 bg-teal-400" aria-hidden="true" />
             <div className="flex items-center justify-between text-muted-foreground">
               <span>{isRu ? 'Сокеты и аптайм' : 'Sockets & Uptime'}</span>
@@ -359,7 +359,7 @@ export function MonitoringPage() {
             <div className="space-y-4">
               {/* 4 Node Instrument Cards */}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
-                <div className="rack-inset flex items-center gap-3.5 rounded-xl p-3.5">
+                <div className="rack-inset flex items-center gap-2.5 rounded-xl p-2">
                   <RadialGauge value={nodeCpu} tone="emerald" size={64} label="CPU" />
                   <div className="space-y-1">
                     <div className="text-muted-foreground">CPU</div>
@@ -372,7 +372,7 @@ export function MonitoringPage() {
                   </div>
                 </div>
 
-                <div className="rack-inset flex items-center gap-3.5 rounded-xl p-3.5">
+                <div className="rack-inset flex items-center gap-2.5 rounded-xl p-2">
                   <RadialGauge value={nodeMem} tone="cyan" size={64} label="RAM" />
                   <div className="space-y-1">
                     <div className="text-muted-foreground">{isRu ? 'Память' : 'Memory'}</div>
@@ -385,7 +385,7 @@ export function MonitoringPage() {
                   </div>
                 </div>
 
-                <div className="rack-inset flex flex-col justify-between rounded-xl p-3.5">
+                <div className="rack-inset flex flex-col justify-between rounded-xl p-2">
                   <div className="text-muted-foreground">
                     {isRu ? 'Онлайн-клиенты и сокеты' : 'Online Users & Sockets'}
                   </div>
@@ -401,7 +401,7 @@ export function MonitoringPage() {
                   </div>
                 </div>
 
-                <div className="rack-inset flex flex-col justify-between rounded-xl p-3.5">
+                <div className="rack-inset flex flex-col justify-between rounded-xl p-2">
                   <div className="text-muted-foreground">
                     {isRu ? 'Пропускная способность' : 'Live Throughput'}
                   </div>
@@ -421,7 +421,7 @@ export function MonitoringPage() {
                 {coreEngineCards.map((c) => (
                   <div
                     key={c.key}
-                    className="rack-inset flex items-center justify-between rounded-xl p-3 text-xs"
+                    className="rack-inset flex items-center justify-between rounded-xl p-2 text-xs"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
@@ -455,7 +455,7 @@ export function MonitoringPage() {
 
               {/* Live Rolling CPU/RAM Area Chart */}
               {nodeHistory.length > 1 && (
-                <div className="rack-inset rounded-xl p-4 space-y-2">
+                <div className="rack-inset rounded-xl p-2 space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold">
                       {isRu ? 'Динамика нагрузки CPU / RAM в реальном времени' : 'Live Rolling CPU / RAM Load'}
@@ -538,7 +538,7 @@ export function MonitoringPage() {
               <Link
                 key={n.id}
                 to={`/nodes/${n.id}`}
-                className="rack-inset block rounded-xl p-3 text-xs transition-colors hover:border-primary/45 space-y-2"
+                className="rack-inset block rounded-xl p-2 text-xs transition-colors hover:border-primary/45 space-y-2"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">

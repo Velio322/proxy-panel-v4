@@ -200,7 +200,7 @@ export function BackupPage() {
             </div>
 
             {Object.keys(config).length > 0 && (
-              <div className="rack-inset rounded-lg p-3 text-xs text-muted-foreground">
+              <div className="rack-inset rounded-lg p-2 text-xs text-muted-foreground">
                 <span className="font-semibold text-foreground">
                   {isRu ? 'Расписание:' : 'Configured Schedule:'}
                 </span>{' '}
@@ -218,7 +218,7 @@ export function BackupPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-xs text-muted-foreground">
-            <div className="rack-inset flex items-center justify-between rounded-md px-2.5 py-2">
+            <div className="rack-inset flex items-center justify-between rounded-md px-2 py-1.5">
               <span>{isRu ? 'Хранение / Папка' : 'Retention / Dir'}</span>
               <span className="font-mono text-foreground">
                 {String(config.retentionDays ?? 7)}d · {String(config.dir || 'local')}
@@ -229,7 +229,7 @@ export function BackupPage() {
                 ? 'Для безопасного восстановления скачанного дампа БД остановите сервис панели и выполните:'
                 : 'To restore a downloaded database snapshot safely without schema drift, stop the panel worker and run:'}
             </p>
-            <div className="rack-inset flex items-center justify-between gap-2 rounded-md px-2.5 py-2 font-mono text-[11px] text-foreground">
+            <div className="rack-inset flex items-center justify-between gap-2 rounded-md px-2 py-1.5 font-mono text-[11px] text-foreground">
               <span className="break-words min-w-0">{RESTORE_CMD}</span>
               <Button
                 type="button"

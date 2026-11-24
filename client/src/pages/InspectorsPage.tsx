@@ -155,7 +155,7 @@ export function InspectorsPage() {
           type="button"
           onClick={() => setTab('srh')}
           className={cn(
-            'node-blade relative overflow-hidden rounded-xl border p-4 pl-5 text-left transition-all',
+            'node-blade relative overflow-hidden rounded-xl border p-2 pl-3.5 text-left transition-all',
             tab === 'srh' ? 'border-primary/60 ring-1 ring-primary/25' : 'border-border/80 hover:border-primary/40',
           )}
         >
@@ -180,7 +180,7 @@ export function InspectorsPage() {
           type="button"
           onClick={() => setTab('hwid')}
           className={cn(
-            'node-blade relative overflow-hidden rounded-xl border p-4 pl-5 text-left transition-all',
+            'node-blade relative overflow-hidden rounded-xl border p-2 pl-3.5 text-left transition-all',
             tab === 'hwid' ? 'border-primary/60 ring-1 ring-primary/25' : 'border-border/80 hover:border-primary/40',
           )}
         >
@@ -208,7 +208,7 @@ export function InspectorsPage() {
           type="button"
           onClick={() => setTab('torrent')}
           className={cn(
-            'node-blade relative overflow-hidden rounded-xl border p-4 pl-5 text-left transition-all',
+            'node-blade relative overflow-hidden rounded-xl border p-2 pl-3.5 text-left transition-all',
             tab === 'torrent' ? 'border-primary/60 ring-1 ring-primary/25' : 'border-border/80 hover:border-primary/40',
           )}
         >

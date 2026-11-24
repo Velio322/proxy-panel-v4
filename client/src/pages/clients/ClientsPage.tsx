@@ -583,7 +583,7 @@ export function ClientsPage() {
           }
         />
       ) : viewMode === 'blades' ? (
-        <div className="space-y-3.5">
+        <div className="space-y-2">
           {clients.map((client) => (
             <ClientBladeCard
               key={client.id}
