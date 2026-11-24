@@ -119,7 +119,7 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<Value, String> {
     let logging_level = {
         let lvl = str_or_empty(&inbound.settings, "loggingLevel");
         if lvl.is_empty() {
-            "INFO"
+            "WARN"
         } else {
             lvl
         }

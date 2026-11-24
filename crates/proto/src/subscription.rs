@@ -854,6 +854,7 @@ pub fn render_clash(entries: &[SubEntry]) -> Result<String, SubError> {
         ],
         "rules": [
             "GEOIP,CN,DIRECT",
+            "GEOIP,RU,DIRECT",
             "MATCH,PROXY"
         ]
     });
@@ -1414,7 +1415,7 @@ pub fn render_singbox_with_options(
         }
         if dns_rules.is_empty() {
             dns_rules.push(json!({
-                "domain_suffix": [".cn", ".ir"],
+                "domain_suffix": [".cn", ".ir", ".ru", ".su", ".xn--p1ai"],
                 "action": "route",
                 "server": "local-dns",
             }));

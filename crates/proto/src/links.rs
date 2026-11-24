@@ -1022,8 +1022,10 @@ pub fn build_entry(
                 .or_else(|| ju32(settings, &["obfs", "min_packet_size"]));
             e.obfs_max_pkt = ju32(settings, &["obfs", "maxPacketSize"])
                 .or_else(|| ju32(settings, &["obfs", "max_packet_size"]));
-            e.upload_mbps = ju64(settings, &["uploadMbps"]);
-            e.download_mbps = ju64(settings, &["downloadMbps"]);
+            // Server settings are from the server's point of view: its upload is the client's
+            // download. Client configs need the opposite mapping.
+            e.upload_mbps = ju64(settings, &["downloadMbps"]);
+            e.download_mbps = ju64(settings, &["uploadMbps"]);
             e.ignore_client_bandwidth = jbool(settings, &["ignoreClientBandwidth"])
                 || jbool(settings, &["ignore_client_bandwidth"]);
             e.port_range =
