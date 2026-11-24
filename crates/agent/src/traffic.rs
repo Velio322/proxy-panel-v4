@@ -4,11 +4,17 @@ use base64::Engine as _;
 use mypanel_proto::{ActiveSession, Protocol, TrafficCounter, TrafficReport, MAX_TRAFFIC_ENTRIES};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader};
 
 const MAX_TRACKER_BASELINE_ENTRIES: usize = 10_000;
+const CORE_KEY_SEP: char = '\u{1f}';
+
+/// Baseline key for one user counter within one proxy core.
+fn core_key(core: &str, user_id: &str) -> String {
+    format!("{core}{CORE_KEY_SEP}{user_id}")
+}
 
 /// Parses Xray `StatsService` entries (`user>>><email>>>>traffic>>>uplink|downlink`),
 /// strictly filtering on the `"user>>>"` prefix (`03-worker-and-cores.md §5.4`).
@@ -254,26 +260,27 @@ pub async fn drop_singbox_connection(
 
 /// Parses Mieru (`mita get metrics`) JSON output into per-user traffic counters (`unmetered: false`).
 ///
-/// Supports both array forms (`{"users": [...]}` / `{"metrics": [...]}` / `{"userMetrics": [...]}` / `[...]`)
-/// and map forms (`{"alice": {"uploadBytes": 100, "downloadBytes": 200}}`).
+/// Supported shapes (keys matched case-insensitively):
+/// - array forms: `{"users": [...]}` / `{"metrics": [...]}` / `{"userMetrics": [...]}` / `[...]`
+///   with `name`/`user`/`username`/`email` identifying the user;
+/// - map forms: `{"<user>": {"uploadBytes": 100, "downloadBytes": 200}}` (top level) and
+///   `{"users": {"<user>": {"UploadBytes": 100, "DownloadBytes": 200}}}` (mita 3.39+).
 pub fn parse_mieru_metrics_json(json_str: &str) -> Result<HashMap<String, TrafficCounter>, String> {
     let val: Value =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid Mieru metrics JSON: {e}"))?;
     let mut out: HashMap<String, TrafficCounter> = HashMap::new();
 
-    let array_opt = val
-        .as_array()
-        .or_else(|| val.get("users").and_then(Value::as_array))
-        .or_else(|| val.get("metrics").and_then(Value::as_array))
-        .or_else(|| val.get("userMetrics").and_then(Value::as_array));
+    let array_opt = val.as_array().or_else(|| {
+        ["users", "metrics", "userMetrics"]
+            .iter()
+            .find_map(|k| json_get_ci(&val, k).and_then(Value::as_array))
+    });
 
     if let Some(arr) = array_opt {
         for item in arr {
-            let Some(name) = item
-                .get("name")
-                .or_else(|| item.get("user"))
-                .or_else(|| item.get("username"))
-                .or_else(|| item.get("email"))
+            let Some(name) = ["name", "user", "username", "email"]
+                .iter()
+                .find_map(|k| json_get_ci(item, k))
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
@@ -293,41 +300,62 @@ pub fn parse_mieru_metrics_json(json_str: &str) -> Result<HashMap<String, Traffi
     }
 
     if let Some(obj) = val.as_object() {
+        // mita 3.39+ emits {"users": {"<client-id>": {"UploadBytes": N, ...}}}.
+        if let Some(users) = ["users", "metrics", "userMetrics"]
+            .iter()
+            .find_map(|k| json_get_ci(&val, k))
+            .and_then(Value::as_object)
+        {
+            for (name, item) in users {
+                record_mieru_entry(&mut out, name, item);
+            }
+            return Ok(out);
+        }
         for (name, item) in obj {
             if !item.is_object() {
                 continue;
             }
-            let clean = name.trim();
-            if clean.is_empty() {
-                continue;
-            }
-            let (up, down) = extract_up_down(item);
-            let entry = out.entry(clean.to_string()).or_insert_with(|| TrafficCounter {
-                upload: 0,
-                download: 0,
-                unmetered: false,
-            });
-            entry.upload = entry.upload.saturating_add(up);
-            entry.download = entry.download.saturating_add(down);
+            record_mieru_entry(&mut out, name, item);
         }
     }
 
     Ok(out)
 }
 
+/// Case-insensitive object key lookup (`UploadBytes` / `uploadBytes` / ...).
+fn json_get_ci<'a>(val: &'a Value, key: &str) -> Option<&'a Value> {
+    val.as_object()?
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v)
+}
+
+fn record_mieru_entry(out: &mut HashMap<String, TrafficCounter>, name: &str, item: &Value) {
+    let clean = name.trim();
+    if clean.is_empty() {
+        return;
+    }
+    let (up, down) = extract_up_down(item);
+    let entry = out
+        .entry(clean.to_string())
+        .or_insert_with(|| TrafficCounter {
+            upload: 0,
+            download: 0,
+            unmetered: false,
+        });
+    entry.upload = entry.upload.saturating_add(up);
+    entry.download = entry.download.saturating_add(down);
+}
+
 fn extract_up_down(item: &Value) -> (u64, u64) {
-    let up = item
-        .get("uploadBytes")
-        .or_else(|| item.get("upload"))
-        .or_else(|| item.get("uplink"))
-        .or_else(|| item.get("tx"))
+    let up = ["uploadBytes", "upload", "uplink", "tx"]
+        .iter()
+        .find_map(|k| json_get_ci(item, k))
         .and_then(json_u64)
         .unwrap_or(0);
-    let down = item
-        .get("downloadBytes")
-        .or_else(|| item.get("download"))
-        .or_else(|| item.get("downlink"))
-        .or_else(|| item.get("rx"))
+    let down = ["downloadBytes", "download", "downlink", "rx"]
+        .iter()
+        .find_map(|k| json_get_ci(item, k))
         .and_then(json_u64)
         .unwrap_or(0);
     (up, down)
@@ -468,6 +496,10 @@ fn extract_naive_user(val: &Value) -> Option<String> {
 struct PendingTrafficFile {
     #[serde(default)]
     batches: HashMap<String, HashMap<String, TrafficCounter>>,
+    /// Cumulative counter baselines the deltas were computed against. Persisted so an agent
+    /// restart does not re-count the full mieru/xray cumulative as a fresh delta.
+    #[serde(default)]
+    baselines: HashMap<String, (u64, u64)>,
 }
 
 /// Tracks cumulative per-user counters across all 4 proxy cores (`unmetered: false`),
@@ -489,7 +521,9 @@ impl CumulativeTrafficTracker {
         }
     }
 
-    /// Loads any unacknowledged traffic batches from `<CONFIG_DIR>/traffic-pending.json`.
+    /// Loads any unacknowledged traffic batches and the counter baselines from
+    /// `<CONFIG_DIR>/traffic-pending.json`. Legacy entries keyed by plain user id (merged
+    /// across cores) are dropped so persistent cores get re-seeded instead of miscounted.
     pub async fn load_pending(&mut self) -> Result<(), String> {
         let Ok(raw) = tokio::fs::read_to_string(&self.pending_path).await else {
             return Ok(());
@@ -497,45 +531,84 @@ impl CumulativeTrafficTracker {
         let parsed: PendingTrafficFile = serde_json::from_str(&raw)
             .map_err(|e| format!("Failed to parse {}: {e}", self.pending_path.display()))?;
         self.pending_batches = parsed.batches;
+        self.previous = parsed
+            .baselines
+            .into_iter()
+            .filter(|(k, _)| k.contains(CORE_KEY_SEP))
+            .collect();
         Ok(())
     }
 
-    /// Computes delta from `current` cumulative counters, advances the baseline,
+    /// Whether the tracker has already established baselines for `core`.
+    /// A core becomes known after its first sighting (seeding).
+    fn core_known(&self, core: &str) -> bool {
+        self.previous
+            .keys()
+            .any(|k| k.split(CORE_KEY_SEP).next() == Some(core))
+    }
+
+    /// Computes per-core deltas from `per_core` cumulative counters, advances the baselines,
     /// records an unacknowledged batch in `traffic-pending.json`, and returns a [`TrafficReport`].
-    pub async fn compute_delta(
+    ///
+    /// Baselines are tracked per `(core, user)` so cores with different lifecycles stay
+    /// independent: a volatile core resetting its counters (xray restart) can never mask or
+    /// double-count a persistent core's cumulative (mita metrics.pb, naive access log).
+    /// The first sighting of a core is silently seeded (no delta) so totals accumulated
+    /// before an agent deploy or a parser fix are not re-counted.
+    pub async fn compute_delta_multi(
         &mut self,
-        current: &HashMap<String, TrafficCounter>,
+        per_core: &[(&str, &HashMap<String, TrafficCounter>)],
     ) -> Result<TrafficReport, String> {
         let mut delta_stats: HashMap<String, TrafficCounter> = HashMap::new();
+        let mut baseline_changed = false;
 
-        for (id, cur) in current {
-            let (prev_up, prev_down) = self.previous.get(id).copied().unwrap_or((0, 0));
-            let upload = if cur.upload >= prev_up {
-                cur.upload - prev_up
-            } else {
-                cur.upload
-            };
-            let download = if cur.download >= prev_down {
-                cur.download - prev_down
-            } else {
-                cur.download
-            };
+        for (core, users) in per_core {
+            let core_established = self.core_known(core);
+            for (id, cur) in users.iter() {
+                let key = core_key(core, id);
+                let (prev_up, prev_down) = self.previous.get(&key).copied().unwrap_or((0, 0));
+                let (upload, download) = if !core_established {
+                    // First sighting of this core: seed the persistent cumulative silently.
+                    (0, 0)
+                } else if cur.upload >= prev_up && cur.download >= prev_down {
+                    (cur.upload - prev_up, cur.download - prev_down)
+                } else {
+                    // Counter reset (core restarted and lost its cumulative):
+                    // count everything from the new zero.
+                    (cur.upload, cur.download)
+                };
 
-            if upload > 0 || download > 0 {
-                delta_stats.insert(
-                    id.clone(),
-                    TrafficCounter {
-                        upload,
-                        download,
-                        unmetered: false,
-                    },
-                );
+                if prev_up != cur.upload || prev_down != cur.download {
+                    baseline_changed = true;
+                }
+                if upload > 0 || download > 0 {
+                    let entry = delta_stats
+                        .entry(id.clone())
+                        .or_insert_with(|| TrafficCounter {
+                            upload: 0,
+                            download: 0,
+                            unmetered: false,
+                        });
+                    entry.upload = entry.upload.saturating_add(upload);
+                    entry.download = entry.download.saturating_add(download);
+                    entry.unmetered = false;
+                }
+                self.previous.insert(key, (cur.upload, cur.download));
             }
-            self.previous.insert(id.clone(), (cur.upload, cur.download));
         }
 
         if self.previous.len() > MAX_TRACKER_BASELINE_ENTRIES {
-            self.previous.retain(|k, _| current.contains_key(k));
+            let current_keys: HashSet<String> = per_core
+                .iter()
+                .flat_map(|(_, users)| users.keys())
+                .flat_map(|id| {
+                    per_core
+                        .iter()
+                        .map(move |(core, _)| core_key(core, id))
+                })
+                .collect();
+            self.previous.retain(|k, _| current_keys.contains(k));
+            baseline_changed = true;
         }
 
         // Cap stats to MAX_TRAFFIC_ENTRIES
@@ -544,6 +617,11 @@ impl CumulativeTrafficTracker {
         }
 
         if delta_stats.is_empty() {
+            // No new traffic, but the baseline may still have moved; keep it durable so a
+            // restart cannot re-count the last observed cumulative as a fresh delta.
+            if baseline_changed {
+                self.save_pending().await?;
+            }
             return Ok(TrafficReport {
                 batch_id: None,
                 stats: HashMap::new(),
@@ -588,6 +666,7 @@ impl CumulativeTrafficTracker {
     async fn save_pending(&self) -> Result<(), String> {
         let file = PendingTrafficFile {
             batches: self.pending_batches.clone(),
+            baselines: self.previous.clone(),
         };
         let bytes = serde_json::to_vec_pretty(&file)
             .map_err(|e| format!("Failed to serialize traffic-pending.json: {e}"))?;
@@ -601,16 +680,311 @@ pub fn merge_traffic_maps(
 ) -> HashMap<String, TrafficCounter> {
     let mut merged: HashMap<String, TrafficCounter> = HashMap::new();
     for m in maps {
-        for (k, v) in *m {
-            let entry = merged.entry(k.clone()).or_insert_with(|| TrafficCounter {
-                upload: 0,
-                download: 0,
-                unmetered: false,
-            });
-            entry.upload = entry.upload.saturating_add(v.upload);
-            entry.download = entry.download.saturating_add(v.download);
-            entry.unmetered = false;
-        }
+        merge_into(&mut merged, m);
     }
     merged
+}
+
+/// Merges labeled per-core maps (values summed per user across cores).
+pub fn merge_traffic_maps_refs(
+    maps: &[(&str, &HashMap<String, TrafficCounter>)],
+) -> HashMap<String, TrafficCounter> {
+    let mut merged: HashMap<String, TrafficCounter> = HashMap::new();
+    for (_, m) in maps {
+        merge_into(&mut merged, m);
+    }
+    merged
+}
+
+pub(crate) fn merge_into(
+    merged: &mut HashMap<String, TrafficCounter>,
+    m: &HashMap<String, TrafficCounter>,
+) {
+    for (k, v) in m {
+        let entry = merged.entry(k.clone()).or_insert_with(|| TrafficCounter {
+            upload: 0,
+            download: 0,
+            unmetered: false,
+        });
+        entry.upload = entry.upload.saturating_add(v.upload);
+        entry.download = entry.download.saturating_add(v.download);
+        entry.unmetered = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type CoreMaps = Vec<(&'static str, HashMap<String, TrafficCounter>)>;
+
+    fn counter(upload: u64, download: u64) -> TrafficCounter {
+        TrafficCounter {
+            upload,
+            download,
+            unmetered: false,
+        }
+    }
+
+    fn stats(entries: &[(&str, u64, u64)]) -> HashMap<String, TrafficCounter> {
+        entries
+            .iter()
+            .map(|(k, up, down)| (k.to_string(), counter(*up, *down)))
+            .collect()
+    }
+
+    /// Builds per-core cumulative snapshots: `&[("xray", &[("velio", 100, 200)]), ...]`.
+    fn per_core(cores: &[(&'static str, &[(&str, u64, u64)])]) -> CoreMaps {
+        cores
+            .iter()
+            .map(|(core, users)| (*core, stats(users)))
+            .collect()
+    }
+
+    fn as_ref_maps(per_core: &CoreMaps) -> Vec<(&'static str, &HashMap<String, TrafficCounter>)> {
+        per_core.iter().map(|(c, m)| (*c, m)).collect()
+    }
+
+    fn pending_path(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "mypanel-agent-tracker-test-{tag}-{}.json",
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    #[tokio::test]
+    async fn first_sight_seeds_persistent_core_without_recount() {
+        let path = pending_path("seed-first");
+        let mut t = CumulativeTrafficTracker::new(&path);
+        // Deploy scenario: mita metrics.pb already holds 6.6 GB; the tracker sees it for the
+        // first time and must seed the baseline instead of reporting it as fresh traffic.
+        let cur = per_core(&[("mieru", &[("velio", 6_600_000_000, 4_000_000_000)])]);
+        let report = t
+            .compute_delta_multi(&as_ref_maps(&cur))
+            .await
+            .expect("first delta");
+        assert!(
+            report.stats.is_empty(),
+            "persistent cumulative must be seeded, not counted"
+        );
+        assert!(report.batch_id.is_none());
+
+        // Growth after seeding is counted normally.
+        let grown = per_core(&[("mieru", &[("velio", 6_600_000_050, 4_000_000_100)])]);
+        let delta = t.compute_delta_multi(&as_ref_maps(&grown)).await.unwrap();
+        assert_eq!(delta.stats["velio"].upload, 50);
+        assert_eq!(delta.stats["velio"].download, 100);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn baseline_survives_tracker_restart_without_double_count() {
+        let path = pending_path("baseline-survives");
+        let mut cur = per_core(&[("xray", &[("velio", 100, 200)])]);
+        let mut t1 = CumulativeTrafficTracker::new(&path);
+        let seeded = t1.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
+        assert!(seeded.stats.is_empty(), "first sight must seed");
+        cur[0].1.get_mut("velio").unwrap().upload = 150;
+        cur[0].1.get_mut("velio").unwrap().download = 250;
+        let first = t1.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
+        assert_eq!(first.stats["velio"].upload, 50);
+        assert_eq!(first.stats["velio"].download, 50);
+
+        // Simulate an agent restart: mita counters persist on disk, the tracker does not.
+        let mut t2 = CumulativeTrafficTracker::new(&path);
+        t2.load_pending().await.expect("load pending");
+        cur[0].1.get_mut("velio").unwrap().upload = 200;
+        cur[0].1.get_mut("velio").unwrap().download = 300;
+        let second = t2.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
+        assert_eq!(second.stats["velio"].upload, 50, "must not re-count baseline");
+        assert_eq!(second.stats["velio"].download, 50);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn counter_reset_after_restart_counts_from_new_zero() {
+        let path = pending_path("counter-reset");
+        let mut t1 = CumulativeTrafficTracker::new(&path);
+        t1.compute_delta_multi(&as_ref_maps(&per_core(&[(
+            "xray",
+            &[("velio", 100, 200)],
+        )])))
+        .await
+        .unwrap();
+
+        let mut t2 = CumulativeTrafficTracker::new(&path);
+        t2.load_pending().await.unwrap();
+        // Xray restarted and lost its counters: current < restored baseline.
+        let after_reset = per_core(&[("xray", &[("velio", 30, 40)])]);
+        let report = t2.compute_delta_multi(&as_ref_maps(&after_reset)).await.unwrap();
+        assert_eq!(report.stats["velio"].upload, 30);
+        assert_eq!(report.stats["velio"].download, 40);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn mixed_core_lifecycles_do_not_double_count() {
+        let path = pending_path("mixed-cores");
+        let mut t = CumulativeTrafficTracker::new(&path);
+        // Seed both cores.
+        let seed = per_core(&[
+            ("xray", &[("velio", 100, 200)]),
+            ("mieru", &[("velio", 1000, 2000)]),
+        ]);
+        t.compute_delta_multi(&as_ref_maps(&seed)).await.unwrap();
+
+        // Both cores report growth.
+        let grown = per_core(&[
+            ("xray", &[("velio", 110, 210)]),
+            ("mieru", &[("velio", 1000, 2000)]),
+        ]);
+        let report = t.compute_delta_multi(&as_ref_maps(&grown)).await.unwrap();
+        assert_eq!(report.stats["velio"].upload, 10);
+        assert_eq!(report.stats["velio"].download, 10);
+
+        // Xray restarts (counters reset) while persistent mieru keeps growing: only the new
+        // bytes may be counted, never mieru's whole cumulative again.
+        let mixed = per_core(&[
+            ("xray", &[("velio", 5, 8)]),
+            ("mieru", &[("velio", 1200, 2600)]),
+        ]);
+        let report = t.compute_delta_multi(&as_ref_maps(&mixed)).await.unwrap();
+        assert_eq!(report.stats["velio"].upload, 5 + 200, "xray reset + mieru delta");
+        assert_eq!(report.stats["velio"].download, 8 + 600);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn late_core_is_seeded_without_recounting_persistent_totals() {
+        let path = pending_path("late-core");
+        let mut t1 = CumulativeTrafficTracker::new(&path);
+        let only_xray = per_core(&[("xray", &[("velio", 100, 200)])]);
+        t1.compute_delta_multi(&as_ref_maps(&only_xray)).await.unwrap();
+        let grown = per_core(&[("xray", &[("velio", 150, 250)])]);
+        let delta = t1.compute_delta_multi(&as_ref_maps(&grown)).await.unwrap();
+        assert_eq!(delta.stats["velio"].upload, 50);
+
+        // Agent restart; afterwards the Mieru parser fix lands and mieru shows up for the
+        // first time with a large persistent cumulative. It must be seeded, not reported.
+        let mut t2 = CumulativeTrafficTracker::new(&path);
+        t2.load_pending().await.unwrap();
+        let with_mieru = per_core(&[
+            ("xray", &[("velio", 160, 260)]),
+            ("mieru", &[("velio", 6_600_000_000, 4_000_000_000)]),
+        ]);
+        let report = t2.compute_delta_multi(&as_ref_maps(&with_mieru)).await.unwrap();
+        assert_eq!(report.stats["velio"].upload, 10, "only xray growth; mieru seeded");
+        assert_eq!(report.stats["velio"].download, 10);
+
+        // Mieru growth after seeding is counted normally.
+        let mieru_grown = per_core(&[
+            ("xray", &[("velio", 160, 260)]),
+            ("mieru", &[("velio", 6_600_000_070, 4_000_000_100)]),
+        ]);
+        let next = t2.compute_delta_multi(&as_ref_maps(&mieru_grown)).await.unwrap();
+        assert_eq!(next.stats["velio"].upload, 70);
+        assert_eq!(next.stats["velio"].download, 100);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn load_pending_accepts_legacy_file_without_baselines() {
+        let path = pending_path("legacy");
+        tokio::fs::write(&path, r#"{"batches": {}}"#)
+            .await
+            .expect("write legacy file");
+        let mut t = CumulativeTrafficTracker::new(&path);
+        t.load_pending().await.expect("legacy file must load");
+        let seed = t
+            .compute_delta_multi(&as_ref_maps(&per_core(&[("xray", &[("u", 7, 9)])])))
+            .await
+            .unwrap();
+        assert!(seed.stats.is_empty(), "legacy file has no per-core baselines: seed");
+        let delta = t
+            .compute_delta_multi(&as_ref_maps(&per_core(&[("xray", &[("u", 17, 19)])])))
+            .await
+            .unwrap();
+        assert_eq!(delta.stats["u"].upload, 10);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn legacy_merged_baselines_are_ignored_and_seeded() {
+        let path = pending_path("legacy-merged");
+        // Pre-fix pending file: baselines keyed by plain user id (merged across cores).
+        tokio::fs::write(
+            &path,
+            r#"{"batches": {}, "baselines": {"velio": [474297882, 4162145186]}}"#,
+        )
+        .await
+        .expect("write legacy file");
+        let mut t = CumulativeTrafficTracker::new(&path);
+        t.load_pending().await.expect("load legacy baselines");
+        // Merged baselines cannot be attributed to a core: seed silently instead of
+        // misinterpreting the cumulative as a delta.
+        let cur = per_core(&[("xray", &[("velio", 474_297_882, 4_162_145_186)])]);
+        let report = t.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
+        assert!(report.stats.is_empty(), "merged legacy baselines must not explode into a delta");
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn baseline_only_change_is_persisted_without_batch() {
+        let path = pending_path("baseline-only");
+        let mut t1 = CumulativeTrafficTracker::new(&path);
+        let cur = per_core(&[("xray", &[("u", 10, 20)])]);
+        t1.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
+        // Same counters again: empty delta, baseline already persisted.
+        let again = t1
+            .compute_delta_multi(&as_ref_maps(&per_core(&[("xray", &[("u", 10, 20)])])))
+            .await
+            .unwrap();
+        assert!(again.batch_id.is_none());
+
+        let mut t2 = CumulativeTrafficTracker::new(&path);
+        t2.load_pending().await.unwrap();
+        let grown = per_core(&[("xray", &[("u", 35, 45)])]);
+        let delta = t2.compute_delta_multi(&as_ref_maps(&grown)).await.unwrap();
+        assert_eq!(delta.stats["u"].upload, 25);
+        assert_eq!(delta.stats["u"].download, 25);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[test]
+    fn parse_mieru_users_object_pascal_case() {
+        let raw = r#"{"users": {"b5120507-c984-47af-ba08-2da90b2f78a2": {"UploadBytes": 1133610314, "DownloadBytes": 6662479713}, "": {"UploadBytes": 5, "DownloadBytes": 5}}}"#;
+        let parsed = parse_mieru_metrics_json(raw).expect("parse mieru metrics");
+        assert_eq!(parsed.len(), 1, "empty user names must be skipped");
+        let c = &parsed["b5120507-c984-47af-ba08-2da90b2f78a2"];
+        assert_eq!(c.upload, 1_133_610_314);
+        assert_eq!(c.download, 6_662_479_713);
+        assert!(!c.unmetered);
+    }
+
+    #[test]
+    fn parse_mieru_legacy_formats_still_parse() {
+        // Array form.
+        let arr = parse_mieru_metrics_json(
+            r#"{"users": [{"name": "alice", "uploadBytes": 1, "downloadBytes": 2}]}"#,
+        )
+        .unwrap();
+        assert_eq!(arr["alice"].upload, 1);
+        assert_eq!(arr["alice"].download, 2);
+
+        // Bare top-level map form.
+        let map = parse_mieru_metrics_json(
+            r#"{"alice": {"uploadBytes": 3, "downloadBytes": 4}}"#,
+        )
+        .unwrap();
+        assert_eq!(map["alice"].upload, 3);
+        assert_eq!(map["alice"].download, 4);
+
+        // Lowercase users-object form.
+        let lower = parse_mieru_metrics_json(
+            r#"{"users": {"bob": {"uploadbytes": 5, "downloadbytes": 6}}}"#,
+        )
+        .unwrap();
+        assert_eq!(lower["bob"].upload, 5);
+        assert_eq!(lower["bob"].download, 6);
+    }
 }

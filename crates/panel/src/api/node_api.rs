@@ -364,23 +364,10 @@ async fn report_traffic(
         report
             .validate()
             .map_err(|e| AppError::bad_request(e.to_string()))?;
-        let batch_id = report.batch_id.clone();
         let count = report.stats.len();
-        for (email, stat) in report.stats {
-            traffic_batcher::add_traffic(
-                &state,
-                node_id,
-                &email,
-                i64::try_from(stat.upload).unwrap_or(0),
-                i64::try_from(stat.download).unwrap_or(0),
-                stat.unmetered,
-                None,
-                batch_id.clone(),
-                None,
-                None,
-            )
-            .await;
-        }
+        // Records inline and flushes before answering, so a panel restart right after
+        // this response cannot lose the report (legacy agents do not replay).
+        traffic_batcher::record_report(&state, node_id, report).await;
         return Ok(Json(json!({ "status": "ok", "processed": count })));
     }
 
@@ -416,6 +403,7 @@ async fn report_traffic(
         )
         .await;
     }
+    let _ = traffic_batcher::flush_batch(&state).await;
 
     Ok(Json(json!({ "status": "ok", "processed": stats_obj.len() })))
 }

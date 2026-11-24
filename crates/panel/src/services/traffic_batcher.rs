@@ -3,28 +3,32 @@ use crate::error::AppResult;
 use crate::services::enforcement;
 use crate::state::AppState;
 use crate::traffic_queue::PendingTrafficItem;
+use mypanel_proto::TrafficReport;
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-pub async fn resolve_client_id(state: &AppState, email_or_id: &str) -> Option<String> {
+pub async fn resolve_client_id(
+    state: &AppState,
+    email_or_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
     if let Some(cached) = state.traffic_queue.get_cached_client_id(email_or_id) {
-        return Some(cached);
+        return Ok(Some(cached));
     }
     let row = sqlx::query(
         r#"SELECT id FROM "Client" WHERE id = $1 OR email = $1 OR username = $1 LIMIT 1"#,
     )
     .bind(email_or_id)
     .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()?;
+    .await?;
 
-    let id: String = row.try_get("id").ok()?;
-    state
-        .traffic_queue
-        .cache_client_id(email_or_id.to_string(), id.clone());
-    Some(id)
+    let id: Option<String> = row.map(|r| r.try_get("id")).transpose()?;
+    if let Some(id) = &id {
+        state
+            .traffic_queue
+            .cache_client_id(email_or_id.to_string(), id.clone());
+    }
+    Ok(id)
 }
 
 /// Idempotency key for one node report entry.
@@ -35,6 +39,19 @@ pub async fn resolve_client_id(state: &AppState, email_or_id: &str) -> Option<St
 pub fn receipt_id_for(node_id: &str, batch_id: Option<&str>, key: &str) -> Option<String> {
     let batch = batch_id.map(str::trim).filter(|b| !b.is_empty())?;
     Some(crate::auth::crypto::sha256_hex(&format!("{node_id}\u{1f}{batch}\u{1f}{key}")))
+}
+
+/// Queueing result for one report entry (see [`add_traffic`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryOutcome {
+    /// Queued for the next flush.
+    Queued,
+    /// Nothing to record (unmetered or zero bytes); only `lastActiveAt` was touched.
+    Ignored,
+    /// No matching client; the bytes are unattributable and were dropped (warn-logged).
+    UnknownClient,
+    /// Transient DB failure while resolving the client; nothing was queued.
+    ResolveFailed,
 }
 
 pub async fn add_traffic(
@@ -48,9 +65,28 @@ pub async fn add_traffic(
     batch_id: Option<String>,
     protocol: Option<Protocol>,
     inbound_tag: Option<String>,
-) {
-    let Some(client_id) = resolve_client_id(state, email_or_id).await else {
-        return;
+) -> EntryOutcome {
+    let client_id = match resolve_client_id(state, email_or_id).await {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            tracing::warn!(
+                node_id,
+                key = %email_or_id,
+                upload,
+                download,
+                "traffic dropped: no client matches report key"
+            );
+            return EntryOutcome::UnknownClient;
+        }
+        Err(e) => {
+            tracing::warn!(
+                node_id,
+                key = %email_or_id,
+                error = %e,
+                "traffic deferred: client lookup failed"
+            );
+            return EntryOutcome::ResolveFailed;
+        }
     };
     let now = crate::db::now();
 
@@ -60,7 +96,7 @@ pub async fn add_traffic(
             .bind(now)
             .execute(&state.db)
             .await;
-        return;
+        return EntryOutcome::Ignored;
     }
 
     state.traffic_queue.push(PendingTrafficItem {
@@ -76,30 +112,57 @@ pub async fn add_traffic(
         inbound_tag,
         record_at: now,
     });
+    EntryOutcome::Queued
+}
+
+/// Result of one [`flush_batch`] round.
+#[derive(Debug, Default)]
+pub struct FlushResult {
+    pub processed: usize,
+    /// Batch ids whose entries are durably written (`TrafficReceipt` + `TrafficLog` + counters).
+    /// Only batches in this set may be acknowledged to the agent.
+    pub committed_batches: HashSet<String>,
 }
 
 /// Flushes up to `500` queued traffic items in a single transaction, deduplicating by `TrafficReceipt`
 /// and updating `Client` counters as well as `Reseller.usedTraffic`.
-pub async fn flush_batch(state: &AppState) -> AppResult<usize> {
+pub async fn flush_batch(state: &AppState) -> AppResult<FlushResult> {
     let items = state.traffic_queue.drain_up_to(500);
     if items.is_empty() {
-        return Ok(0);
+        return Ok(FlushResult::default());
     }
 
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(e) => {
-            state.traffic_queue.requeue_front(items);
-            return Err(e.into());
+    match flush_tx(state, &items).await {
+        Ok((processed, committed_batches, affected_clients)) => {
+            for cid in affected_clients {
+                let _ = enforcement::enforce_client_policies(state, &cid).await;
+            }
+            Ok(FlushResult {
+                processed,
+                committed_batches,
+            })
         }
-    };
+        Err(e) => {
+            // Transaction rolled back (tx dropped); put the items back at the front of the queue.
+            state.traffic_queue.requeue_front(items);
+            Err(e)
+        }
+    }
+}
+
+async fn flush_tx(
+    state: &AppState,
+    items: &[PendingTrafficItem],
+) -> AppResult<(usize, HashSet<String>, HashSet<String>)> {
+    let mut tx = state.db.begin().await?;
 
     let mut client_totals: HashMap<String, (i64, i64)> = HashMap::new();
     let mut node_totals: HashMap<String, (i64, i64)> = HashMap::new();
     let mut affected_clients: HashSet<String> = HashSet::new();
+    let mut committed_batches: HashSet<String> = HashSet::new();
     let mut processed = 0usize;
 
-    for item in &items {
+    for item in items {
         // Idempotent receipt guard
         let inserted = sqlx::query(
             r#"INSERT INTO "TrafficReceipt" (id, "batchId", "nodeId", "createdAt")
@@ -111,12 +174,12 @@ pub async fn flush_batch(state: &AppState) -> AppResult<usize> {
         .bind(&item.node_id)
         .bind(item.record_at)
         .execute(&mut *tx)
-        .await;
+        .await?;
 
-        let Ok(res) = inserted else {
-            continue;
-        };
-        if res.rows_affected() == 0 {
+        if let Some(batch) = item.batch_id.as_deref().filter(|b| !b.is_empty()) {
+            committed_batches.insert(batch.to_string());
+        }
+        if inserted.rows_affected() == 0 {
             continue;
         }
 
@@ -214,16 +277,81 @@ pub async fn flush_batch(state: &AppState) -> AppResult<usize> {
         .await?;
     }
 
-    if let Err(e) = tx.commit().await {
-        state.traffic_queue.requeue_front(items);
-        return Err(e.into());
-    }
+    tx.commit().await?;
+    Ok((processed, committed_batches, affected_clients))
+}
 
-    for cid in affected_clients {
-        let _ = enforcement::enforce_client_policies(state, &cid).await;
+/// Queues every entry of one agent report, flushes, and decides whether the agent may drop
+/// the batch: an ack is only returned once every entry is durably recorded (or nothing was
+/// recordable at all). A failed flush keeps the batch pending on the agent for replay.
+pub async fn record_report(state: &AppState, node_id: &str, report: TrafficReport) -> bool {
+    if report.validate().is_err() {
+        // A malformed batch can never become valid; ack so it stops replaying.
+        tracing::warn!(node_id, batch_id = ?report.batch_id, "dropping invalid traffic batch");
+        return true;
     }
+    let batch_id = report.batch_id.clone();
+    let mut resolve_failed = false;
+    let mut queued = 0usize;
+    for (email, stat) in report.stats {
+        let outcome = add_traffic(
+            state,
+            node_id,
+            &email,
+            i64::try_from(stat.upload).unwrap_or(0),
+            i64::try_from(stat.download).unwrap_or(0),
+            stat.unmetered,
+            None,
+            batch_id.clone(),
+            None,
+            None,
+        )
+        .await;
+        match outcome {
+            EntryOutcome::Queued => queued += 1,
+            EntryOutcome::ResolveFailed => resolve_failed = true,
+            EntryOutcome::Ignored | EntryOutcome::UnknownClient => {}
+        }
+    }
+    if resolve_failed {
+        return false;
+    }
+    match batch_id.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        // No batch id: nothing pending on the agent, but flush promptly all the same.
+        None => {
+            if queued > 0 {
+                let _ = flush_until_quiet(state).await;
+            }
+            true
+        }
+        Some(batch) if queued == 0 => {
+            tracing::warn!(node_id, batch, "batch has no queueable entries; acking empty batch");
+            true
+        }
+        Some(batch) => match flush_until_quiet(state).await {
+            Ok(committed) => committed.contains(batch),
+            Err(e) => {
+                tracing::warn!(node_id, error = %e, "traffic flush failed; batch stays pending");
+                false
+            }
+        },
+    }
+}
 
-    Ok(processed)
+/// Flushes until the queue is quiet (bounded) and returns every durably committed batch id.
+async fn flush_until_quiet(state: &AppState) -> AppResult<HashSet<String>> {
+    let mut committed = HashSet::new();
+    for _ in 0..200 {
+        if state.traffic_queue.is_empty() {
+            break;
+        }
+        let res = flush_batch(state).await?;
+        if res.processed == 0 {
+            break;
+        }
+        committed.extend(res.committed_batches);
+    }
+    Ok(committed)
 }
 
 /// Flushes until the queue is empty (bounded), used on shutdown so a restart loses nothing queued.
@@ -234,8 +362,8 @@ pub async fn drain_all(state: &AppState) -> usize {
             break;
         }
         match flush_batch(state).await {
-            Ok(0) => break,
-            Ok(n) => total += n,
+            Ok(res) if res.processed == 0 => break,
+            Ok(res) => total += res.processed,
             Err(e) => {
                 tracing::warn!(error = %e, queued = state.traffic_queue.len(), "final traffic flush failed");
                 break;

@@ -288,22 +288,12 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
             Envelope::TrafficReport(report) => {
                 if report.validate().is_ok() {
                     let batch_id = report.batch_id.clone().unwrap_or_default();
-                    for (email, stat) in report.stats {
-                        traffic_batcher::add_traffic(
-                            &state,
-                            &node_id,
-                            &email,
-                            i64::try_from(stat.upload).unwrap_or(0),
-                            i64::try_from(stat.download).unwrap_or(0),
-                            stat.unmetered,
-                            None,
-                            (!batch_id.is_empty()).then(|| batch_id.clone()),
-                            None,
-                            None,
-                        )
-                        .await;
+                    // Ack only after the batch is durably recorded, so a panel restart between
+                    // queueing and flushing cannot lose traffic the agent already dropped.
+                    let committed = traffic_batcher::record_report(&state, &node_id, report).await;
+                    if committed {
+                        let _ = tx.send(Envelope::TrafficAck(TrafficAck { batch_id }));
                     }
-                    let _ = tx.send(Envelope::TrafficAck(TrafficAck { batch_id }));
                 }
             }
             Envelope::Heartbeat(_) => {

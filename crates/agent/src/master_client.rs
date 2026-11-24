@@ -6,7 +6,7 @@ use crate::traffic::CumulativeTrafficTracker;
 use futures_util::{SinkExt, StreamExt};
 use mypanel_proto::{
     ApplyConfigRequest, CommandAck, EmptyPayload, Envelope, NodeControlAction, RegisterRequest,
-    RegisterSystemInfo, SessionsList, TrafficReport,
+    RegisterSystemInfo, SessionsList, TrafficCounter, TrafficReport,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -270,15 +270,17 @@ async fn connect_and_serve(
                 send_envelope(&mut write, &Envelope::StatusReport(status)).await?;
             }
             _ = traffic_tick.tick() => {
-                let cur = tokio::time::timeout(SNAPSHOT_TIMEOUT, async {
+                let per_core = tokio::time::timeout(SNAPSHOT_TIMEOUT, async {
                     let mut guard = pm.lock().await;
-                    guard.collect_traffic().await
+                    guard.collect_traffic_by_core().await
                 })
                 .await
                 .map_err(|_| "traffic snapshot timed out".to_string())?;
+                let cur_refs: Vec<(&str, &HashMap<String, TrafficCounter>)> =
+                    per_core.iter().map(|(c, m)| (*c, m)).collect();
                 let report = {
                     let mut tr = tracker.lock().await;
-                    tr.compute_delta(&cur).await.unwrap_or_else(|_| TrafficReport {
+                    tr.compute_delta_multi(&cur_refs).await.unwrap_or_else(|_| TrafficReport {
                         batch_id: None,
                         stats: HashMap::new(),
                     })

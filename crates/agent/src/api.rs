@@ -14,10 +14,11 @@ use axum::{Json, Router};
 use chrono::Utc;
 use mypanel_proto::{
     ApplyConfigRequest, ApplyConfigResponse, CoreUpdateCmd, DropSessionCmd, SessionsList,
-    TrafficAckRequest, TrafficCollectResponse,
+    TrafficAckRequest, TrafficCollectResponse, TrafficCounter,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -234,9 +235,14 @@ async fn handle_traffic_collect(State(state): State<ApiState>) -> Response {
         )
             .into_response();
     };
-    let cur = {
+    let cur_by_core = {
         let mut pm = state.pm.lock().await;
-        match tokio::time::timeout(std::time::Duration::from_secs(20), pm.collect_traffic()).await {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            pm.collect_traffic_by_core(),
+        )
+        .await
+        {
             Ok(c) => c,
             Err(_) => {
                 return (
@@ -247,8 +253,10 @@ async fn handle_traffic_collect(State(state): State<ApiState>) -> Response {
             }
         }
     };
+    let cur_refs: Vec<(&str, &HashMap<String, TrafficCounter>)> =
+        cur_by_core.iter().map(|(c, m)| (*c, m)).collect();
     let mut tr = tracker.lock().await;
-    if let Err(e) = tr.compute_delta(&cur).await {
+    if let Err(e) = tr.compute_delta_multi(&cur_refs).await {
         tracing::warn!(error = %e, "traffic delta computation failed");
     }
     let mut reports = tr.pending_reports();

@@ -6,9 +6,9 @@ use crate::cores::{mieru, naive, singbox, validate_inbound, write_atomic_0600, x
 use crate::port_share::{remap_inbounds, PortShareRuntime};
 use crate::telemetry::TelemetryCollector;
 use crate::traffic::{
-    drop_singbox_connection, fetch_singbox_connections_json, merge_traffic_maps,
-    parse_mieru_metrics_json, parse_xray_stats, parse_xray_stats_json, NaiveAccessLogReader,
-    SingboxConnectionTracker,
+    drop_singbox_connection, fetch_singbox_connections_json, merge_into,
+    merge_traffic_maps_refs, parse_mieru_metrics_json, parse_xray_stats, parse_xray_stats_json,
+    NaiveAccessLogReader, SingboxConnectionTracker,
 };
 use chrono::Utc;
 use mypanel_proto::{
@@ -957,14 +957,29 @@ impl ProcessManager {
 
     /// Collects cumulative per-user traffic counters across all 4 proxy cores (`unmetered: false`).
     pub async fn collect_traffic(&mut self) -> HashMap<String, TrafficCounter> {
-        let xray_map = if self.xray_running() {
-            self.collect_xray_traffic().await
-        } else {
-            HashMap::new()
-        };
+        let per_core = self.collect_traffic_by_core().await;
+        let refs: Vec<(&str, &HashMap<String, TrafficCounter>)> =
+            per_core.iter().map(|(c, m)| (*c, m)).collect();
+        merge_traffic_maps_refs(&refs)
+    }
 
-        let singbox_map = if self.singbox_running() {
-            if let Ok(body) =
+    /// Collects cumulative per-user traffic counters per proxy core (`unmetered: false`),
+    /// keeping each core's counters separate so the traffic tracker can baseline them
+    /// independently. Cores that are down or empty are omitted.
+    pub async fn collect_traffic_by_core(
+        &mut self,
+    ) -> Vec<(&'static str, HashMap<String, TrafficCounter>)> {
+        let mut out: Vec<(&'static str, HashMap<String, TrafficCounter>)> = Vec::new();
+
+        if self.xray_running() {
+            let map = self.collect_xray_traffic().await;
+            if !map.is_empty() {
+                out.push(("xray", map));
+            }
+        }
+
+        if self.singbox_running() {
+            let map = if let Ok(body) =
                 fetch_singbox_connections_json(&self.http_client, &self.config.singbox_api_addr)
                     .await
             {
@@ -974,23 +989,28 @@ impl ProcessManager {
                 }
             } else {
                 self.singbox_tracker.current_totals()
+            };
+            if !map.is_empty() {
+                out.push(("singbox", map));
             }
-        } else {
-            HashMap::new()
-        };
+        }
 
-        let mieru_map = if self.mieru_running() {
-            self.collect_mieru_traffic().await
-        } else {
-            HashMap::new()
-        };
+        if self.mieru_running() {
+            let map = self.collect_mieru_traffic().await;
+            if !map.is_empty() {
+                out.push(("mieru", map));
+            }
+        }
 
         let naive_map = self
             .naive_log_reader
             .poll(&self.config.naive_access_log_path())
             .await;
+        if !naive_map.is_empty() {
+            out.push(("naive", naive_map));
+        }
 
-        merge_traffic_maps(&[&xray_map, &singbox_map, &mieru_map, &naive_map])
+        out
     }
 
     async fn collect_xray_traffic(&self) -> HashMap<String, TrafficCounter> {
@@ -1041,7 +1061,7 @@ impl ProcessManager {
                 if out.status.success() {
                     if let Ok(stdout) = String::from_utf8(out.stdout) {
                         if let Ok(m) = parse_mieru_metrics_json(&stdout) {
-                            merged = merge_traffic_maps(&[&merged, &m]);
+                            merge_into(&mut merged, &m);
                         }
                     }
                 }

@@ -72,6 +72,9 @@ async fn poll_node(state: &AppState, node_id: &str) -> Result<(), String> {
 }
 
 /// Queues every entry of the reports and returns the batch ids that are safe to acknowledge.
+///
+/// A batch id is only returned once its entries are durably written; anything else stays
+/// pending on the agent and is replayed (receipt ids keep the replay idempotent).
 pub async fn record_reports(
     state: &AppState,
     node_id: &str,
@@ -79,32 +82,12 @@ pub async fn record_reports(
 ) -> Vec<String> {
     let mut acked = Vec::new();
     for report in reports {
-        if report.validate().is_err() {
-            // A malformed batch can never become valid; acknowledge it so it stops replaying.
-            if let Some(id) = report.batch_id {
-                tracing::warn!(node_id, batch_id = %id, "dropping invalid traffic batch");
+        let batch_id = report.batch_id.clone();
+        // record_report validates; an invalid batch can never become valid, so ack it.
+        if traffic_batcher::record_report(state, node_id, report).await {
+            if let Some(id) = batch_id.filter(|id| !id.is_empty()) {
                 acked.push(id);
             }
-            continue;
-        }
-        let batch_id = report.batch_id.clone();
-        for (email, stat) in report.stats {
-            traffic_batcher::add_traffic(
-                state,
-                node_id,
-                &email,
-                i64::try_from(stat.upload).unwrap_or(0),
-                i64::try_from(stat.download).unwrap_or(0),
-                stat.unmetered,
-                None,
-                batch_id.clone(),
-                None,
-                None,
-            )
-            .await;
-        }
-        if let Some(id) = batch_id {
-            acked.push(id);
         }
     }
     acked
