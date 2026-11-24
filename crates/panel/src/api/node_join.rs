@@ -125,7 +125,9 @@ pub async fn join(
     if host.is_empty() {
         return Err(AppError::validation("host", "Node host is required"));
     }
-    crate::net::validate_node_host(host, state.cfg.allow_private_nodes)?;
+    // Always reject private/loopback/link-local targets here, whatever ALLOW_PRIVATE_NODES says:
+    // a join token must never be able to point the panel at an internal address.
+    crate::net::validate_node_host(host, false)?;
     let api_port = body.api_port.unwrap_or(2222);
     if !(1..=65535).contains(&api_port) {
         return Err(AppError::validation("apiPort", "Port must be 1..=65535"));
