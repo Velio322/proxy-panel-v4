@@ -354,7 +354,7 @@ export function InboundsPage() {
 
       {/* Main Content */}
       {isLoading ? (
-        <div className="grid gap-3 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
           <Skeleton className="h-40 w-full rounded-xl" />
           <Skeleton className="h-40 w-full rounded-xl" />
         </div>
@@ -381,7 +381,7 @@ export function InboundsPage() {
           }
         />
       ) : viewMode === 'blades' ? (
-        <div className="grid gap-3 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
           {filtered.map((ib) => (
             <InboundBladeCard
               key={ib.id}

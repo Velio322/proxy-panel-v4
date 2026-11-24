@@ -230,7 +230,7 @@ export function MainLayout() {
         </header>
 
         <main className="flex-1 p-4 md:p-6">
-          <div className="mx-auto w-full max-w-[1440px]">
+          <div className="mx-auto w-full max-w-[1920px]">
             <Suspense fallback={<ContentFallback />}>
               <Outlet />
             </Suspense>

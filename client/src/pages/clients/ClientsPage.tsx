@@ -583,7 +583,7 @@ export function ClientsPage() {
           }
         />
       ) : viewMode === 'blades' ? (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-2 2xl:grid-cols-2">
           {clients.map((client) => (
             <ClientBladeCard
               key={client.id}

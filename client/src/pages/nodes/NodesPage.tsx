@@ -633,7 +633,7 @@ export function NodesPage() {
 
       {/* Main Content */}
       {isLoading ? (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
           <Skeleton className="h-64 w-full rounded-xl" />
           <Skeleton className="h-64 w-full rounded-xl" />
         </div>
@@ -660,7 +660,7 @@ export function NodesPage() {
           </div>
         </Card>
       ) : viewMode === 'blades' ? (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
           {filtered.map((n) => (
             <NodeBladeCard
               key={n.id}
