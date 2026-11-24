@@ -46,6 +46,7 @@ x509-parser.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+socket2 = { version = "0.6", features = ["all"] }
 
 [dev-dependencies]
 tower.workspace = true

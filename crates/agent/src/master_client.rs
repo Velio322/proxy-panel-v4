@@ -11,7 +11,7 @@ use mypanel_proto::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
@@ -37,6 +37,8 @@ const INITIAL_REGISTER_ATTEMPTS: usize = 3;
 const INITIAL_REGISTER_DELAY: Duration = Duration::from_secs(2);
 const STATUS_INTERVAL: Duration = Duration::from_secs(30);
 const TRAFFIC_INTERVAL: Duration = Duration::from_secs(60);
+/// Max stale (unacked) batches re-sent per traffic tick, and on reconnect.
+const REPLAY_PER_TICK: usize = 50;
 
 /// Registers this node with the Master panel (`POST /api/v1/nodes/self/register`).
 /// Retries up to `max_attempts` times (`5s` apart) before returning an error.
@@ -99,10 +101,12 @@ fn reconnect_delay(failures: u32) -> Duration {
     RECONNECT_BACKOFF[idx.min(RECONNECT_BACKOFF.len() - 1)]
 }
 
-/// Adds up to ~20% jitter so a fleet of agents does not reconnect in lockstep after a panel restart.
+/// Adds jitter (20% of the delay, at least 3s) so a fleet of agents does not reconnect in
+/// lockstep after a panel restart and make it rebuild every node config at once.
 fn with_jitter(base: Duration) -> Duration {
     use rand::Rng;
-    let extra_ms = rand::thread_rng().gen_range(0..=base.as_millis() as u64 / 5);
+    let max_ms = (base.as_millis() as u64 / 5).max(3_000);
+    let extra_ms = rand::thread_rng().gen_range(0..=max_ms);
     base + Duration::from_millis(extra_ms)
 }
 
@@ -147,7 +151,7 @@ pub async fn run_master_loop(
         tracing::warn!(error = %err, "Initial node registration failed; continuing to WS loop");
     }
 
-    let mut last_applied_json: Option<String> = None;
+    let last_applied_json: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let mut failures: u32 = 0;
 
     loop {
@@ -161,7 +165,7 @@ pub async fn run_master_loop(
             &http_client,
             &pm,
             &tracker,
-            &mut last_applied_json,
+            &last_applied_json,
             &cancel,
         )
         .await;
@@ -204,7 +208,7 @@ async fn connect_and_serve(
     http_client: &reqwest::Client,
     pm: &Arc<Mutex<ProcessManager>>,
     tracker: &Arc<Mutex<CumulativeTrafficTracker>>,
-    last_applied_json: &mut Option<String>,
+    last_applied_json: &Arc<Mutex<Option<String>>>,
     cancel: &CancellationToken,
 ) -> Result<(), String> {
     let ws_url = build_ws_url(&cfg.master_url)?;
@@ -239,12 +243,23 @@ async fn connect_and_serve(
         // Replay any unacknowledged pending traffic batches
         let pending = {
             let guard = tracker.lock().await;
-            guard.pending_reports()
+            guard.pending_replay(REPLAY_PER_TICK, &std::collections::HashSet::new())
         };
         for report in pending {
             send_envelope(&mut write, &Envelope::TrafficReport(report)).await?;
         }
     }
+
+    let (job_tx, job_rx) = mpsc::channel::<Envelope>(64);
+    let (out_tx, mut out_rx) = mpsc::channel::<Envelope>(64);
+    tokio::spawn(command_worker(
+        job_rx,
+        out_tx,
+        cfg.clone(),
+        http_client.clone(),
+        pm.clone(),
+        last_applied_json.clone(),
+    ));
 
     let mut status_tick = tokio::time::interval(STATUS_INTERVAL);
     status_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -265,27 +280,58 @@ async fn connect_and_serve(
                     READ_IDLE_TIMEOUT.as_secs()
                 ));
             }
+            Some(env) = out_rx.recv() => {
+                send_envelope(&mut write, &env).await?;
+            }
             _ = status_tick.tick() => {
-                let status = status_snapshot(pm).await?;
-                send_envelope(&mut write, &Envelope::StatusReport(status)).await?;
+                // A busy ProcessManager (config apply / core update in the worker) must not
+                // drop the link: skip this tick instead.
+                match status_snapshot(pm).await {
+                    Ok(status) => send_envelope(&mut write, &Envelope::StatusReport(status)).await?,
+                    Err(err) => tracing::warn!(error = %err, "skipping status report"),
+                }
             }
             _ = traffic_tick.tick() => {
-                let per_core = tokio::time::timeout(SNAPSHOT_TIMEOUT, async {
+                let Ok(per_core) = tokio::time::timeout(SNAPSHOT_TIMEOUT, async {
                     let mut guard = pm.lock().await;
                     guard.collect_traffic_by_core().await
                 })
                 .await
-                .map_err(|_| "traffic snapshot timed out".to_string())?;
+                else {
+                    tracing::warn!("traffic snapshot timed out; skipping this tick");
+                    continue;
+                };
                 let cur_refs: Vec<(&str, &HashMap<String, TrafficCounter>)> =
                     per_core.iter().map(|(c, m)| (*c, m)).collect();
-                let report = {
+                let (report, extra) = {
                     let mut tr = tracker.lock().await;
-                    tr.compute_delta_multi(&cur_refs).await.unwrap_or_else(|_| TrafficReport {
-                        batch_id: None,
-                        stats: HashMap::new(),
-                    })
+                    let report = match tr.compute_delta_multi(&cur_refs).await {
+                        Ok(r) => r,
+                        Err(err) => {
+                            tracing::warn!(error = %err, "traffic delta failed; will retry next tick");
+                            continue;
+                        }
+                    };
+                    (report, tr.take_overflow_reports())
                 };
+                let sent_batch = report.batch_id.clone();
                 send_envelope(&mut write, &Envelope::TrafficReport(report)).await?;
+                let mut sent_ids: std::collections::HashSet<String> = extra
+                    .iter()
+                    .filter_map(|r| r.batch_id.clone())
+                    .collect();
+                sent_ids.extend(sent_batch);
+                for r in extra {
+                    send_envelope(&mut write, &Envelope::TrafficReport(r)).await?;
+                }
+                // Re-deliver batches whose ack never arrived (panel dedups by batch id).
+                let stale = {
+                    let tr = tracker.lock().await;
+                    tr.pending_replay(REPLAY_PER_TICK, &sent_ids)
+                };
+                for r in stale {
+                    send_envelope(&mut write, &Envelope::TrafficReport(r)).await?;
+                }
             }
             msg = read.next() => {
                 if matches!(msg, Some(Ok(_))) {
@@ -294,17 +340,24 @@ async fn connect_and_serve(
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         if let Ok(env) = serde_json::from_str::<Envelope>(&text) {
-                            handle_master_envelope(
-                                env,
-                                cfg,
-                                http_client,
-                                pm,
-                                tracker,
-                                last_applied_json,
-                                &mut write,
-                            ).await?;
-                            // Long handlers (config apply, core update) must not count as idle time.
-                            last_seen = tokio::time::Instant::now();
+                            match env {
+                                Envelope::TrafficAck(ack) => {
+                                    let mut tr = tracker.lock().await;
+                                    let _ = tr.acknowledge_batch(&ack.batch_id).await;
+                                }
+                                Envelope::ConfigUpdate(_)
+                                | Envelope::ApplyConfigRequest(_)
+                                | Envelope::NodeControlCmd(_)
+                                | Envelope::DropSessionCmd(_)
+                                | Envelope::CoreUpdateCmd(_) => {
+                                    // Long handlers run in the serial worker so this loop keeps
+                                    // answering pings and never trips the panel's pong timeout.
+                                    if job_tx.try_send(env).is_err() {
+                                        tracing::warn!("command queue full or worker gone; command dropped");
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                     }
                     Some(Ok(Message::Ping(payload))) => {
@@ -323,38 +376,59 @@ async fn connect_and_serve(
     }
 }
 
-async fn handle_master_envelope<S>(
+/// Executes panel commands one at a time, outside the WS read loop. Ends when the connection
+/// drops (`job_tx` closed) after finishing the command in flight.
+async fn command_worker(
+    mut jobs: mpsc::Receiver<Envelope>,
+    out: mpsc::Sender<Envelope>,
+    cfg: AgentConfig,
+    http_client: reqwest::Client,
+    pm: Arc<Mutex<ProcessManager>>,
+    last_applied_json: Arc<Mutex<Option<String>>>,
+) {
+    while let Some(env) = jobs.recv().await {
+        handle_command(env, &cfg, &http_client, &pm, &last_applied_json, &out).await;
+    }
+}
+
+async fn emit(out: &mpsc::Sender<Envelope>, env: Envelope) {
+    // The connection may already be gone; the panel re-sends config on reconnect.
+    let _ = out.send(env).await;
+}
+
+async fn handle_command(
     env: Envelope,
     cfg: &AgentConfig,
     http_client: &reqwest::Client,
     pm: &Arc<Mutex<ProcessManager>>,
-    tracker: &Arc<Mutex<CumulativeTrafficTracker>>,
-    last_applied_json: &mut Option<String>,
-    write: &mut S,
-) -> Result<(), String>
-where
-    S: SinkExt<Message> + Unpin,
-    S::Error: std::fmt::Display,
-{
+    last_applied_json: &Arc<Mutex<Option<String>>>,
+    out: &mpsc::Sender<Envelope>,
+) {
     match env {
         Envelope::ConfigUpdate(cmd) => {
-            let fingerprint = serde_json::to_string(&(
-                &cmd.inbounds,
-                &cmd.routing_rules,
-                &cmd.xray_profile,
-            ))
-            .ok();
-            if fingerprint.is_some() && fingerprint == *last_applied_json {
-                let problems = {
-                    let guard = pm.lock().await;
-                    guard.problems().to_vec()
+            let fingerprint =
+                serde_json::to_string(&(&cmd.inbounds, &cmd.routing_rules, &cmd.xray_profile)).ok();
+            let unchanged = {
+                let last = last_applied_json.lock().await;
+                fingerprint.is_some() && fingerprint == *last
+            };
+            if unchanged {
+                // Same config as last time: only skip when every expected core is alive,
+                // otherwise fall through and re-apply so a crashed core is brought back.
+                let (problems, healthy) = {
+                    let mut guard = pm.lock().await;
+                    let healthy = guard.cores_healthy().await;
+                    (guard.problems().to_vec(), healthy)
                 };
-                let ack = CommandAck {
-                    command_id: cmd.command_id,
-                    ok: true,
-                    error: (!problems.is_empty()).then(|| problems.join("; ")),
-                };
-                return send_envelope(write, &Envelope::CommandAck(ack)).await;
+                if healthy {
+                    let ack = CommandAck {
+                        command_id: cmd.command_id,
+                        ok: true,
+                        error: (!problems.is_empty()).then(|| problems.join("; ")),
+                    };
+                    emit(out, Envelope::CommandAck(ack)).await;
+                    return;
+                }
             }
 
             let apply_res = {
@@ -370,7 +444,7 @@ where
 
             let ack = match apply_res {
                 Ok(_) => {
-                    *last_applied_json = fingerprint;
+                    *last_applied_json.lock().await = fingerprint;
                     let problems = {
                         let guard = pm.lock().await;
                         guard.problems().to_vec()
@@ -397,7 +471,7 @@ where
                     error: Some(err),
                 },
             };
-            send_envelope(write, &Envelope::CommandAck(ack)).await?;
+            emit(out, Envelope::CommandAck(ack)).await;
         }
         Envelope::ApplyConfigRequest(req) => {
             let mut guard = pm.lock().await;
@@ -430,18 +504,14 @@ where
             };
             // Always follow up with a fresh status so the panel sees the new state immediately.
             if let Ok(status) = status_snapshot(pm).await {
-                let _ = send_envelope(write, &Envelope::StatusReport(status)).await;
+                emit(out, Envelope::StatusReport(status)).await;
             }
             let ack = CommandAck {
                 command_id: cmd.command_id,
                 ok: result.is_ok(),
                 error: result.err(),
             };
-            send_envelope(write, &Envelope::CommandAck(ack)).await?;
-        }
-        Envelope::TrafficAck(ack) => {
-            let mut tr = tracker.lock().await;
-            let _ = tr.acknowledge_batch(&ack.batch_id).await;
+            emit(out, Envelope::CommandAck(ack)).await;
         }
         Envelope::DropSessionCmd(cmd) => {
             let res = {
@@ -454,7 +524,7 @@ where
                         let mut guard = pm.lock().await;
                         guard.get_sessions().await
                     };
-                    let _ = send_envelope(write, &Envelope::SessionsList(SessionsList { sessions })).await;
+                    emit(out, Envelope::SessionsList(SessionsList { sessions })).await;
                     CommandAck {
                         command_id: cmd.command_id,
                         ok: true,
@@ -467,16 +537,14 @@ where
                     error: Some(err),
                 },
             };
-            send_envelope(write, &Envelope::CommandAck(ack)).await?;
+            emit(out, Envelope::CommandAck(ack)).await;
         }
         Envelope::CoreUpdateCmd(cmd) => {
             let ack = match execute_core_update(pm, http_client, &cmd).await {
                 Ok(_) => {
-                    let status = {
-                        let mut guard = pm.lock().await;
-                        guard.status_report(false).await
-                    };
-                    let _ = send_envelope(write, &Envelope::StatusReport(status)).await;
+                    if let Ok(status) = status_snapshot(pm).await {
+                        emit(out, Envelope::StatusReport(status)).await;
+                    }
                     CommandAck {
                         command_id: cmd.command_id,
                         ok: true,
@@ -489,11 +557,10 @@ where
                     error: Some(err),
                 },
             };
-            send_envelope(write, &Envelope::CommandAck(ack)).await?;
+            emit(out, Envelope::CommandAck(ack)).await;
         }
         _ => {}
     }
-    Ok(())
 }
 
 async fn send_frame<S>(write: &mut S, msg: Message) -> Result<(), String>

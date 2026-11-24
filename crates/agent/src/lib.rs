@@ -121,6 +121,13 @@ pub async fn run(cfg: AgentConfig) -> Result<()> {
     let mut background: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let server_cancel = cancel.clone();
 
+    {
+        let (sup_pm, sup_cancel) = (pm.clone(), cancel.clone());
+        background.push(tokio::spawn(async move {
+            supervise_cores(sup_pm, sup_cancel).await;
+        }));
+    }
+
     let server_task = if pull {
         let slot = tls_server::new_shared_config();
         let listener = tls_server::TlsListener::new(tcp, slot.clone())?;
@@ -177,6 +184,21 @@ pub async fn run(cfg: AgentConfig) -> Result<()> {
     guard.stop_all().await;
 
     Ok(())
+}
+
+/// Restarts proxy cores that crashed (exponential backoff inside `heal_dead_cores`).
+async fn supervise_cores(pm: Arc<Mutex<process::ProcessManager>>, cancel: CancellationToken) {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            _ = tick.tick() => {
+                let mut guard = pm.lock().await;
+                let _ = guard.heal_dead_cores().await;
+            }
+        }
+    }
 }
 
 async fn wait_for_shutdown_signal() {

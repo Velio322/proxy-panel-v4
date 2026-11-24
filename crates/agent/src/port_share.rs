@@ -19,6 +19,20 @@ pub const MAX_HELLO_BYTES: usize = 16 * 1024;
 pub const INSPECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Maximum concurrent SNI inspection handshakes per port-share listener (`4096`).
 pub const MAX_CONCURRENT_CONNECTIONS: usize = 4096;
+/// Upper bound for connecting to the loopback backend core.
+const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// TCP keepalive on proxied sockets: reaps half-open peers so they cannot hold permits forever.
+const KEEPALIVE_IDLE: Duration = Duration::from_secs(60);
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
+
+fn enable_keepalive(stream: &TcpStream) {
+    let ka = socket2::TcpKeepalive::new()
+        .with_time(KEEPALIVE_IDLE)
+        .with_interval(KEEPALIVE_INTERVAL);
+    let _ = socket2::SockRef::from(stream).set_tcp_keepalive(&ka);
+    let _ = stream.set_nodelay(true);
+}
+
 /// Loopback base port for port-shared backend inbounds (``: `11000`, never collides with `XRAY_API_PORT = 10085`).
 pub const BASE_PORT: u16 = 11000;
 /// Port allocation span above [`BASE_PORT`] (`11000..16000`).
@@ -825,7 +839,11 @@ async fn proxy_connection(mut client: TcpStream, group: &PortShareGroup) -> std:
 
     let backend_port = select_backend_port(group, &inspection);
     let addr = SocketAddr::from(([127, 0, 0, 1], backend_port));
-    let mut upstream = TcpStream::connect(addr).await?;
+    enable_keepalive(&client);
+    let mut upstream = tokio::time::timeout(UPSTREAM_CONNECT_TIMEOUT, TcpStream::connect(addr))
+        .await
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "upstream connect timed out"))??;
+    enable_keepalive(&upstream);
     upstream.write_all(&buf).await?;
     let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
     Ok(())

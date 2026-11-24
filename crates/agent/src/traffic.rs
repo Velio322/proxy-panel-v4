@@ -520,6 +520,8 @@ struct PendingTrafficFile {
 pub struct CumulativeTrafficTracker {
     previous: HashMap<String, (u64, u64)>,
     pending_batches: HashMap<String, HashMap<String, TrafficCounter>>,
+    /// Batch ids produced by the last compute beyond the first `MAX_TRAFFIC_ENTRIES` entries.
+    overflow: Vec<String>,
     pending_path: PathBuf,
 }
 
@@ -528,6 +530,7 @@ impl CumulativeTrafficTracker {
         Self {
             previous: HashMap::new(),
             pending_batches: HashMap::new(),
+            overflow: Vec::new(),
             pending_path: pending_path.as_ref().to_path_buf(),
         }
     }
@@ -570,6 +573,40 @@ impl CumulativeTrafficTracker {
         &mut self,
         per_core: &[(&str, &HashMap<String, TrafficCounter>)],
     ) -> Result<TrafficReport, String> {
+        // Transactional: if validation or persisting fails the baselines are rolled back, so the
+        // delta is recomputed on the next tick instead of being lost.
+        let backup = self.previous.clone();
+        let batches_before: HashSet<String> = self.pending_batches.keys().cloned().collect();
+        match self.compute_delta_multi_inner(per_core).await {
+            Ok(report) => Ok(report),
+            Err(err) => {
+                self.previous = backup;
+                self.pending_batches.retain(|k, _| batches_before.contains(k));
+                self.overflow.clear();
+                Err(err)
+            }
+        }
+    }
+
+    /// Reports for batches that did not fit into the report returned by the last
+    /// [`Self::compute_delta_multi`] call (more than `MAX_TRAFFIC_ENTRIES` active users).
+    pub fn take_overflow_reports(&mut self) -> Vec<TrafficReport> {
+        std::mem::take(&mut self.overflow)
+            .into_iter()
+            .filter_map(|id| {
+                self.pending_batches.get(&id).map(|stats| TrafficReport {
+                    batch_id: Some(id.clone()),
+                    stats: stats.clone(),
+                })
+            })
+            .collect()
+    }
+
+    async fn compute_delta_multi_inner(
+        &mut self,
+        per_core: &[(&str, &HashMap<String, TrafficCounter>)],
+    ) -> Result<TrafficReport, String> {
+        self.overflow.clear();
         let mut delta_stats: HashMap<String, TrafficCounter> = HashMap::new();
         let mut baseline_changed = false;
 
@@ -622,11 +659,6 @@ impl CumulativeTrafficTracker {
             baseline_changed = true;
         }
 
-        // Cap stats to MAX_TRAFFIC_ENTRIES
-        if delta_stats.len() > MAX_TRAFFIC_ENTRIES {
-            delta_stats = delta_stats.into_iter().take(MAX_TRAFFIC_ENTRIES).collect();
-        }
-
         if delta_stats.is_empty() {
             // No new traffic, but the baseline may still have moved; keep it durable so a
             // restart cannot re-count the last observed cumulative as a fresh delta.
@@ -639,19 +671,30 @@ impl CumulativeTrafficTracker {
             });
         }
 
-        let batch_id = uuid::Uuid::new_v4().to_string();
-        let report = TrafficReport {
-            batch_id: Some(batch_id.clone()),
-            stats: delta_stats.clone(),
-        };
-        report
-            .validate()
-            .map_err(|e| format!("TrafficReport validation failed: {e}"))?;
-
-        self.pending_batches.insert(batch_id, delta_stats);
+        // Split into several batches instead of truncating, so no bytes are dropped.
+        let mut entries: Vec<(String, TrafficCounter)> = delta_stats.into_iter().collect();
+        let mut first: Option<TrafficReport> = None;
+        while !entries.is_empty() {
+            let take = entries.len().min(MAX_TRAFFIC_ENTRIES);
+            let chunk: HashMap<String, TrafficCounter> = entries.drain(..take).collect();
+            let batch_id = uuid::Uuid::new_v4().to_string();
+            let report = TrafficReport {
+                batch_id: Some(batch_id.clone()),
+                stats: chunk.clone(),
+            };
+            report
+                .validate()
+                .map_err(|e| format!("TrafficReport validation failed: {e}"))?;
+            self.pending_batches.insert(batch_id.clone(), chunk);
+            if first.is_none() {
+                first = Some(report);
+            } else {
+                self.overflow.push(batch_id);
+            }
+        }
         self.save_pending().await?;
 
-        Ok(report)
+        first.ok_or_else(|| "no traffic batch produced".to_string())
     }
 
     /// Returns all currently unacknowledged pending batches to be replayed after reconnect.
@@ -663,6 +706,26 @@ impl CumulativeTrafficTracker {
                 stats: stats.clone(),
             })
             .collect()
+    }
+
+    /// Up to `limit` unacknowledged batches (excluding `skip`) for periodic re-delivery in WS
+    /// mode, so a lost ack does not leave batches stuck until the next reconnect. The panel
+    /// deduplicates by batch id, so re-sending is safe.
+    pub fn pending_replay(&self, limit: usize, skip: &HashSet<String>) -> Vec<TrafficReport> {
+        self.pending_batches
+            .iter()
+            .filter(|(id, _)| !skip.contains(*id))
+            .take(limit)
+            .map(|(batch_id, stats)| TrafficReport {
+                batch_id: Some(batch_id.clone()),
+                stats: stats.clone(),
+            })
+            .collect()
+    }
+
+    /// Number of unacknowledged batches.
+    pub fn pending_len(&self) -> usize {
+        self.pending_batches.len()
     }
 
     /// Removes an acknowledged batch and updates `<CONFIG_DIR>/traffic-pending.json`.
@@ -679,7 +742,8 @@ impl CumulativeTrafficTracker {
             batches: self.pending_batches.clone(),
             baselines: self.previous.clone(),
         };
-        let bytes = serde_json::to_vec_pretty(&file)
+        // Compact JSON: this file is rewritten every minute and can hold many batches.
+        let bytes = serde_json::to_vec(&file)
             .map_err(|e| format!("Failed to serialize traffic-pending.json: {e}"))?;
         write_atomic_0600(&self.pending_path, &bytes).await
     }
@@ -1035,5 +1099,48 @@ mod tests {
         .unwrap();
         assert_eq!(lower["bob"].upload, 5);
         assert_eq!(lower["bob"].download, 6);
+    }
+
+    #[tokio::test]
+    async fn more_than_max_entries_is_split_not_truncated() {
+        let mut t = CumulativeTrafficTracker::new(pending_path("split"));
+        let total = MAX_TRAFFIC_ENTRIES + 123;
+        let users: HashMap<String, TrafficCounter> =
+            (0..total).map(|i| (format!("u{i}"), counter(1, 2))).collect();
+        let cur: CoreMaps = vec![("xray", users)];
+        let first = t.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
+        let extra = t.take_overflow_reports();
+        let sent: usize = first.stats.len() + extra.iter().map(|r| r.stats.len()).sum::<usize>();
+        assert_eq!(sent, total);
+        assert_eq!(first.stats.len(), MAX_TRAFFIC_ENTRIES);
+        assert_eq!(t.pending_len(), 2);
+        assert!(t.take_overflow_reports().is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_persist_rolls_back_baselines() {
+        let dir = std::env::temp_dir().join(format!("mypanel-nodir-{}", uuid::Uuid::new_v4()));
+        // Parent is a regular file, so the atomic write must fail.
+        std::fs::write(&dir, b"x").unwrap();
+        let mut t = CumulativeTrafficTracker::new(dir.join("pending.json"));
+        let cur = per_core(&[("xray", &[("velio", 10, 20)])]);
+        assert!(t.compute_delta_multi(&as_ref_maps(&cur)).await.is_err());
+        assert_eq!(t.pending_len(), 0);
+        assert!(t.previous.is_empty());
+        let _ = std::fs::remove_file(&dir);
+    }
+
+    #[tokio::test]
+    async fn replay_skips_listed_batches_and_respects_limit() {
+        let mut t = CumulativeTrafficTracker::new(pending_path("replay"));
+        let a = per_core(&[("xray", &[("a", 1, 1)])]);
+        let first = t.compute_delta_multi(&as_ref_maps(&a)).await.unwrap();
+        let b = per_core(&[("xray", &[("a", 2, 2)])]);
+        let second = t.compute_delta_multi(&as_ref_maps(&b)).await.unwrap();
+        let skip: HashSet<String> = [second.batch_id.clone().unwrap()].into();
+        let replay = t.pending_replay(10, &skip);
+        assert_eq!(replay.len(), 1);
+        assert_eq!(replay[0].batch_id, first.batch_id);
+        assert_eq!(t.pending_replay(1, &HashSet::new()).len(), 1);
     }
 }

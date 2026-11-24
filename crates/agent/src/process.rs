@@ -116,6 +116,12 @@ pub struct ProcessManager {
     naive_log_reader: NaiveAccessLogReader,
     pub logs: LogBuffer,
     restart_counts: HashMap<String, u32>,
+    /// Supervisor state: consecutive heal attempts, earliest next attempt, last heal time.
+    heal_failures: u32,
+    heal_next_at: Option<tokio::time::Instant>,
+    heal_last_at: Option<tokio::time::Instant>,
+    /// False after an explicit stop (`stop_all`) so the supervisor does not resurrect cores.
+    healing_enabled: bool,
     core_versions: HashMap<String, String>,
     core_versions_probed: bool,
     /// Per-core input fingerprints of the last successful apply; unchanged cores are not restarted.
@@ -146,6 +152,10 @@ impl ProcessManager {
             naive_log_reader: NaiveAccessLogReader::new(),
             logs: LogBuffer::new(),
             restart_counts: HashMap::new(),
+            heal_failures: 0,
+            heal_next_at: None,
+            heal_last_at: None,
+            healing_enabled: false,
             core_versions: HashMap::new(),
             core_versions_probed: false,
             core_fingerprints: HashMap::new(),
@@ -396,7 +406,7 @@ impl ProcessManager {
         routing_rules: Vec<RoutingRuleConfig>,
         xray_profile: Option<serde_json::Value>,
     ) -> Result<ApplyOutcome, String> {
-        self.apply_config_inner(inbounds, routing_rules, xray_profile, false)
+        self.apply_config_inner(inbounds, routing_rules, xray_profile, false, false)
             .await
     }
 
@@ -406,10 +416,11 @@ impl ProcessManager {
         routing_rules: Vec<RoutingRuleConfig>,
         xray_profile: Option<serde_json::Value>,
         force_restart: bool,
+        heal: bool,
     ) -> Result<ApplyOutcome, String> {
         let profile_changed = xray_profile != self.current_xray_profile;
         let has_applied_before = !self.current_inbounds.is_empty() || self.any_core_running();
-        if !force_restart && has_applied_before && !profile_changed {
+        if !force_restart && !heal && has_applied_before && !profile_changed {
             match diff_configs(
                 &self.current_inbounds,
                 &self.current_routing_rules,
@@ -748,6 +759,7 @@ impl ProcessManager {
         self.current_inbounds = inbounds;
         self.current_routing_rules = routing_rules;
         self.current_xray_profile = xray_profile;
+        self.healing_enabled = true;
         Ok(ApplyOutcome::FullRestart)
     }
 
@@ -789,6 +801,113 @@ impl ProcessManager {
         Ok(())
     }
 
+    /// Names of cores that the applied config needs but that are not running right now
+    /// (binary present). Used by the supervisor to detect crashed cores.
+    async fn dead_cores(&mut self) -> Vec<String> {
+        let Ok(remapped) = remap_inbounds(&self.current_inbounds) else {
+            return Vec::new();
+        };
+        let mut dead = Vec::new();
+        let enabled = || remapped.inbounds.iter().filter(|i| i.enable);
+        if enabled().any(|i| xray::is_xray_protocol(i.protocol))
+            && !self.xray_running()
+            && binary_exists(&self.config.xray_bin).await
+        {
+            dead.push("xray".to_string());
+        }
+        if enabled().any(|i| singbox::is_singbox_protocol(i.protocol))
+            && !self.singbox_running()
+            && binary_exists(&self.config.singbox_bin).await
+        {
+            dead.push("sing-box".to_string());
+        }
+        prune_dead_children(&mut self.naive_procs);
+        prune_dead_children(&mut self.mieru_procs);
+        let naive_missing = enabled()
+            .filter(|i| i.protocol == Protocol::Naiveproxy)
+            .any(|i| !self.naive_procs.contains_key(&i.id));
+        if naive_missing && binary_exists(&self.config.naive_bin).await {
+            dead.push("naive".to_string());
+        }
+        let mieru_missing = enabled()
+            .filter(|i| i.protocol == Protocol::Mieru)
+            .any(|i| !self.mieru_procs.contains_key(&i.id));
+        if mieru_missing && binary_exists(&self.config.mieru_bin).await {
+            dead.push("mieru".to_string());
+        }
+        dead
+    }
+
+    /// True when every core the applied config needs is running.
+    pub async fn cores_healthy(&mut self) -> bool {
+        self.dead_cores().await.is_empty()
+    }
+
+    /// Supervisor tick: restarts cores that crashed, with exponential backoff (1s .. 60s).
+    /// Only the dead cores are restarted; healthy ones keep their sessions (their fingerprints
+    /// are unchanged). Returns the names of the cores it tried to bring back.
+    pub async fn heal_dead_cores(&mut self) -> Vec<String> {
+        if !self.healing_enabled || self.current_inbounds.is_empty() {
+            return Vec::new();
+        }
+        let now = tokio::time::Instant::now();
+        let dead = self.dead_cores().await;
+        if dead.is_empty() {
+            // Healthy for a while: forgive earlier failures.
+            if self.heal_failures > 0
+                && self
+                    .heal_last_at
+                    .is_some_and(|t| now.duration_since(t) > Duration::from_secs(120))
+            {
+                self.heal_failures = 0;
+            }
+            return Vec::new();
+        }
+        if self.heal_next_at.is_some_and(|t| now < t) {
+            return Vec::new();
+        }
+
+        let attempt = self.heal_failures.saturating_add(1);
+        let backoff = heal_backoff(self.heal_failures);
+        self.heal_failures = attempt;
+        self.heal_last_at = Some(now);
+        self.heal_next_at = Some(now + backoff);
+
+        let msg = format!(
+            "core(s) {} not running, restarting (attempt {attempt}, next retry in {}s)",
+            dead.join(", "),
+            backoff.as_secs()
+        );
+        tracing::warn!("{msg}");
+        self.logs.push("agent", "warn", msg).await;
+
+        let inbounds = self.current_inbounds.clone();
+        let rules = self.current_routing_rules.clone();
+        let profile = self.current_xray_profile.clone();
+        match self
+            .apply_config_inner(inbounds, rules, profile, false, true)
+            .await
+        {
+            Ok(_) => {
+                if attempt >= HEAL_CRASH_LOOP_THRESHOLD {
+                    let p = format!(
+                        "cores {} keep crashing ({attempt} restarts in a row)",
+                        dead.join(", ")
+                    );
+                    if !self.problems.contains(&p) {
+                        self.problems.push(p);
+                    }
+                }
+            }
+            Err(err) => {
+                self.logs
+                    .push("agent", "error", format!("core restart failed: {err}"))
+                    .await;
+            }
+        }
+        dead
+    }
+
     /// Re-applies the stored `current_inbounds`, `current_routing_rules`, and `current_xray_profile` after resetting restart counters.
     pub async fn restart(&mut self) -> Result<ApplyOutcome, String> {
         self.reset_restart_counters();
@@ -799,7 +918,7 @@ impl ProcessManager {
             self.stop_all().await;
             return Ok(ApplyOutcome::NoChange);
         }
-        self.apply_config_inner(inbounds, rules, profile, true).await
+        self.apply_config_inner(inbounds, rules, profile, true, false).await
     }
 
     async fn stop_xray(&mut self) {
@@ -816,6 +935,7 @@ impl ProcessManager {
 
     /// Stops all running proxy cores and SNI port-share listeners, retaining `current_inbounds`.
     pub async fn stop_all(&mut self) {
+        self.healing_enabled = false;
         self.core_fingerprints.clear();
         self.port_share.stop().await;
 
@@ -1353,6 +1473,14 @@ async fn run_check_command(
     Ok(())
 }
 
+/// Consecutive supervisor restarts after which a crash-loop problem is reported to the panel.
+const HEAL_CRASH_LOOP_THRESHOLD: u32 = 5;
+
+/// Supervisor backoff: 1s, 2s, 4s ... capped at 60s.
+fn heal_backoff(failures: u32) -> Duration {
+    Duration::from_secs((1u64 << failures.min(6)).min(60))
+}
+
 fn check_child_alive(slot: &mut Option<ManagedChild>) -> bool {
     let Some(mc) = slot.as_mut() else {
         return false;
@@ -1476,7 +1604,10 @@ fn udp_port_bound(port: u16) -> bool {
 async fn wait_udp_bound(port: u16, timeout: Duration) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if udp_port_bound(port) {
+        if tokio::task::spawn_blocking(move || udp_port_bound(port))
+            .await
+            .unwrap_or(false)
+        {
             return true;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -1564,5 +1695,12 @@ mod apply_tests {
         assert!(wait_listening("127.0.0.1", port, Duration::from_secs(2)).await);
         drop(l);
         assert!(!wait_listening("127.0.0.1", port, Duration::from_millis(600)).await);
+    }
+
+    #[test]
+    fn heal_backoff_doubles_and_caps_at_60s() {
+        let secs: Vec<u64> = (0..9).map(|i| heal_backoff(i).as_secs()).collect();
+        assert_eq!(secs, vec![1, 2, 4, 8, 16, 32, 60, 60, 60]);
+        assert_eq!(heal_backoff(u32::MAX).as_secs(), 60);
     }
 }

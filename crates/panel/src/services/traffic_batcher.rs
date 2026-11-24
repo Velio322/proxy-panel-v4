@@ -1,11 +1,12 @@
-use crate::db::enums::{DbProtocol, Protocol};
+use crate::db::enums::Protocol;
 use crate::error::AppResult;
 use crate::services::enforcement;
 use crate::state::AppState;
 use crate::traffic_queue::PendingTrafficItem;
 use mypanel_proto::TrafficReport;
 use sqlx::Row;
-use std::collections::{HashMap, HashSet};
+use chrono::NaiveDateTime;
+use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
 pub async fn resolve_client_id(
@@ -16,7 +17,8 @@ pub async fn resolve_client_id(
         return Ok(Some(cached));
     }
     let row = sqlx::query(
-        r#"SELECT id FROM "Client" WHERE id = $1 OR email = $1 OR username = $1 LIMIT 1"#,
+        r#"SELECT id FROM "Client" WHERE id = $1 OR email = $1 OR username = $1
+           ORDER BY (id = $1) DESC, (email = $1) DESC LIMIT 1"#,
     )
     .bind(email_or_id)
     .fetch_optional(&state.db)
@@ -52,6 +54,8 @@ pub enum EntryOutcome {
     UnknownClient,
     /// Transient DB failure while resolving the client; nothing was queued.
     ResolveFailed,
+    /// The in-memory queue is full; nothing was queued and the batch must not be acked.
+    QueueFull,
 }
 
 pub async fn add_traffic(
@@ -99,7 +103,7 @@ pub async fn add_traffic(
         return EntryOutcome::Ignored;
     }
 
-    state.traffic_queue.push(PendingTrafficItem {
+    let queued = state.traffic_queue.push(PendingTrafficItem {
         receipt_id: receipt_id
             .or_else(|| receipt_id_for(node_id, batch_id.as_deref(), email_or_id))
             .unwrap_or_else(crate::db::new_id),
@@ -112,12 +116,19 @@ pub async fn add_traffic(
         inbound_tag,
         record_at: now,
     });
-    EntryOutcome::Queued
+    if queued {
+        EntryOutcome::Queued
+    } else {
+        tracing::warn!(node_id, "traffic queue full; report entry deferred");
+        EntryOutcome::QueueFull
+    }
 }
 
 /// Result of one [`flush_batch`] round.
 #[derive(Debug, Default)]
 pub struct FlushResult {
+    /// Items taken from the queue in this round (including replays already recorded).
+    pub drained: usize,
     pub processed: usize,
     /// Batch ids whose entries are durably written (`TrafficReceipt` + `TrafficLog` + counters).
     /// Only batches in this set may be acknowledged to the agent.
@@ -133,11 +144,14 @@ pub async fn flush_batch(state: &AppState) -> AppResult<FlushResult> {
     }
 
     match flush_tx(state, &items).await {
-        Ok((processed, committed_batches, affected_clients)) => {
-            for cid in affected_clients {
+        Ok((processed, committed_batches, to_enforce)) => {
+            // Only clients that crossed a limit/expiry/reset threshold need the (locking,
+            // config-broadcasting) enforcement pass; the periodic job covers the rest.
+            for cid in to_enforce {
                 let _ = enforcement::enforce_client_policies(state, &cid).await;
             }
             Ok(FlushResult {
+                drained: items.len(),
                 processed,
                 committed_batches,
             })
@@ -150,74 +164,137 @@ pub async fn flush_batch(state: &AppState) -> AppResult<FlushResult> {
     }
 }
 
+/// True when a client row (after adding traffic) needs [`enforcement::enforce_client_policies`].
+pub(crate) fn needs_enforcement(
+    traffic_limit: i64,
+    used: i64,
+    restriction_reason: Option<&str>,
+    next_reset_at: Option<NaiveDateTime>,
+    expire_at: Option<NaiveDateTime>,
+    now: NaiveDateTime,
+) -> bool {
+    (traffic_limit > 0 && used >= traffic_limit && restriction_reason.is_none())
+        || next_reset_at.is_some_and(|t| t <= now)
+        || (expire_at.is_some_and(|t| t <= now) && restriction_reason != Some("EXPIRED"))
+}
+
 async fn flush_tx(
     state: &AppState,
     items: &[PendingTrafficItem],
-) -> AppResult<(usize, HashSet<String>, HashSet<String>)> {
+) -> AppResult<(usize, HashSet<String>, Vec<String>)> {
     let mut tx = state.db.begin().await?;
 
-    let mut client_totals: HashMap<String, (i64, i64)> = HashMap::new();
-    let mut node_totals: HashMap<String, (i64, i64)> = HashMap::new();
-    let mut affected_clients: HashSet<String> = HashSet::new();
+    // Items for clients that no longer exist would violate the foreign key and, being requeued
+    // on failure, block the whole queue forever. Receipts are still recorded for them so the
+    // agent's batch can be acknowledged; no log/counters are written.
+    let client_ids: Vec<String> = items
+        .iter()
+        .map(|i| i.client_id.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let existing: HashSet<String> =
+        sqlx::query_scalar(r#"SELECT id FROM "Client" WHERE id = ANY($1::text[])"#)
+            .bind(&client_ids)
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
+
+    // Bulk idempotent receipt guard: only newly inserted ids are counted below.
+    let receipt_ids: Vec<&str> = items.iter().map(|i| i.receipt_id.as_str()).collect();
+    let batch_ids: Vec<Option<&str>> = items.iter().map(|i| i.batch_id.as_deref()).collect();
+    let node_ids: Vec<&str> = items.iter().map(|i| i.node_id.as_str()).collect();
+    let created: Vec<NaiveDateTime> = items.iter().map(|i| i.record_at).collect();
+    let inserted_ids: HashSet<String> = sqlx::query_scalar(
+        r#"INSERT INTO "TrafficReceipt" (id, "batchId", "nodeId", "createdAt")
+           SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::timestamp[])
+           ON CONFLICT (id) DO NOTHING
+           RETURNING id"#,
+    )
+    .bind(&receipt_ids)
+    .bind(&batch_ids)
+    .bind(&node_ids)
+    .bind(&created)
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect();
+
     let mut committed_batches: HashSet<String> = HashSet::new();
-    let mut processed = 0usize;
-
+    let mut fresh: Vec<&PendingTrafficItem> = Vec::new();
+    let mut orphaned: HashSet<&str> = HashSet::new();
     for item in items {
-        // Idempotent receipt guard
-        let inserted = sqlx::query(
-            r#"INSERT INTO "TrafficReceipt" (id, "batchId", "nodeId", "createdAt")
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (id) DO NOTHING"#,
-        )
-        .bind(&item.receipt_id)
-        .bind(&item.batch_id)
-        .bind(&item.node_id)
-        .bind(item.record_at)
-        .execute(&mut *tx)
-        .await?;
-
         if let Some(batch) = item.batch_id.as_deref().filter(|b| !b.is_empty()) {
             committed_batches.insert(batch.to_string());
         }
-        if inserted.rows_affected() == 0 {
+        if !inserted_ids.contains(&item.receipt_id) {
             continue;
         }
+        if !existing.contains(&item.client_id) {
+            orphaned.insert(item.client_id.as_str());
+            continue;
+        }
+        fresh.push(item);
+    }
+    for cid in &orphaned {
+        state.traffic_queue.invalidate_client(cid);
+        tracing::warn!(client_id = %cid, "traffic dropped: client no longer exists");
+    }
 
-        let proto_enum: Option<DbProtocol> = item
-            .protocol
-            .as_deref()
-            .and_then(|s| s.parse::<Protocol>().ok())
-            .map(DbProtocol::from);
-
-        sqlx::query(
-            r#"INSERT INTO "TrafficLog" (id, "clientId", "nodeId", upload, download, protocol, "inboundTag", "recordAt")
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-        )
-        .bind(crate::db::new_id())
-        .bind(&item.client_id)
-        .bind(&item.node_id)
-        .bind(item.upload)
-        .bind(item.download)
-        .bind(proto_enum)
-        .bind(&item.inbound_tag)
-        .bind(item.record_at)
-        .execute(&mut *tx)
-        .await?;
-
-        let ce = client_totals.entry(item.client_id.clone()).or_insert((0, 0));
+    // BTreeMap: every flush locks Client/Reseller/Node rows in the same (sorted) order, which
+    // rules out deadlocks between concurrent flushes.
+    let mut client_totals: BTreeMap<&str, (i64, i64)> = BTreeMap::new();
+    let mut node_totals: BTreeMap<&str, (i64, i64)> = BTreeMap::new();
+    for item in &fresh {
+        let ce = client_totals.entry(item.client_id.as_str()).or_insert((0, 0));
         ce.0 = ce.0.saturating_add(item.upload);
         ce.1 = ce.1.saturating_add(item.download);
-
-        let ne = node_totals.entry(item.node_id.clone()).or_insert((0, 0));
+        let ne = node_totals.entry(item.node_id.as_str()).or_insert((0, 0));
         ne.0 = ne.0.saturating_add(item.upload);
         ne.1 = ne.1.saturating_add(item.download);
+    }
 
-        affected_clients.insert(item.client_id.clone());
-        processed += 1;
+    if !fresh.is_empty() {
+        let log_ids: Vec<String> = fresh.iter().map(|_| crate::db::new_id()).collect();
+        let log_clients: Vec<&str> = fresh.iter().map(|i| i.client_id.as_str()).collect();
+        let log_nodes: Vec<&str> = fresh.iter().map(|i| i.node_id.as_str()).collect();
+        let log_up: Vec<i64> = fresh.iter().map(|i| i.upload).collect();
+        let log_down: Vec<i64> = fresh.iter().map(|i| i.download).collect();
+        // Re-parse so only valid enum labels ever reach the `::"Protocol"` cast below.
+        let log_proto: Vec<Option<&'static str>> = fresh
+            .iter()
+            .map(|i| {
+                i.protocol
+                    .as_deref()
+                    .and_then(|s| s.parse::<Protocol>().ok())
+                    .map(|p| p.as_str())
+            })
+            .collect();
+        let log_tags: Vec<Option<&str>> = fresh.iter().map(|i| i.inbound_tag.as_deref()).collect();
+        let log_at: Vec<NaiveDateTime> = fresh.iter().map(|i| i.record_at).collect();
+        sqlx::query(
+            r#"INSERT INTO "TrafficLog" (id, "clientId", "nodeId", upload, download, protocol, "inboundTag", "recordAt")
+               SELECT id, c, n, up, down, p::"Protocol", tag, at
+               FROM UNNEST($1::text[], $2::text[], $3::text[], $4::bigint[], $5::bigint[],
+                           $6::text[], $7::text[], $8::timestamp[])
+                    AS t(id, c, n, up, down, p, tag, at)"#,
+        )
+        .bind(&log_ids)
+        .bind(&log_clients)
+        .bind(&log_nodes)
+        .bind(&log_up)
+        .bind(&log_down)
+        .bind(&log_proto)
+        .bind(&log_tags)
+        .bind(&log_at)
+        .execute(&mut *tx)
+        .await?;
     }
 
     let now = crate::db::now();
-    let mut reseller_totals: HashMap<String, i64> = HashMap::new();
+    let mut reseller_totals: BTreeMap<String, i64> = BTreeMap::new();
+    let mut to_enforce: Vec<String> = Vec::new();
 
     for (cid, (up, down)) in &client_totals {
         let total = up.saturating_add(*down);
@@ -229,7 +306,8 @@ async fn flush_tx(
                    "lastActiveAt" = $5,
                    "updatedAt" = $5
                WHERE id = $1
-               RETURNING "resellerId""#,
+               RETURNING "resellerId", "usedTraffic", "trafficLimit", "restrictionReason",
+                         "nextTrafficResetAt", "expireAt""#,
         )
         .bind(cid)
         .bind(up)
@@ -244,10 +322,17 @@ async fn flush_tx(
                 let re = reseller_totals.entry(rid).or_insert(0);
                 *re = re.saturating_add(total);
             }
+            let used: i64 = r.try_get("usedTraffic")?;
+            let limit: i64 = r.try_get("trafficLimit")?;
+            let reason: Option<String> = r.try_get("restrictionReason")?;
+            let next_reset: Option<NaiveDateTime> = r.try_get("nextTrafficResetAt")?;
+            let expire: Option<NaiveDateTime> = r.try_get("expireAt")?;
+            if needs_enforcement(limit, used, reason.as_deref(), next_reset, expire, now) {
+                to_enforce.push((*cid).to_string());
+            }
         }
     }
 
-    // Update Reseller.usedTraffic
     for (rid, total) in &reseller_totals {
         sqlx::query(
             r#"UPDATE "Reseller"
@@ -278,12 +363,13 @@ async fn flush_tx(
     }
 
     tx.commit().await?;
-    Ok((processed, committed_batches, affected_clients))
+    Ok((fresh.len(), committed_batches, to_enforce))
 }
 
 /// Queues every entry of one agent report, flushes, and decides whether the agent may drop
-/// the batch: an ack is only returned once every entry is durably recorded (or nothing was
-/// recordable at all). A failed flush keeps the batch pending on the agent for replay.
+/// the batch. The ack is based on this report's own receipts in the database, not on what this
+/// particular flush committed: another node's concurrent flush may already have written our
+/// items, and a replayed batch has all its receipts from the first delivery.
 pub async fn record_report(state: &AppState, node_id: &str, report: TrafficReport) -> bool {
     if report.validate().is_err() {
         // A malformed batch can never become valid; ack so it stops replaying.
@@ -291,9 +377,11 @@ pub async fn record_report(state: &AppState, node_id: &str, report: TrafficRepor
         return true;
     }
     let batch_id = report.batch_id.clone();
-    let mut resolve_failed = false;
-    let mut queued = 0usize;
+    let batch_key = batch_id.as_deref().map(str::trim).filter(|b| !b.is_empty());
+    let mut deferred = false;
+    let mut expected_receipts: Vec<String> = Vec::new();
     for (email, stat) in report.stats {
+        let receipt = receipt_id_for(node_id, batch_key, &email);
         let outcome = add_traffic(
             state,
             node_id,
@@ -301,57 +389,62 @@ pub async fn record_report(state: &AppState, node_id: &str, report: TrafficRepor
             i64::try_from(stat.upload).unwrap_or(0),
             i64::try_from(stat.download).unwrap_or(0),
             stat.unmetered,
-            None,
+            receipt.clone(),
             batch_id.clone(),
             None,
             None,
         )
         .await;
         match outcome {
-            EntryOutcome::Queued => queued += 1,
-            EntryOutcome::ResolveFailed => resolve_failed = true,
+            EntryOutcome::Queued => expected_receipts.extend(receipt),
+            EntryOutcome::ResolveFailed | EntryOutcome::QueueFull => deferred = true,
             EntryOutcome::Ignored | EntryOutcome::UnknownClient => {}
         }
     }
-    if resolve_failed {
+    if deferred {
         return false;
     }
-    match batch_id.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
-        // No batch id: nothing pending on the agent, but flush promptly all the same.
-        None => {
-            if queued > 0 {
-                let _ = flush_until_quiet(state).await;
-            }
-            true
+    let flushed = flush_until_quiet(state).await;
+    if let Err(e) = &flushed {
+        tracing::warn!(node_id, error = %e, "traffic flush failed; batch stays pending");
+    }
+    let Some(batch) = batch_key else {
+        // No batch id: nothing pending on the agent, the flush above was best effort.
+        return true;
+    };
+    if expected_receipts.is_empty() {
+        tracing::warn!(node_id, batch, "batch has no queueable entries; acking empty batch");
+        return true;
+    }
+    match count_receipts(state, &expected_receipts).await {
+        Ok(found) => found >= expected_receipts.len(),
+        Err(e) => {
+            tracing::warn!(node_id, error = %e, "receipt check failed; batch stays pending");
+            false
         }
-        Some(batch) if queued == 0 => {
-            tracing::warn!(node_id, batch, "batch has no queueable entries; acking empty batch");
-            true
-        }
-        Some(batch) => match flush_until_quiet(state).await {
-            Ok(committed) => committed.contains(batch),
-            Err(e) => {
-                tracing::warn!(node_id, error = %e, "traffic flush failed; batch stays pending");
-                false
-            }
-        },
     }
 }
 
-/// Flushes until the queue is quiet (bounded) and returns every durably committed batch id.
-async fn flush_until_quiet(state: &AppState) -> AppResult<HashSet<String>> {
-    let mut committed = HashSet::new();
+async fn count_receipts(state: &AppState, ids: &[String]) -> Result<usize, sqlx::Error> {
+    let n: i64 = sqlx::query_scalar(r#"SELECT COUNT(*) FROM "TrafficReceipt" WHERE id = ANY($1::text[])"#)
+        .bind(ids)
+        .fetch_one(&state.db)
+        .await?;
+    Ok(usize::try_from(n).unwrap_or(0))
+}
+
+/// Flushes until the queue is empty (bounded). A round that only re-read already recorded
+/// items (replays) still counts as progress; only an empty drain or an error stops the loop.
+async fn flush_until_quiet(state: &AppState) -> AppResult<()> {
     for _ in 0..200 {
         if state.traffic_queue.is_empty() {
             break;
         }
-        let res = flush_batch(state).await?;
-        if res.processed == 0 {
+        if flush_batch(state).await?.drained == 0 {
             break;
         }
-        committed.extend(res.committed_batches);
     }
-    Ok(committed)
+    Ok(())
 }
 
 /// Flushes until the queue is empty (bounded), used on shutdown so a restart loses nothing queued.
@@ -387,7 +480,25 @@ pub fn spawn_flush_loop(state: AppState) {
 
 #[cfg(test)]
 mod tests {
-    use super::receipt_id_for;
+    use super::{needs_enforcement, receipt_id_for};
+    use chrono::NaiveDate;
+
+    fn t(h: u32) -> chrono::NaiveDateTime {
+        NaiveDate::from_ymd_opt(2026, 11, 24).unwrap().and_hms_opt(h, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn enforcement_only_when_a_threshold_is_crossed() {
+        let now = t(12);
+        assert!(!needs_enforcement(0, 10, None, None, None, now));
+        assert!(!needs_enforcement(100, 99, None, None, None, now));
+        assert!(needs_enforcement(100, 100, None, None, None, now));
+        assert!(!needs_enforcement(100, 150, Some("TRAFFIC_LIMIT"), None, None, now));
+        assert!(needs_enforcement(0, 1, None, Some(t(11)), None, now));
+        assert!(!needs_enforcement(0, 1, None, Some(t(13)), None, now));
+        assert!(needs_enforcement(0, 1, None, None, Some(t(11)), now));
+        assert!(!needs_enforcement(0, 1, Some("EXPIRED"), None, Some(t(11)), now));
+    }
 
     #[test]
     fn receipt_id_is_stable_per_batch_entry_and_distinct_otherwise() {

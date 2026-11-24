@@ -2,6 +2,9 @@ use chrono::NaiveDateTime;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
+/// Upper bound for queued items (memory guard while the database is unavailable).
+pub const MAX_QUEUE_LEN: usize = 200_000;
+
 #[derive(Debug, Clone)]
 pub struct PendingTrafficItem {
     pub receipt_id: String,
@@ -26,11 +29,15 @@ impl TrafficQueue {
         Self::default()
     }
 
-    pub fn push(&self, item: PendingTrafficItem) {
-        self.queue
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push_back(item);
+    /// Queues one item. Returns `false` (item not queued) when the queue is full, e.g. during a
+    /// long database outage; the caller must then withhold the ack so the agent keeps the batch.
+    pub fn push(&self, item: PendingTrafficItem) -> bool {
+        let mut q = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        if q.len() >= MAX_QUEUE_LEN {
+            return false;
+        }
+        q.push_back(item);
+        true
     }
 
     pub fn push_batch(&self, items: Vec<PendingTrafficItem>) {
@@ -70,6 +77,14 @@ impl TrafficQueue {
             .unwrap_or_else(|e| e.into_inner())
             .get(key)
             .cloned()
+    }
+
+    /// Forgets every cached key that resolved to `client_id` (client deleted or re-keyed).
+    pub fn invalidate_client(&self, client_id: &str) {
+        self.email_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, v| v != client_id);
     }
 
     pub fn cache_client_id(&self, key: String, client_id: String) {
