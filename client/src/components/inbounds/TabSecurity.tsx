@@ -11,6 +11,51 @@ import { generateRealityKeypair, generateShortId } from '@/lib/core-utils';
 import { toast } from '@/hooks/use-toast';
 import type { Hy2BbrProfile, Hy2ObfsType, InboundFormState, SecurityType } from '@/components/inbounds/types';
 
+const FINGERPRINTS = [
+  'chrome',
+  'firefox',
+  'safari',
+  'ios',
+  'android',
+  'edge',
+  '360',
+  'qq',
+  'random',
+  'randomized',
+  'randomizednoalpn',
+] as const;
+
+function FingerprintSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const current = value || 'chrome';
+  // Keep a custom value imported from raw JSON selectable instead of silently dropping it.
+  const options = (FINGERPRINTS as readonly string[]).includes(current)
+    ? FINGERPRINTS
+    : [...FINGERPRINTS, current];
+  return (
+    <div className="space-y-1.5">
+      <Label>uTLS Fingerprint</Label>
+      <Select value={current} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((fp) => (
+            <SelectItem key={fp} value={fp}>
+              {fp}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 interface TabSecurityProps {
   form: InboundFormState;
   onChange: (patch: Partial<InboundFormState>) => void;
@@ -119,27 +164,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
                 onChange={(e) => onChange({ keyFile: e.target.value })}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>uTLS Fingerprint</Label>
-              <Select
-                value={form.fingerprint || 'chrome'}
-                onValueChange={(v) => onChange({ fingerprint: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="chrome">chrome</SelectItem>
-                  <SelectItem value="firefox">firefox</SelectItem>
-                  <SelectItem value="safari">safari</SelectItem>
-                  <SelectItem value="ios">ios</SelectItem>
-                  <SelectItem value="android">android</SelectItem>
-                  <SelectItem value="edge">edge</SelectItem>
-                  <SelectItem value="random">random</SelectItem>
-                  <SelectItem value="randomized">randomized</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <FingerprintSelect value={form.fingerprint} onChange={(v) => onChange({ fingerprint: v })} />
             <div className="flex items-center justify-between rounded-lg border px-3 py-2">
               <Label>Allow Insecure</Label>
               <Switch
@@ -290,6 +315,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
                 className="font-mono text-xs"
               />
             </div>
+            <FingerprintSelect value={form.fingerprint} onChange={(v) => onChange({ fingerprint: v })} />
             <div className="space-y-1.5">
               <Label>SpiderX</Label>
               <Input
