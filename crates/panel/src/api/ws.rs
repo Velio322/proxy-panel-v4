@@ -116,7 +116,8 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
     .bind(&node_id)
     .bind(crate::db::now())
     .execute(&state.db)
-    .await;
+    .await
+                    .map_err(|e| tracing::warn!(error = %e, "node db write failed"));
     state.metrics.set_node_status(&node_id, &node_name, true);
 
     // Cancelled by the writer when the socket breaks, so the reader never waits on a dead peer.
@@ -216,17 +217,8 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                     if let Some(w) = &warning {
                         tracing::warn!(node_id = %node_id, warning = %w, "config applied with warnings");
                     }
-                    let _ = sqlx::query(
-                        r#"UPDATE "NodeCommand"
-                           SET status = 'ACKNOWLEDGED', "acknowledgedAt" = $2, "lastError" = $4
-                           WHERE id = $1 AND "nodeId" = $3 AND status = 'PENDING'"#,
-                    )
-                    .bind(&ack.command_id)
-                    .bind(now)
-                    .bind(&node_id)
-                    .bind(warning)
-                    .execute(&state.db)
-                    .await;
+                    let _ = now;
+                    crate::services::outbox::settle_command(&state, &node_id, &ack.command_id, warning).await;
                 } else {
                     let err_msg: String = ack
                         .error
@@ -242,7 +234,8 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                     .bind(err_msg)
                     .bind(&node_id)
                     .execute(&state.db)
-                    .await;
+                    .await
+                    .map_err(|e| tracing::warn!(error = %e, "node db write failed"));
                 }
             }
             Envelope::StatusReport(sr) => {
@@ -279,7 +272,8 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 .bind(now)
                 .bind(uptime_secs)
                 .execute(&state.db)
-                .await;
+                .await
+                    .map_err(|e| tracing::warn!(error = %e, "node db write failed"));
 
                 if let (Some(c), Some(m)) = (sr.cpu_usage, sr.mem_usage) {
                     state.metrics.set_node_telemetry(&node_id, c, m);
@@ -303,7 +297,8 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 .bind(&node_id)
                 .bind(crate::db::now())
                 .execute(&state.db)
-                .await;
+                .await
+                    .map_err(|e| tracing::warn!(error = %e, "node db write failed"));
             }
             Envelope::LogChunk(chunk) => {
                 state.hub.push_log_chunk(&node_id, chunk);

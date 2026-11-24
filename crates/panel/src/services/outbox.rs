@@ -87,6 +87,28 @@ pub async fn push_config(state: &AppState, node_id: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Marks a delivered command ACKNOWLEDGED and supersedes older still-pending `CONFIG_SYNC`
+/// commands of the same node: the delivered config was built from the latest state, so they
+/// would otherwise stay PENDING (and be retried) forever.
+pub async fn settle_command(state: &AppState, node_id: &str, cmd_id: &str, note: Option<String>) {
+    let res = sqlx::query(
+        r#"UPDATE "NodeCommand"
+           SET status = 'ACKNOWLEDGED', "acknowledgedAt" = $2,
+               "lastError" = CASE WHEN id = $1 THEN $4 ELSE 'superseded' END
+           WHERE "nodeId" = $3 AND kind = 'CONFIG_SYNC' AND status = 'PENDING'
+             AND "createdAt" <= (SELECT "createdAt" FROM "NodeCommand" WHERE id = $1)"#,
+    )
+    .bind(cmd_id)
+    .bind(crate::db::now())
+    .bind(node_id)
+    .bind(note)
+    .execute(&state.db)
+    .await;
+    if let Err(e) = res {
+        tracing::warn!(node_id, command_id = cmd_id, error = %e, "failed to settle node command");
+    }
+}
+
 /// True when the node is polled over mTLS HTTPS instead of holding a WebSocket.
 pub async fn node_is_pull(state: &AppState, node_id: &str) -> bool {
     sqlx::query_scalar::<_, String>(r#"SELECT "apiMode" FROM "Node" WHERE id = $1 AND active = true"#)
@@ -134,16 +156,7 @@ async fn deliver_pull(state: &AppState, node_id: &str, cmd_id: &str) {
     };
     let note: Option<String> = note.map(|n| n.chars().take(1000).collect());
     if ok {
-        let _ = sqlx::query(
-            r#"UPDATE "NodeCommand"
-               SET status = 'ACKNOWLEDGED', "acknowledgedAt" = $2, "lastError" = $3
-               WHERE id = $1 AND status = 'PENDING'"#,
-        )
-        .bind(cmd_id)
-        .bind(crate::db::now())
-        .bind(note)
-        .execute(&state.db)
-        .await;
+        settle_command(state, node_id, cmd_id, note).await;
     } else {
         tracing::warn!(node_id, error = ?note, "pull config delivery failed; will retry");
         let _ = sqlx::query(r#"UPDATE "NodeCommand" SET "lastError" = $2 WHERE id = $1 AND status = 'PENDING'"#)
@@ -180,33 +193,34 @@ pub async fn push_config_many(state: &AppState, node_ids: &[String]) {
     }
 }
 
-pub fn spawn_outbox_loop(state: AppState) {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(15));
-        loop {
-            interval.tick().await;
-            let mut connected = state.hub.connected_node_ids();
-            connected.extend(pull_node_ids(&state).await);
-            connected.sort();
-            connected.dedup();
-            if connected.is_empty() {
-                continue;
-            }
-            let Ok(rows) = sqlx::query(
-                r#"SELECT DISTINCT "nodeId" FROM "NodeCommand"
-                   WHERE status = 'PENDING' AND kind = 'CONFIG_SYNC' AND "nodeId" = ANY($1::text[])"#,
-            )
-            .bind(&connected)
-            .fetch_all(&state.db)
-            .await
-            else {
-                continue;
-            };
-            for r in rows {
-                if let Ok(nid) = r.try_get::<String, _>("nodeId") {
-                    let _ = push_config(&state, &nid).await;
-                }
+/// One outbox pass: re-pushes config to connected/pull nodes that still have a PENDING command.
+pub async fn outbox_cycle(state: AppState) {
+    let mut connected = state.hub.connected_node_ids();
+    connected.extend(pull_node_ids(&state).await);
+    connected.sort();
+    connected.dedup();
+    if connected.is_empty() {
+        return;
+    }
+    let rows = match sqlx::query(
+        r#"SELECT DISTINCT "nodeId" FROM "NodeCommand"
+           WHERE status = 'PENDING' AND kind = 'CONFIG_SYNC' AND "nodeId" = ANY($1::text[])"#,
+    )
+    .bind(&connected)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = %e, "outbox: failed to list pending commands");
+            return;
+        }
+    };
+    for r in rows {
+        if let Ok(nid) = r.try_get::<String, _>("nodeId") {
+            if let Err(e) = push_config(&state, &nid).await {
+                tracing::warn!(node_id = %nid, error = %e, "outbox: config push failed");
             }
         }
-    });
+    }
 }

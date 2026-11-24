@@ -2,7 +2,7 @@ use crate::api;
 use crate::config::Config;
 use crate::db::{connect_with_retry, run_migrations};
 use crate::seed::seed_initial_data;
-use crate::services::{outbox, scheduler, traffic_batcher};
+use crate::services::{scheduler, traffic_batcher};
 use crate::state::AppState;
 use anyhow::Result;
 use std::net::SocketAddr;
@@ -19,8 +19,6 @@ pub async fn run(cfg: Config) -> Result<()> {
     let state = AppState::new(pool, cfg.clone());
 
     scheduler::start(state.clone());
-    traffic_batcher::spawn_flush_loop(state.clone());
-    outbox::spawn_outbox_loop(state.clone());
 
     let app = api::router(state.clone());
     let addr: SocketAddr = format!("{}:{}", cfg.api_host, cfg.api_port).parse()?;

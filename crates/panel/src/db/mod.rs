@@ -56,6 +56,9 @@ pub async fn connect_pool(database_url: &str, max_connections: u32) -> Result<Pg
         .after_connect(|conn, _meta| {
             Box::pin(async move {
                 conn.execute("SET TIME ZONE 'UTC'").await?;
+                // A runaway query must not pin a pooled connection (and starve the traffic
+                // flusher) forever.
+                conn.execute("SET statement_timeout = '60s'").await?;
                 Ok(())
             })
         })
@@ -85,24 +88,29 @@ pub async fn connect_with_retry(
     }
 }
 
+/// Arbitrary but fixed key for the migration advisory lock.
+const MIGRATION_LOCK_KEY: i64 = 0x6d79_7061_6e65_6c33;
+
+/// Applies every embedded migration (all are idempotent) in version order. A Postgres advisory
+/// lock serialises concurrent panel starts, and new files in `migrations/` are picked up
+/// automatically instead of needing a hand-maintained `include_str!` list.
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let baseline = include_str!("../../migrations/20261112000001_baseline.sql");
-    let parity = include_str!("../../migrations/20261119000002_p1_p3_parity.sql");
-    let remnawave = include_str!("../../migrations/20261121000003_remnawave_parity.sql");
-    let client_nodes = include_str!("../../migrations/20261121000004_client_nodes.sql");
-    let node_core_versions = include_str!("../../migrations/20261121000005_node_core_versions.sql");
-    let node_api_port_2222 = include_str!("../../migrations/20261122000006_node_api_port_2222.sql");
-    let node_uptime = include_str!("../../migrations/20261122000007_node_uptime.sql");
-    let node_last_online = include_str!("../../migrations/20261123000008_node_last_online.sql");
-    let node_api_mode = include_str!("../../migrations/20261123000009_node_api_mode.sql");
-    sqlx::raw_sql(baseline).execute(pool).await?;
-    sqlx::raw_sql(parity).execute(pool).await?;
-    sqlx::raw_sql(remnawave).execute(pool).await?;
-    sqlx::raw_sql(client_nodes).execute(pool).await?;
-    sqlx::raw_sql(node_core_versions).execute(pool).await?;
-    sqlx::raw_sql(node_api_port_2222).execute(pool).await?;
-    sqlx::raw_sql(node_uptime).execute(pool).await?;
-    sqlx::raw_sql(node_last_online).execute(pool).await?;
-    sqlx::raw_sql(node_api_mode).execute(pool).await?;
-    Ok(())
+    let mut conn = pool.acquire().await?;
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(MIGRATION_LOCK_KEY)
+        .execute(&mut *conn)
+        .await?;
+    let mut result = Ok(());
+    for m in MIGRATOR.iter().filter(|m| !m.migration_type.is_down_migration()) {
+        if let Err(e) = sqlx::raw_sql(&m.sql).execute(&mut *conn).await {
+            tracing::error!(version = m.version, description = %m.description, error = %e, "migration failed");
+            result = Err(e);
+            break;
+        }
+    }
+    let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(MIGRATION_LOCK_KEY)
+        .execute(&mut *conn)
+        .await;
+    result
 }

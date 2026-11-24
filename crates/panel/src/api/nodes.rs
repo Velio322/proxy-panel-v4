@@ -147,7 +147,7 @@ fn node_row_to_json(r: &sqlx::postgres::PgRow, include_secret: bool) -> AppResul
 
 async fn list(
     State(state): State<AppState>,
-    user: AuthUser,
+    _user: AuthUser,
     Query(q): Query<ListQuery>,
 ) -> AppResult<Json<Vec<Value>>> {
     let mut qb = QueryBuilder::new(
@@ -288,7 +288,9 @@ async fn get_one(
     }
 
     let traffic_logs: i64 =
-        sqlx::query_scalar(r#"SELECT COUNT(*) FROM "TrafficLog" WHERE "nodeId" = $1"#)
+        sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM (SELECT 1 FROM "TrafficLog" WHERE "nodeId" = $1 LIMIT 100001) s"#,
+        )
             .bind(&id)
             .fetch_one(&state.db)
             .await?;

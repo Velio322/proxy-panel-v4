@@ -7,7 +7,6 @@ use mypanel_proto::TrafficReport;
 use sqlx::Row;
 use chrono::NaiveDateTime;
 use std::collections::{BTreeMap, HashSet};
-use std::time::Duration;
 
 pub async fn resolve_client_id(
     state: &AppState,
@@ -466,16 +465,11 @@ pub async fn drain_all(state: &AppState) -> usize {
     total
 }
 
-pub fn spawn_flush_loop(state: AppState) {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            if let Err(e) = flush_batch(&state).await {
-                tracing::warn!(error = %e, "traffic_batcher flush failed");
-            }
-        }
-    });
+/// One periodic flush pass (run by the scheduler under its watchdog).
+pub async fn flush_cycle(state: AppState) {
+    if let Err(e) = flush_batch(&state).await {
+        tracing::warn!(error = %e, "traffic_batcher flush failed");
+    }
 }
 
 #[cfg(test)]

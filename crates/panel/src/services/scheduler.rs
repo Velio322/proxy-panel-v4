@@ -184,6 +184,26 @@ pub fn start(state: AppState) {
         },
     );
 
+    // 2c. Traffic flush (every 30s) and config outbox retry (every 15s), both under the watchdog
+    supervise(
+        state.clone(),
+        JobSpec {
+            name: "traffic_flush",
+            period: Duration::from_secs(30),
+            max_cycle: Duration::from_secs(120),
+            run: Arc::new(|st| Box::pin(crate::services::traffic_batcher::flush_cycle(st))),
+        },
+    );
+    supervise(
+        state.clone(),
+        JobSpec {
+            name: "outbox",
+            period: Duration::from_secs(15),
+            max_cycle: Duration::from_secs(120),
+            run: Arc::new(|st| Box::pin(crate::services::outbox::outbox_cycle(st))),
+        },
+    );
+
     // 3. Retention cleanup loop (every 24h)
     supervise(
         state.clone(),

@@ -1404,7 +1404,7 @@ write_panel_env() {
 
     cat > "$PANEL_ENV" <<EOF
 DATABASE_URL=${DATABASE_URL}
-DB_MAX_CONNECTIONS=10
+DB_MAX_CONNECTIONS=20
 API_HOST=$( [[ "$PROXY_MODE" == "caddy" && -n "$DOMAIN" ]] && echo "127.0.0.1" || echo "0.0.0.0" )
 API_PORT=3000
 API_URL=${api_url}

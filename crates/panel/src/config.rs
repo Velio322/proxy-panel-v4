@@ -60,7 +60,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             database_url: "postgresql://postgres:postgres@127.0.0.1:5432/proxpanel".to_string(),
-            db_max_connections: 12,
+            db_max_connections: 20,
             api_host: "0.0.0.0".to_string(),
             api_port: 3000,
             api_url: "http://localhost:3000".to_string(),
@@ -253,7 +253,7 @@ impl Config {
 
         Ok(Self {
             database_url,
-            db_max_connections: parse_num("DB_MAX_CONNECTIONS", 12u32)?,
+            db_max_connections: parse_num("DB_MAX_CONNECTIONS", 20u32)?,
             api_host,
             api_port,
             api_url,
