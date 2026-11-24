@@ -90,6 +90,7 @@ pub fn router(state: AppState) -> Router {
         .route("/ws/worker", get(ws::upgrade))
         .route("/install.sh", get(install_assets::install_sh))
         .route("/install-node.sh", get(install_assets::install_node_sh))
+        .route("/node-upgrade.sh", get(install_assets::node_upgrade_sh))
         .route("/sub/{sub_token}", get(sub::get_subscription))
         .nest("/uploads/branding", branding::uploads_router())
         .nest("/api", openapi::router())

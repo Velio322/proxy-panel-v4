@@ -17,6 +17,7 @@ use tokio::sync::Mutex;
 use tokio_util::io::ReaderStream;
 
 const EMBEDDED_INSTALL_SH: &str = include_str!("../../../../install.sh");
+const EMBEDDED_NODE_UPGRADE_SH: &str = include_str!("../../../../deploy/node-upgrade.sh");
 
 #[derive(Clone)]
 struct CachedBinaryHash {
@@ -53,6 +54,20 @@ pub async fn install_sh(State(state): State<AppState>) -> impl IntoResponse {
             (header::CACHE_CONTROL, "no-store"),
         ],
         script,
+    )
+}
+
+/// Serves the in-place node upgrade script (`GET /node-upgrade.sh`). It reads the node's own
+/// `/etc/mypanel3/node.env`, so the call carries no secret:
+/// `curl -fsSL https://<panel>/node-upgrade.sh | sudo bash -s -- https://<panel>`.
+pub async fn node_upgrade_sh() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        EMBEDDED_NODE_UPGRADE_SH,
     )
 }
 
