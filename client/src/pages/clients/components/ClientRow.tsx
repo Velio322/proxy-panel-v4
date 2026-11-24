@@ -69,14 +69,14 @@ export function ClientRow({
 
   return (
     <tr className="border-b border-border/60 last:border-b-0 hover:bg-accent/35 transition-colors">
-      <td className="py-2.5 px-3">
+      <td className="py-1.5 px-2">
         <Checkbox
           checked={selected}
           onCheckedChange={onToggleSelect}
           aria-label={`Select ${client.username}`}
         />
       </td>
-      <td className="py-2.5 px-3">
+      <td className="py-1.5 px-2">
         <button
           type="button"
           onClick={onEdit}
@@ -94,10 +94,10 @@ export function ClientRow({
             <span>{client.uuid.slice(0, 8)}...</span>
             {copiedUuid ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
           </button>
-          {client.email && <span className="truncate max-w-[140px]">{client.email}</span>}
+          {client.email && <span className="break-words min-w-0">{client.email}</span>}
         </div>
       </td>
-      <td className="py-2.5 px-3">
+      <td className="py-1.5 px-2">
         <div className="flex flex-wrap gap-1">
           {(client.protocols ?? []).map((proto) => (
             <Badge key={proto} className={cn('border text-[10px]', PROTOCOL_COLORS[proto])}>
@@ -106,7 +106,7 @@ export function ClientRow({
           ))}
         </div>
       </td>
-      <td className="py-2.5 px-3">
+      <td className="py-1.5 px-2">
         <button
           type="button"
           onClick={onEditNodes}
@@ -127,7 +127,7 @@ export function ClientRow({
               title={(client.nodes ?? []).map((n) => n.name).join(', ')}
             >
               {(client.nodes ?? []).slice(0, 2).map((n) => (
-                <Badge key={n.id} variant="secondary" className="text-[10px] max-w-[110px] truncate hover:border-primary/40">
+                <Badge key={n.id} variant="secondary" className="text-[10px] break-words hover:border-primary/40 min-w-0">
                   {n.name}
                 </Badge>
               ))}
@@ -140,7 +140,7 @@ export function ClientRow({
           )}
         </button>
       </td>
-      <td className="py-2.5 px-3 min-w-[145px]">
+      <td className="py-1.5 px-2 min-w-[145px]">
         <div className="text-xs tabular-nums">
           {formatBytes(used, { locale: language })} /{' '}
           {limit > 0 ? formatBytes(limit, { locale: language }) : '∞'}
@@ -157,7 +157,7 @@ export function ClientRow({
           </div>
         )}
       </td>
-      <td className="py-2.5 px-3 text-xs">
+      <td className="py-1.5 px-2 text-xs">
         <div>{client.expireAt ? formatDate(client.expireAt, undefined, timezone) : t('common.never')}</div>
         {client.resetStrategy && client.resetStrategy !== 'NO_RESET' && (
           <Badge variant="outline" className="mt-0.5 text-[10px]">
@@ -165,7 +165,7 @@ export function ClientRow({
           </Badge>
         )}
       </td>
-      <td className="py-2.5 px-3">
+      <td className="py-1.5 px-2">
         {client.banned ? (
           <Badge variant="destructive">{t('common.banned')}</Badge>
         ) : client.onHold ? (
@@ -174,7 +174,7 @@ export function ClientRow({
           <Badge variant="success">{t('common.active')}</Badge>
         )}
       </td>
-      <td className="py-2.5 px-3 text-right">
+      <td className="py-1.5 px-2 text-right">
         <div className="inline-flex items-center gap-1.5">
           <Button
             type="button"

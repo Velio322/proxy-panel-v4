@@ -167,7 +167,7 @@ export function NodePicker({
                               : 'bg-zinc-500',
                         )}
                       />
-                      <span className="font-medium truncate">{n.name}</span>
+                      <span className="font-medium break-words min-w-0">{n.name}</span>
                       {n.country && (
                         <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                           {n.country}
@@ -175,7 +175,7 @@ export function NodePicker({
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0 text-[11px] text-muted-foreground">
-                      <span className="font-mono truncate max-w-[160px]">{n.host}</span>
+                      <span className="font-mono break-words min-w-0">{n.host}</span>
                       {inboundCount !== undefined && (
                         <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
                           {inboundCount} {isRu ? 'прот.' : 'ib'}

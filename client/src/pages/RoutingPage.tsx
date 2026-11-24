@@ -230,8 +230,8 @@ export function RoutingPage() {
       />
 
       {/* 4-Card Routing KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-4 space-y-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Всего правил' : 'Total Rules'}</span>
             <Waypoints className="h-4 w-4 text-emerald-400" />
@@ -247,7 +247,7 @@ export function RoutingPage() {
           />
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Блокировка (block)' : 'Block Rules'}</span>
             <ShieldAlert className="h-4 w-4 text-red-400" />
@@ -258,7 +258,7 @@ export function RoutingPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Напрямую (direct)' : 'Direct Rules'}</span>
             <Waypoints className="h-4 w-4 text-cyan-400" />
@@ -269,7 +269,7 @@ export function RoutingPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Быстрые пресеты' : 'Quick Presets'}</span>
             <Sparkles className="h-4 w-4 text-amber-400" />
@@ -305,7 +305,7 @@ export function RoutingPage() {
       )}
 
       {isLoading ? (
-        <Card className="p-8 text-center text-sm text-muted-foreground">
+        <Card className="p-6 text-center text-sm text-muted-foreground">
           {isRu ? 'Загрузка правил...' : 'Loading rules...'}
         </Card>
       ) : rules.length === 0 ? (
@@ -360,7 +360,7 @@ export function RoutingPage() {
 
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold text-sm truncate">{r.name}</span>
+                    <span className="font-bold text-sm break-words min-w-0">{r.name}</span>
                     <Badge
                       variant={
                         r.outboundTag === 'block'
@@ -377,7 +377,7 @@ export function RoutingPage() {
                       {r.enabled ? (isRu ? 'Включено' : 'Enabled') : isRu ? 'Отключено' : 'Disabled'}
                     </Badge>
                   </div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">
+                  <div className="break-words font-mono text-[11px] text-muted-foreground min-w-0">
                     {[...(r.domain ?? []), ...(r.ip ?? []), ...(r.protocol ?? []), ...(r.ruleSet ?? [])].join(', ') ||
                       (isRu ? 'Весь трафик' : 'All traffic')}
                   </div>
@@ -414,7 +414,7 @@ export function RoutingPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Название правила' : 'Rule Name'}</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} />

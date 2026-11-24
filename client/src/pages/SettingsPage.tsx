@@ -706,7 +706,7 @@ export function SettingsPage() {
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                     {isRu ? 'Предпросмотр в реальном времени' : 'Live Preview'}
                   </Label>
-                  <div className="grid gap-3 lg:grid-cols-3">
+                  <div className="grid gap-2 lg:grid-cols-3">
                     {/* 1. Mini Browser Tab */}
                     <div className="rounded-xl border border-border/80 bg-muted/30 p-3 space-y-2">
                       <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
@@ -714,7 +714,7 @@ export function SettingsPage() {
                       </div>
                       <div className="flex items-center gap-2 rounded-t-lg border border-b-0 border-border/80 bg-background px-3 py-2 shadow-sm">
                         <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="xs" />
-                        <span className="truncate text-xs font-medium">{previewPanelName}</span>
+                        <span className="break-words text-xs font-medium min-w-0">{previewPanelName}</span>
                       </div>
                       <div className="h-2 rounded-b bg-background/70 border border-t-0 border-border/60" />
                     </div>
@@ -727,7 +727,7 @@ export function SettingsPage() {
                       <div className="keeper-sidebar keeper-sidebar-brand flex items-center gap-3 rounded-lg border border-border/80 px-3 py-2.5">
                         <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="md" />
                         <div className="min-w-0">
-                          <div className="truncate text-base font-bold leading-tight">{previewPanelName}</div>
+                          <div className="break-words text-base font-bold leading-tight min-w-0">{previewPanelName}</div>
                           <div className="mt-1 inline-flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-[1px] font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-500 dark:text-emerald-300">
                             <span className="h-1 w-1 rounded-full bg-emerald-400" />
                             <span>CORE · {healthVersion ? `v${healthVersion.replace(/^v/i, '')}` : 'v4.0.0'}</span>
@@ -743,7 +743,7 @@ export function SettingsPage() {
                       </div>
                       <div className="login-grid-bg flex flex-col items-center justify-center gap-2 rounded-lg border border-border/80 bg-background/90 py-3 px-4 text-center">
                         <BrandMark logoUrl={previewLogoUrl} panelName={previewPanelName} size="lg" />
-                        <div className="truncate max-w-full text-sm font-bold">{previewPanelName}</div>
+                        <div className="break-words max-w-full text-sm font-bold min-w-0">{previewPanelName}</div>
                       </div>
                     </div>
                   </div>
@@ -974,7 +974,7 @@ export function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>{isRu ? 'Название сайта' : 'Site Name'}</Label>
                   <Input
@@ -1039,7 +1039,7 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="security" className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-2">
             {/* 2FA TOTP */}
             <Card>
               <CardHeader>
@@ -1414,7 +1414,7 @@ export function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>Bot Token</Label>
                   <Input
@@ -1478,7 +1478,7 @@ export function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {coreCatalog.length > 0 && (
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-2 sm:grid-cols-2">
                   {coreCatalog.map((c) => (
                     <div key={c.core} className="rack-inset rounded-xl p-3.5 text-xs space-y-1">
                       <div className="flex items-center justify-between gap-2">

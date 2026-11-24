@@ -119,7 +119,7 @@ export function NodeLogsPage() {
       )}
 
       {isLoading ? (
-        <Card className="p-10 text-center text-sm text-muted-foreground">
+        <Card className="p-6 text-center text-sm text-muted-foreground">
           {isRu ? 'Загрузка списка нод...' : 'Loading nodes...'}
         </Card>
       ) : !selectedNodeId ? (

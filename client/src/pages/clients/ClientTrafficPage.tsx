@@ -128,8 +128,8 @@ export function ClientTrafficPage() {
       />
 
       {/* 4-Card Summary Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-4 space-y-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Использовано трафика' : 'Used Traffic'}</span>
             <Activity className="h-4 w-4 text-emerald-400" />
@@ -140,7 +140,7 @@ export function ClientTrafficPage() {
           <MeterBar value={limit > 0 ? pct : 35} tone="emerald" />
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Лимит и сброс' : 'Quota & Reset'}</span>
             <Calendar className="h-4 w-4 text-cyan-400" />
@@ -157,7 +157,7 @@ export function ClientTrafficPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Задействовано нод' : 'Active Nodes'}</span>
             <Server className="h-4 w-4 text-primary" />
@@ -174,7 +174,7 @@ export function ClientTrafficPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'HWID Устройства' : 'HWID Devices'}</span>
             <Smartphone className="h-4 w-4 text-amber-400" />
@@ -253,7 +253,7 @@ export function ClientTrafficPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>{isRu ? 'Распределение по нодам' : 'Per-Node Breakdown'}</CardTitle>
@@ -329,7 +329,7 @@ export function ClientTrafficPage() {
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <Smartphone className="h-3.5 w-3.5 text-primary shrink-0" />
-                      <span className="font-mono truncate">{dev.hwid}</span>
+                      <span className="font-mono break-words min-w-0">{dev.hwid}</span>
                       {dev.os && <Badge variant="outline">{dev.os}</Badge>}
                     </div>
                     <span className="font-mono text-[11px] text-muted-foreground shrink-0">

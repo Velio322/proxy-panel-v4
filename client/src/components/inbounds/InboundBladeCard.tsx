@@ -108,7 +108,7 @@ export function InboundBladeCard({
               <button
                 type="button"
                 onClick={() => onEdit(inbound)}
-                className="text-base font-bold tracking-tight hover:text-primary transition-colors text-left truncate"
+                className="text-base font-bold tracking-tight hover:text-primary transition-colors text-left break-words min-w-0"
               >
                 {inbound.tag}
               </button>
@@ -204,7 +204,7 @@ export function InboundBladeCard({
               className="inline-flex items-center gap-1.5 font-semibold text-foreground hover:text-primary transition-colors"
             >
               <Server className="h-3.5 w-3.5 text-primary" />
-              <span className="truncate">{inbound.node?.name ?? inbound.nodeId}</span>
+              <span className="break-words min-w-0">{inbound.node?.name ?? inbound.nodeId}</span>
             </Link>
           </div>
 
@@ -229,7 +229,7 @@ export function InboundBladeCard({
                 </Badge>
               )}
               {sni && (
-                <span className="truncate font-mono text-[11px] text-muted-foreground max-w-[140px]" title={sni}>
+                <span className="break-words font-mono text-[11px] text-muted-foreground min-w-0" title={sni}>
                   SNI: {sni}
                 </span>
               )}

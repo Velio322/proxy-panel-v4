@@ -619,7 +619,7 @@ export function NodeDetailPage() {
         {/* Overview & Telemetry Tab */}
         <TabsContent value="telemetry" className="space-y-4">
           {/* Row 1: 4 Visual Hardware & Network Instruments */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center justify-between text-xs text-muted-foreground">
@@ -731,16 +731,16 @@ export function NodeDetailPage() {
           </div>
 
           {/* Row 2: 4-Core Engine Matrix (7/12) + Assigned Inbounds (5/12) */}
-          <div className="grid gap-4 lg:grid-cols-12">
+          <div className="grid gap-3 lg:grid-cols-12">
             <Card className="lg:col-span-7">
-              <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle>{isRu ? 'Движки прокси (Ядра ноды)' : 'Proxy Core Engines'}</CardTitle>
                 <Button size="sm" variant="outline" onClick={() => setActiveTab('updates')}>
                   {isRu ? 'Управление версиями' : 'Manage Updates'}
                 </Button>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-2 sm:grid-cols-2">
                   {cores.map((c) => {
                     const isRunning = c.running === true;
                     return (
@@ -781,7 +781,7 @@ export function NodeDetailPage() {
             </Card>
 
             <Card className="lg:col-span-5">
-              <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle>{isRu ? 'Протоколы и порты' : 'Assigned Inbounds'}</CardTitle>
                 <Button size="sm" variant="outline" asChild>
                   <Link to="/inbounds?create=1">
@@ -812,7 +812,7 @@ export function NodeDetailPage() {
                         >
                           {ib.protocol}
                         </Badge>
-                        <span className="font-medium truncate">{ib.tag}</span>
+                        <span className="font-medium break-words min-w-0">{ib.tag}</span>
                       </div>
                       <div className="flex items-center gap-1.5 font-mono text-xs">
                         {ib.portShares && ib.portShares.length > 0 && (
@@ -917,7 +917,7 @@ export function NodeDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-xs">
-              <div className="grid gap-3 sm:grid-cols-2 rounded-lg border bg-muted/20 p-3">
+              <div className="grid gap-2 sm:grid-cols-2 rounded-lg border bg-muted/20 p-3">
                 <div>
                   <span className="text-muted-foreground">{isRu ? 'Статус:' : 'Status:'}</span>{' '}
                   <Badge variant={mtlsCert?.issued || mtlsCert?.enabled ? 'success' : 'secondary'}>
@@ -1118,19 +1118,19 @@ export function NodeDetailPage() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b text-left text-muted-foreground">
-                        <th className="py-2 px-2">{isRu ? 'Клиент' : 'Client'}</th>
-                        <th className="py-2 px-2">{isRu ? 'Протокол / Тег' : 'Protocol / Tag'}</th>
-                        <th className="py-2 px-2">IP</th>
-                        <th className="py-2 px-2">{isRu ? 'Трафик' : 'Traffic'}</th>
-                        <th className="py-2 px-2">{isRu ? 'Подключён' : 'Connected'}</th>
-                        <th className="py-2 px-2 text-right">{isRu ? 'Действие' : 'Action'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Клиент' : 'Client'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Протокол / Тег' : 'Protocol / Tag'}</th>
+                        <th className="py-1.5 px-2">IP</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Трафик' : 'Traffic'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Подключён' : 'Connected'}</th>
+                        <th className="py-1.5 px-2 text-right">{isRu ? 'Действие' : 'Action'}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {sessions.map((s) => (
                         <tr key={s.id} className="border-b last:border-b-0">
-                          <td className="py-2 px-2 font-medium">{s.username || s.clientId || '—'}</td>
-                          <td className="py-2 px-2">
+                          <td className="py-1.5 px-2 font-medium">{s.username || s.clientId || '—'}</td>
+                          <td className="py-1.5 px-2">
                             {s.protocol ? (
                               <Badge
                                 className={cn(
@@ -1145,13 +1145,13 @@ export function NodeDetailPage() {
                             )}
                             {s.inboundTag ? `(${s.inboundTag})` : ''}
                           </td>
-                          <td className="py-2 px-2 font-mono">{s.sourceIp}</td>
-                          <td className="py-2 px-2 font-mono tabular-nums">
+                          <td className="py-1.5 px-2 font-mono">{s.sourceIp}</td>
+                          <td className="py-1.5 px-2 font-mono tabular-nums">
                             ↑ {formatBytes(s.uploadBytes, { locale: language })} / ↓{' '}
                             {formatBytes(s.downloadBytes, { locale: language })}
                           </td>
-                          <td className="py-2 px-2">{formatDateTime(s.connectedAt, timezone)}</td>
-                          <td className="py-2 px-2 text-right">
+                          <td className="py-1.5 px-2">{formatDateTime(s.connectedAt, timezone)}</td>
+                          <td className="py-1.5 px-2 text-right">
                             <Button
                               size="sm"
                               variant="ghost"
@@ -1219,24 +1219,24 @@ export function NodeDetailPage() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b text-left text-muted-foreground">
-                        <th className="py-2 px-2">{t('auth.username')}</th>
-                        <th className="py-2 px-2">{isRu ? 'Привязка' : 'Scope'}</th>
-                        <th className="py-2 px-2">{t('clients.colProtocols')}</th>
-                        <th className="py-2 px-2">{t('clients.colTraffic')}</th>
-                        <th className="py-2 px-2">{t('common.status')}</th>
-                        <th className="py-2 px-2 text-right">{t('common.actions')}</th>
+                        <th className="py-1.5 px-2">{t('auth.username')}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Привязка' : 'Scope'}</th>
+                        <th className="py-1.5 px-2">{t('clients.colProtocols')}</th>
+                        <th className="py-1.5 px-2">{t('clients.colTraffic')}</th>
+                        <th className="py-1.5 px-2">{t('common.status')}</th>
+                        <th className="py-1.5 px-2 text-right">{t('common.actions')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredNodeClients.map((c) => (
                         <tr key={c.id} className="border-b last:border-b-0">
-                          <td className="py-2 px-2">
+                          <td className="py-1.5 px-2">
                             <div className="font-medium">{c.username}</div>
                             <div className="font-mono text-[11px] text-muted-foreground">
                               {c.uuid.slice(0, 8)}...
                             </div>
                           </td>
-                          <td className="py-2 px-2">
+                          <td className="py-1.5 px-2">
                             {c.allNodes !== false ? (
                               <Badge variant="outline" className="text-[10px]">
                                 {t('clients.allNodesBadge')}
@@ -1247,7 +1247,7 @@ export function NodeDetailPage() {
                               </Badge>
                             )}
                           </td>
-                          <td className="py-2 px-2">
+                          <td className="py-1.5 px-2">
                             <div className="flex flex-wrap gap-1">
                               {(c.protocols ?? []).map((p) => (
                                 <Badge key={p} className={cn('border text-[10px]', PROTOCOL_COLORS[p])}>
@@ -1256,11 +1256,11 @@ export function NodeDetailPage() {
                               ))}
                             </div>
                           </td>
-                          <td className="py-2 px-2 font-mono tabular-nums">
+                          <td className="py-1.5 px-2 font-mono tabular-nums">
                             {formatBytes(c.usedTraffic || 0, { locale: language })} /{' '}
                             {c.trafficLimit > 0 ? formatBytes(c.trafficLimit, { locale: language }) : '∞'}
                           </td>
-                          <td className="py-2 px-2">
+                          <td className="py-1.5 px-2">
                             <Badge variant={c.banned ? 'destructive' : c.onHold ? 'warning' : 'success'}>
                               {c.banned
                                 ? t('common.banned')
@@ -1269,7 +1269,7 @@ export function NodeDetailPage() {
                                   : t('common.active')}
                             </Badge>
                           </td>
-                          <td className="py-2 px-2 text-right">
+                          <td className="py-1.5 px-2 text-right">
                             <Button
                               size="sm"
                               variant="ghost"

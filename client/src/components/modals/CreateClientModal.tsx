@@ -264,7 +264,7 @@ export function CreateClientModal({ open, onOpenChange, plans, onCreated }: Crea
           </div>
         ) : (
           <form onSubmit={handleCreate} className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Имя клиента' : 'Username'}</Label>
                 <Input

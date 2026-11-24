@@ -148,9 +148,9 @@ export function ClientBladeCard({
                     <Copy className="h-3 w-3 text-muted-foreground" />
                   )}
                 </button>
-                {client.email && <span className="truncate max-w-[180px]">{client.email}</span>}
+                {client.email && <span className="break-words min-w-0">{client.email}</span>}
                 {client.note && (
-                  <span className="truncate max-w-[200px] text-[11px] italic opacity-80">
+                  <span className="break-words text-[11px] italic opacity-80 min-w-0">
                     “{client.note}”
                   </span>
                 )}
@@ -251,7 +251,7 @@ export function ClientBladeCard({
         </div>
 
         {/* Middle 3-Column Telemetry Strip */}
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-2 md:grid-cols-3">
           {/* 1. Traffic Quota */}
           <div className="rack-inset rounded-lg p-3 space-y-2">
             <div className="flex items-center justify-between text-xs">
@@ -304,7 +304,7 @@ export function ClientBladeCard({
               ) : (
                 <>
                   {(client.nodes ?? []).slice(0, 3).map((n) => (
-                    <Badge key={n.id} variant="secondary" className="text-[10px] max-w-[120px] truncate">
+                    <Badge key={n.id} variant="secondary" className="text-[10px] break-words min-w-0">
                       {n.name}
                     </Badge>
                   ))}

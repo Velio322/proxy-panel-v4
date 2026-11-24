@@ -263,8 +263,8 @@ export function InfraBillingPage() {
       />
 
       {/* 4-Card KPI Summary Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-4 space-y-1.5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Расходы в месяц' : 'Monthly Spend (Normalized)'}</span>
             <DollarSign className="h-4 w-4 text-primary" />
@@ -274,7 +274,7 @@ export function InfraBillingPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Продление ≤ 7 дней' : 'Upcoming Renewals (≤ 7d)'}</span>
             <CalendarClock className="h-4 w-4 text-amber-400" />
@@ -284,7 +284,7 @@ export function InfraBillingPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Провайдеры' : 'Active Providers'}</span>
             <Building2 className="h-4 w-4 text-sky-400" />
@@ -292,7 +292,7 @@ export function InfraBillingPage() {
           <div className="font-mono text-xl font-bold tabular-nums">{providers.length}</div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Серверов на учёте' : 'Tracked Servers'}</span>
             <Server className="h-4 w-4 text-emerald-400" />
@@ -334,7 +334,7 @@ export function InfraBillingPage() {
 
         <TabsContent value="servers">
           {billingsLoading ? (
-            <Card className="p-4 space-y-2">
+            <Card className="p-3 space-y-2">
               <Skeleton className="h-9 w-full" />
               <Skeleton className="h-9 w-full" />
             </Card>
@@ -361,13 +361,13 @@ export function InfraBillingPage() {
                   <table className="data-table w-full text-xs">
                     <thead className="bg-muted/40">
                       <tr className="border-b text-left text-muted-foreground">
-                        <th className="py-2.5 px-3">{isRu ? 'Нода' : 'Node'}</th>
-                        <th className="py-2.5 px-3">{isRu ? 'Провайдер' : 'Provider'}</th>
-                        <th className="py-2.5 px-3">{isRu ? 'Сумма / Период' : 'Amount / Cycle'}</th>
-                        <th className="py-2.5 px-3">{isRu ? 'В месяц' : 'Monthly Equivalent'}</th>
-                        <th className="py-2.5 px-3">{isRu ? 'Следующая оплата' : 'Next Due Date'}</th>
-                        <th className="py-2.5 px-3">{isRu ? 'Автопродление' : 'Auto-Renew'}</th>
-                        <th className="py-2.5 px-3 text-right">{isRu ? 'Действия' : 'Actions'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Нода' : 'Node'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Провайдер' : 'Provider'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Сумма / Период' : 'Amount / Cycle'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'В месяц' : 'Monthly Equivalent'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Следующая оплата' : 'Next Due Date'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Автопродление' : 'Auto-Renew'}</th>
+                        <th className="py-1.5 px-2 text-right">{isRu ? 'Действия' : 'Actions'}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -381,21 +381,21 @@ export function InfraBillingPage() {
                         const monthlyEq = normalizeMonthlyAmount(Number(b.amount) || 0, b.billingCycle);
                         return (
                           <tr key={b.id} className="border-b last:border-b-0 hover:bg-muted/20">
-                            <td className="py-2.5 px-3 font-semibold">{nodeName}</td>
-                            <td className="py-2.5 px-3">{providerName}</td>
-                            <td className="py-2.5 px-3 font-mono">
+                            <td className="py-1.5 px-2 font-semibold">{nodeName}</td>
+                            <td className="py-1.5 px-2">{providerName}</td>
+                            <td className="py-1.5 px-2 font-mono">
                               {b.amount} {b.currency} ({b.billingCycle})
                             </td>
-                            <td className="py-2.5 px-3 font-mono">
+                            <td className="py-1.5 px-2 font-mono">
                               {monthlyEq.toFixed(2)} {b.currency}/{isRu ? 'мес' : 'mo'}
                             </td>
-                            <td className="py-2.5 px-3">{formatDate(b.nextDueDate, undefined, timezone)}</td>
-                            <td className="py-2.5 px-3">
+                            <td className="py-1.5 px-2">{formatDate(b.nextDueDate, undefined, timezone)}</td>
+                            <td className="py-1.5 px-2">
                               <Badge variant={b.autoRenew ? 'success' : 'secondary'}>
                                 {b.autoRenew ? (isRu ? 'Да' : 'Yes') : isRu ? 'Вручную' : 'Manual'}
                               </Badge>
                             </td>
-                            <td className="py-2.5 px-3 text-right">
+                            <td className="py-1.5 px-2 text-right">
                               <div className="flex justify-end gap-1">
                                 <Button size="icon" variant="ghost" onClick={() => openEditBilling(b)}>
                                   <Edit className="h-3.5 w-3.5" />
@@ -422,7 +422,7 @@ export function InfraBillingPage() {
 
         <TabsContent value="providers">
           {providersLoading ? (
-            <Card className="p-8 text-center text-sm text-muted-foreground">
+            <Card className="p-6 text-center text-sm text-muted-foreground">
               {isRu ? 'Загрузка провайдеров...' : 'Loading providers...'}
             </Card>
           ) : providers.length === 0 ? (
@@ -442,7 +442,7 @@ export function InfraBillingPage() {
               }
             />
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {providers.map((p) => (
                 <div
                   key={p.id}
@@ -550,7 +550,7 @@ export function InfraBillingPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Нода' : 'Node'}</Label>
                 {nodes.length > 0 ? (

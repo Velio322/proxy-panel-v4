@@ -333,7 +333,7 @@ export function XrayConfigStudioPanel({
               onChange={(e) => setProfileName(e.target.value)}
               className="h-7 border-transparent bg-transparent px-1 font-semibold text-sm hover:border-border focus:border-primary"
             />
-            <div className="font-mono text-[11px] text-muted-foreground px-1 truncate">
+            <div className="font-mono text-[11px] text-muted-foreground px-1 break-words min-w-0">
               {nodeName ? `${nodeName} · ` : ''}{nodeId}
             </div>
           </div>

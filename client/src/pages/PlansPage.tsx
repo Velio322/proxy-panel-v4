@@ -199,8 +199,8 @@ export function PlansPage() {
       />
 
       {/* 3-Card Plans KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-4 space-y-1.5">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Всего тарифов' : 'Total Plans'}</span>
             <Sparkles className="h-4 w-4 text-emerald-400" />
@@ -211,7 +211,7 @@ export function PlansPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Клиентские тарифы (USER)' : 'User Plans'}</span>
             <Users className="h-4 w-4 text-primary" />
@@ -222,7 +222,7 @@ export function PlansPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Тарифы реселлеров' : 'Reseller Plans'}</span>
             <Smartphone className="h-4 w-4 text-cyan-400" />
@@ -255,7 +255,7 @@ export function PlansPage() {
           }
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {plans.map((plan) => {
             const bytes = plan.trafficLimit ?? plan.trafficLimitBytes ?? 0;
             const dur = plan.duration ?? plan.periodDays ?? 30;
@@ -358,7 +358,7 @@ export function PlansPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Название' : 'Name'}</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} />

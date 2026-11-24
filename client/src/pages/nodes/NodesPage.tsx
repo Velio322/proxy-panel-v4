@@ -489,8 +489,8 @@ export function NodesPage() {
       )}
 
       {/* Fleet Telemetry Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3.5 space-y-2">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Флот нод' : 'Node Fleet'}</span>
             <Server className="h-4 w-4 text-emerald-400" />
@@ -523,7 +523,7 @@ export function NodesPage() {
           </div>
         </Card>
 
-        <Card className="p-3.5 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Средняя нагрузка' : 'Average Load'}</span>
             <span className="font-mono text-[11px]">{isRu ? 'онлайн-ноды' : 'online nodes'}</span>
@@ -546,7 +546,7 @@ export function NodesPage() {
           </div>
         </Card>
 
-        <Card className="p-3.5 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Суммарный трафик' : 'Fleet Traffic'}</span>
             <span className="font-mono text-[11px]">↓/↑</span>
@@ -570,7 +570,7 @@ export function NodesPage() {
           </div>
         </Card>
 
-        <Card className="p-3.5 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Задержка и протоколы' : 'Latency & Protocols'}</span>
             <Signal className="h-4 w-4 text-cyan-400" />
@@ -633,12 +633,12 @@ export function NodesPage() {
 
       {/* Main Content */}
       {isLoading ? (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           <Skeleton className="h-64 w-full rounded-xl" />
           <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       ) : filtered.length === 0 ? (
-        <Card className="p-10 text-center">
+        <Card className="p-6 text-center">
           <div className="mx-auto max-w-sm space-y-3">
             <Server className="mx-auto h-9 w-9 text-muted-foreground/60" />
             <div className="text-sm font-medium">{t('common.noData')}</div>
@@ -660,7 +660,7 @@ export function NodesPage() {
           </div>
         </Card>
       ) : viewMode === 'blades' ? (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           {filtered.map((n) => (
             <NodeBladeCard
               key={n.id}
@@ -681,14 +681,14 @@ export function NodesPage() {
               <table className="data-table w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr className="border-b border-border/80 text-left text-xs text-muted-foreground">
-                    <th className="py-2.5 px-3">{isRu ? 'Нода' : 'Node'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Адрес / Пинг' : 'Endpoint / Ping'}</th>
-                    <th className="py-2.5 px-3">{t('common.status')}</th>
-                    <th className="py-2.5 px-3">CPU / RAM</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Трафик' : 'Traffic'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Протоколы' : 'Protocols'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Ядра' : 'Cores'}</th>
-                    <th className="py-2.5 px-3 text-right">{t('common.actions')}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Нода' : 'Node'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Адрес / Пинг' : 'Endpoint / Ping'}</th>
+                    <th className="py-1.5 px-2">{t('common.status')}</th>
+                    <th className="py-1.5 px-2">CPU / RAM</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Трафик' : 'Traffic'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Протоколы' : 'Protocols'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Ядра' : 'Cores'}</th>
+                    <th className="py-1.5 px-2 text-right">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -696,7 +696,7 @@ export function NodesPage() {
                     const rowUptime = n.uptime ?? n.nodeMetrics?.[0]?.uptime ?? null;
                     return (
                     <tr key={n.id} className="border-b border-border/60 last:border-b-0 hover:bg-accent/35">
-                      <td className="py-2.5 px-3 font-medium">
+                      <td className="py-1.5 px-2 font-medium">
                         <Link to={`/nodes/${n.id}`} className="hover:text-primary flex items-center gap-2">
                           <span
                             className={cn(
@@ -711,7 +711,7 @@ export function NodesPage() {
                           <span>{n.name}</span>
                         </Link>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-xs space-y-1">
+                      <td className="py-1.5 px-2 font-mono text-xs space-y-1">
                         <div>
                           {n.host}:{n.port}
                         </div>
@@ -733,10 +733,10 @@ export function NodesPage() {
                           </span>
                         </div>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-1.5 px-2">
                         <Badge variant={statusBadgeVariant(n.status)}>{n.status}</Badge>
                       </td>
-                      <td className="py-2.5 px-3 text-xs tabular-nums min-w-[140px]">
+                      <td className="py-1.5 px-2 text-xs tabular-nums min-w-[140px]">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <span className="w-7 text-[10px] text-muted-foreground">CPU</span>
@@ -754,7 +754,7 @@ export function NodesPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-xs tabular-nums">
+                      <td className="py-1.5 px-2 font-mono text-xs tabular-nums">
                         <div className="text-emerald-400">
                           ↓ {formatBytes(n.netDownload ?? 0, { locale: language })}
                         </div>
@@ -762,7 +762,7 @@ export function NodesPage() {
                           ↑ {formatBytes(n.netUpload ?? 0, { locale: language })}
                         </div>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-1.5 px-2">
                         <div className="flex flex-wrap gap-1 max-w-[200px]">
                           {(n.inbounds ?? []).map((ib) => (
                             <Badge
@@ -777,7 +777,7 @@ export function NodesPage() {
                           )}
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-[11px] text-muted-foreground">
+                      <td className="py-1.5 px-2 font-mono text-[11px] text-muted-foreground">
                         {[
                           n.xrayVersion && `Xray ${n.xrayVersion}`,
                           n.singboxVersion && `SB ${n.singboxVersion}`,
@@ -787,7 +787,7 @@ export function NodesPage() {
                           .filter(Boolean)
                           .join(' · ') || '—'}
                       </td>
-                      <td className="py-2.5 px-3 text-right">
+                      <td className="py-1.5 px-2 text-right">
                         <div className="inline-flex items-center gap-1.5">
                           <Button size="sm" variant="secondary" asChild className="h-8 gap-1 px-2.5 text-xs">
                             <Link to={`/nodes/${n.id}`}>
@@ -880,7 +880,7 @@ export function NodesPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Название' : 'Name'}</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="EU-Frankfurt-1" />
@@ -926,7 +926,7 @@ export function NodesPage() {
                 className="font-mono text-xs"
               />
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Страна' : 'Country'}</Label>
                 <Input value={country} onChange={(e) => setCountry(e.target.value)} />

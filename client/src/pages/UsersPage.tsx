@@ -224,8 +224,8 @@ export function UsersPage() {
       />
 
       {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-4 space-y-2">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Аккаунты панели' : 'Panel Accounts'}</span>
             <Users className="h-4 w-4 text-emerald-400" />
@@ -241,7 +241,7 @@ export function UsersPage() {
           />
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Защита 2FA (TOTP)' : '2FA Protected'}</span>
             <Shield className="h-4 w-4 text-cyan-400" />
@@ -256,7 +256,7 @@ export function UsersPage() {
           />
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Администраторы' : 'Privileged Admins'}</span>
             <ShieldCheck className="h-4 w-4 text-primary" />
@@ -267,7 +267,7 @@ export function UsersPage() {
       </div>
 
       <Card>
-        <CardHeader className="py-3.5">
+        <CardHeader className="py-2.5">
           <div className="relative max-w-xs">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -295,12 +295,12 @@ export function UsersPage() {
               <table className="data-table w-full text-sm">
                 <thead className="bg-muted/30">
                   <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="py-2.5 px-3">{isRu ? 'Логин' : 'Username'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Роль' : 'Role'}</th>
-                    <th className="py-2.5 px-3">2FA</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Статус' : 'Status'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Последний вход' : 'Last Login'}</th>
-                    <th className="py-2.5 px-3 text-right">{isRu ? 'Действия' : 'Actions'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Логин' : 'Username'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Роль' : 'Role'}</th>
+                    <th className="py-1.5 px-2">2FA</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Статус' : 'Status'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Последний вход' : 'Last Login'}</th>
+                    <th className="py-1.5 px-2 text-right">{isRu ? 'Действия' : 'Actions'}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -308,33 +308,33 @@ export function UsersPage() {
                     const manageable = canManage(u);
                     return (
                       <tr key={u.id} className="border-b last:border-b-0 hover:bg-accent/30">
-                        <td className="py-2.5 px-3">
+                        <td className="py-1.5 px-2">
                           <div className="font-semibold">{u.username}</div>
                           <div className="text-xs text-muted-foreground">{u.email || '—'}</div>
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-1.5 px-2">
                           <Badge variant={roleBadgeVariant(u.role)} className="font-mono text-[10px]">
                             {u.role}
                           </Badge>
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-1.5 px-2">
                           <Badge variant={u.totpEnabled ? 'success' : 'secondary'}>
                             {u.totpEnabled ? (isRu ? 'Включена' : 'Enabled') : isRu ? 'Выкл' : 'Off'}
                           </Badge>
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-1.5 px-2">
                           <Badge variant={u.banned ? 'destructive' : 'success'}>
                             {u.banned ? (isRu ? 'Заблокирован' : 'Banned') : isRu ? 'Активен' : 'Active'}
                           </Badge>
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-xs text-muted-foreground">
+                        <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">
                           {u.lastLoginAt
                             ? formatDateTime(u.lastLoginAt, timezone)
                             : isRu
                               ? 'Никогда'
                               : 'Never'}
                         </td>
-                        <td className="py-2.5 px-3 text-right">
+                        <td className="py-1.5 px-2 text-right">
                           {manageable ? (
                             <div className="inline-flex gap-1">
                               <Button
@@ -399,7 +399,7 @@ export function UsersPage() {
               <Label>Email</Label>
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Роль' : 'Role'}</Label>
                 <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>

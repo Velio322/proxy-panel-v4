@@ -202,7 +202,7 @@ export function MonitoringPage() {
 
       {/* Panel Host Telemetry Instrument Cluster */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="flex items-center gap-2">
             <Cpu className="h-4 w-4 text-primary" />
             <span>{isRu ? 'Телеметрия хоста панели' : 'Panel Host Telemetry'}</span>
@@ -211,7 +211,7 @@ export function MonitoringPage() {
             {host?.cpu.count ? `${host.cpu.count} vCPU` : 'Control Plane'}
           </span>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
           <div className="node-blade relative flex items-center gap-3.5 overflow-hidden rounded-xl border border-border/80 p-3.5 pl-4">
             <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400" aria-hidden="true" />
             <RadialGauge value={hostCpu} tone="emerald" size={68} label="CPU" />
@@ -220,7 +220,7 @@ export function MonitoringPage() {
               <div className="font-mono text-lg font-bold tabular-nums">
                 {hostCpu !== null ? `${hostCpu.toFixed(1)}%` : '—'}
               </div>
-              <div className="font-mono text-[11px] text-muted-foreground truncate">
+              <div className="font-mono text-[11px] text-muted-foreground break-words min-w-0">
                 Load:{' '}
                 {host?.cpu.loadAverage
                   ? host.cpu.loadAverage.map((v) => v.toFixed(2)).join(' / ')
@@ -237,7 +237,7 @@ export function MonitoringPage() {
               <div className="font-mono text-lg font-bold tabular-nums">
                 {hostMem !== null ? `${hostMem.toFixed(1)}%` : '—'}
               </div>
-              <div className="font-mono text-[11px] text-muted-foreground truncate">
+              <div className="font-mono text-[11px] text-muted-foreground break-words min-w-0">
                 {host?.memory.usedBytes && host?.memory.totalBytes
                   ? `${formatBytes(host.memory.usedBytes, { compact: true, locale: language })} / ${formatBytes(host.memory.totalBytes, { compact: true, locale: language })}`
                   : host?.process?.memory?.rss
@@ -284,7 +284,7 @@ export function MonitoringPage() {
 
       {/* Per-Node Live Telemetry Console */}
       <Card>
-        <CardHeader className="space-y-3 pb-3">
+        <CardHeader className="space-y-3 pb-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2">
               <Server className="h-4 w-4 text-primary" />
@@ -358,7 +358,7 @@ export function MonitoringPage() {
           ) : (
             <div className="space-y-4">
               {/* 4 Node Instrument Cards */}
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
                 <div className="rack-inset flex items-center gap-3.5 rounded-xl p-3.5">
                   <RadialGauge value={nodeCpu} tone="emerald" size={64} label="CPU" />
                   <div className="space-y-1">
@@ -417,7 +417,7 @@ export function MonitoringPage() {
               </div>
 
               {/* 4-Core Engine Status Matrix */}
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {coreEngineCards.map((c) => (
                   <div
                     key={c.key}
@@ -527,13 +527,13 @@ export function MonitoringPage() {
       {/* All-Nodes Fleet Comparison Grid */}
       {nodes.length > 0 && (
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
               <HardDrive className="h-4 w-4 text-primary" />
               <span>{isRu ? 'Сравнение нагрузки всех нод' : 'Fleet Resource Comparison'}</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {nodes.map((n) => (
               <Link
                 key={n.id}
@@ -548,7 +548,7 @@ export function MonitoringPage() {
                         n.status === 'ONLINE' ? 'bg-emerald-400' : 'bg-zinc-500',
                       )}
                     />
-                    <span className="font-bold truncate">{n.name}</span>
+                    <span className="font-bold break-words min-w-0">{n.name}</span>
                   </div>
                   <span
                     className={cn(

@@ -86,7 +86,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
       {/* Common SNI / TLS fields for TLS & non-Xray TLS-capable protocols */}
       {(form.security === 'tls' || !isXray) && (
         <div className="space-y-3 rounded-lg border p-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>SNI (Server Name)</Label>
               <Input
@@ -150,7 +150,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
           </div>
 
           {/* Pinning & TLS v26 Options */}
-          <div className="grid gap-3 sm:grid-cols-2 border-t pt-3">
+          <div className="grid gap-2 sm:grid-cols-2 border-t pt-3">
             <div className="space-y-1.5">
               <Label>Pinned Peer Cert SHA-256</Label>
               <Input
@@ -238,7 +238,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Target / Dest</Label>
               <Input
@@ -321,7 +321,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
             <summary className="cursor-pointer font-medium text-muted-foreground select-none">
               Advanced Reality v26 (xver, Time Diff, Client Ver, Limit Fallback)
             </summary>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label>PROXY Protocol xver</Label>
                 <Input
@@ -365,7 +365,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
                   onChange={(e) => onChange({ realityMaxClientVer: e.target.value })}
                 />
               </div>
-              <div className="sm:col-span-3 grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-3 grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>limitFallbackUpload (JSON)</Label>
                   <Textarea
@@ -395,7 +395,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
       {/* Hysteria2 Obfuscation, BBR & Chrome Parrot */}
       {form.protocol === 'HYSTERIA2' && (
         <div className="space-y-3 rounded-lg border p-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Obfuscation</Label>
               <Select
@@ -472,7 +472,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
       )}
 
       {/* ECH & FinalMask */}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-2">
         <div className="space-y-2 rounded-lg border p-3">
           <div className="flex items-center justify-between">
             <Label>ECH (Encrypted Client Hello)</Label>

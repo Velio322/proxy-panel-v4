@@ -129,22 +129,22 @@ export function ConfigTransferPage() {
       />
 
       {/* 3-Card Summary Strip */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-4 space-y-1">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-3 space-y-1">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Схема данных' : 'Schema Engine'}</span>
             <FileCode2 className="h-4 w-4 text-emerald-400" />
           </div>
           <div className="font-mono text-xl font-bold">v1 / v2 Topology</div>
         </Card>
-        <Card className="p-4 space-y-1">
+        <Card className="p-3 space-y-1">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Безопасный импорт' : 'Safe Dry-Run'}</span>
             <ShieldCheck className="h-4 w-4 text-cyan-400" />
           </div>
           <div className="font-mono text-xl font-bold">Upsert / Create-Only</div>
         </Card>
-        <Card className="p-4 space-y-1">
+        <Card className="p-3 space-y-1">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Проверка синтаксиса' : 'Live Validation'}</span>
             <ArrowRightLeft className="h-4 w-4 text-primary" />

@@ -439,7 +439,7 @@ export function NodeInstallModal({
                   </span>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-2 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label className="text-xs">{isRu ? 'Режим TLS агента (--tls-mode)' : 'Agent TLS Mode (--tls-mode)'}</Label>
                     <select
@@ -538,21 +538,21 @@ export function NodeInstallModal({
                     <Globe className="h-3 w-3 text-primary" />
                     <span>{isRu ? 'Панель' : 'Panel URL'}</span>
                   </div>
-                  <div className="mt-0.5 truncate font-mono">{panelUrl}</div>
+                  <div className="mt-0.5 break-words font-mono min-w-0">{panelUrl}</div>
                 </div>
                 <div className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
                   <div className="flex items-center gap-1 font-medium text-foreground">
                     <Radio className="h-3 w-3 text-primary" />
                     <span>{isRu ? 'WSS транспорт' : 'WSS Transport'}</span>
                   </div>
-                  <div className="mt-0.5 truncate font-mono">{cmdInfo?.wsUrl || `${panelUrl.replace(/^http/, 'ws')}/ws/worker`}</div>
+                  <div className="mt-0.5 break-words font-mono min-w-0">{cmdInfo?.wsUrl || `${panelUrl.replace(/^http/, 'ws')}/ws/worker`}</div>
                 </div>
                 <div className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
                   <div className="flex items-center gap-1 font-medium text-foreground">
                     <Shield className="h-3 w-3 text-primary" />
                     <span>{isRu ? `Порт API / Секрет` : `API Port / Secret`}</span>
                   </div>
-                  <div className="mt-0.5 truncate font-mono">
+                  <div className="mt-0.5 break-words font-mono min-w-0">
                     :{nodeApiPort} • {nodeSecret ? `${nodeSecret.slice(0, 8)}…` : '—'}
                   </div>
                 </div>

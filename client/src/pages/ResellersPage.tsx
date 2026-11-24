@@ -160,8 +160,8 @@ export function ResellersPage() {
       />
 
       {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-4 space-y-1.5">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Активные реселлеры' : 'Active Resellers'}</span>
             <UserCheck className="h-4 w-4 text-emerald-400" />
@@ -171,7 +171,7 @@ export function ResellersPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Суммарный баланс' : 'Total Balance'}</span>
             <Wallet className="h-4 w-4 text-cyan-400" />
@@ -179,7 +179,7 @@ export function ResellersPage() {
           <div className="font-mono text-2xl font-bold tabular-nums">${summary.totalBal.toFixed(2)}</div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Использованный трафик' : 'Aggregate Traffic'}</span>
             <Activity className="h-4 w-4 text-primary" />
@@ -191,7 +191,7 @@ export function ResellersPage() {
       </div>
 
       {isLoading ? (
-        <Card className="p-8 text-center text-sm text-muted-foreground">
+        <Card className="p-6 text-center text-sm text-muted-foreground">
           {isRu ? 'Загрузка реселлеров...' : 'Loading resellers...'}
         </Card>
       ) : resellers.length === 0 ? (
@@ -217,13 +217,13 @@ export function ResellersPage() {
               <table className="data-table w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="py-2.5 px-3">{isRu ? 'Партнёр' : 'Name'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Лимиты (Клиенты / Ноды)' : 'Caps (Clients / Nodes)'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Квота трафика' : 'Traffic Usage'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Баланс' : 'Balance'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Статус' : 'Status'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Истекает' : 'Expires'}</th>
-                    <th className="py-2.5 px-3 text-right">{isRu ? 'Действия' : 'Actions'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Партнёр' : 'Name'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Лимиты (Клиенты / Ноды)' : 'Caps (Clients / Nodes)'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Квота трафика' : 'Traffic Usage'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Баланс' : 'Balance'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Статус' : 'Status'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Истекает' : 'Expires'}</th>
+                    <th className="py-1.5 px-2 text-right">{isRu ? 'Действия' : 'Actions'}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -234,7 +234,7 @@ export function ResellersPage() {
                         : 0;
                     return (
                       <tr key={r.id} className="border-b last:border-b-0 hover:bg-accent/30">
-                        <td className="py-2.5 px-3 font-medium">
+                        <td className="py-1.5 px-2 font-medium">
                           <div className="flex items-center gap-2">
                             <UserCheck className="h-4 w-4 text-primary" />
                             <div>
@@ -245,26 +245,26 @@ export function ResellersPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-xs">
+                        <td className="py-1.5 px-2 font-mono text-xs">
                           {r.maxClients} {isRu ? 'кл.' : 'clients'} · {r.maxNodes} {isRu ? 'нод' : 'nodes'}
                         </td>
-                        <td className="py-2.5 px-3 text-xs min-w-[160px] space-y-1">
+                        <td className="py-1.5 px-2 text-xs min-w-[160px] space-y-1">
                           <div className="font-mono tabular-nums">
                             {formatBytes(r.usedTraffic, { locale: language })} /{' '}
                             {r.trafficLimit > 0 ? formatBytes(r.trafficLimit, { locale: language }) : '∞'}
                           </div>
                           {r.trafficLimit > 0 && <MeterBar value={pct} tone="emerald" className="h-1.5" />}
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-xs">${Number(r.balance ?? 0).toFixed(2)}</td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-1.5 px-2 font-mono text-xs">${Number(r.balance ?? 0).toFixed(2)}</td>
+                        <td className="py-1.5 px-2">
                           <Badge variant={r.active ? 'success' : 'secondary'}>
                             {r.active ? (isRu ? 'Активен' : 'Active') : isRu ? 'Отключён' : 'Inactive'}
                           </Badge>
                         </td>
-                        <td className="py-2.5 px-3 text-xs">
+                        <td className="py-1.5 px-2 text-xs">
                           {r.expiresAt ? formatDate(r.expiresAt, undefined, timezone) : isRu ? 'Никогда' : 'Never'}
                         </td>
-                        <td className="py-2.5 px-3 text-right">
+                        <td className="py-1.5 px-2 text-right">
                           <div className="inline-flex gap-1">
                             <Button size="icon" variant="ghost" onClick={() => setStatsReseller(r)}>
                               <BarChart3 className="h-4 w-4" />
@@ -301,7 +301,7 @@ export function ResellersPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Имя / Название' : 'Name'}</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} />

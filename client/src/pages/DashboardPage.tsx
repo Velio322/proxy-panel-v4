@@ -222,7 +222,7 @@ export function DashboardPage() {
       />
 
       {/* Clickable 4-Card Tactical KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Link to="/clients" className="group block">
           <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-4 pl-5 transition-all group-hover:border-primary/45">
             <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400" aria-hidden="true" />
@@ -369,7 +369,7 @@ export function DashboardPage() {
 
       {/* Live Nodes Rack Overview */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
           <div className="flex items-center gap-2">
             <Server className="h-4 w-4 text-primary" />
             <CardTitle>{t('dashboard.nodesCard')}</CardTitle>
@@ -386,7 +386,7 @@ export function DashboardPage() {
         </CardHeader>
         <CardContent>
           {nodesLoading ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <Skeleton className="h-36 w-full rounded-xl" />
               <Skeleton className="h-36 w-full rounded-xl" />
               <Skeleton className="h-36 w-full rounded-xl" />
@@ -409,7 +409,7 @@ export function DashboardPage() {
               }
             />
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {nodes.slice(0, 6).map((n) => {
                 const inbounds = [...(n.inbounds ?? [])].sort((a, b) => a.port - b.port);
                 return (
@@ -446,7 +446,7 @@ export function DashboardPage() {
                             />
                             <Link
                               to={`/nodes/${n.id}`}
-                              className="truncate text-sm font-bold hover:text-primary transition-colors"
+                              className="break-words text-sm font-bold hover:text-primary transition-colors min-w-0"
                             >
                               {n.name}
                             </Link>
@@ -456,7 +456,7 @@ export function DashboardPage() {
                               </Badge>
                             )}
                           </div>
-                          <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                          <div className="mt-0.5 break-words font-mono text-[11px] text-muted-foreground min-w-0">
                             {n.host}:{n.port}
                           </div>
                         </div>
@@ -530,7 +530,7 @@ export function DashboardPage() {
       </Card>
 
       {/* Traffic Chart + Panel Host Instrument Cluster */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-3 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
             <div>
@@ -673,7 +673,7 @@ export function DashboardPage() {
                 <div className="text-[10px] uppercase text-muted-foreground">
                   {isRu ? 'Сеть ↑/↓' : 'Net ↑/↓'}
                 </div>
-                <div className="mt-0.5 truncate font-semibold text-emerald-400">
+                <div className="mt-0.5 break-words font-semibold text-emerald-400 min-w-0">
                   ↓ {formatBps(hostTelemetry?.network.downloadBps, language)}
                 </div>
               </div>
@@ -683,9 +683,9 @@ export function DashboardPage() {
       </div>
 
       {/* Top Clients & Recent Activity */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="flex items-center gap-2">
               <Users className="h-4 w-4 text-primary" />
               <span>{t('dashboard.topClients')}</span>
@@ -726,7 +726,7 @@ export function DashboardPage() {
                           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary/15 font-mono text-[10px] font-bold text-primary">
                             #{idx + 1}
                           </span>
-                          <span className="font-semibold truncate">
+                          <span className="font-semibold break-words min-w-0">
                             {tc.client?.username ?? tc.clientId}
                           </span>
                         </div>
@@ -752,7 +752,7 @@ export function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="flex items-center gap-2">
               <ScrollText className="h-4 w-4 text-primary" />
               <span>{t('dashboard.recentAudit')}</span>
@@ -786,7 +786,7 @@ export function DashboardPage() {
                       <Badge variant={auditBadgeVariant(entry.action)} className="font-mono text-[10px]">
                         {entry.action}
                       </Badge>
-                      <span className="truncate font-medium text-foreground">{entry.resource}</span>
+                      <span className="break-words font-medium text-foreground min-w-0">{entry.resource}</span>
                       {entry.user && (
                         <span className="shrink-0 font-mono text-[11px] text-primary">
                           @{entry.user.username}

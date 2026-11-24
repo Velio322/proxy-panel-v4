@@ -104,19 +104,19 @@ export function AuditPage() {
       />
 
       {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-4 space-y-1">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-3 space-y-1">
           <div className="text-xs text-muted-foreground">{isRu ? 'Всего записей' : 'Total Events'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">{total}</div>
         </Card>
-        <Card className="p-4 space-y-1">
+        <Card className="p-3 space-y-1">
           <div className="text-xs text-muted-foreground">{isRu ? 'Изменения / Удаления (стр.)' : 'Updates / Deletions (page)'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">
             <span className="text-emerald-400">{kpis.mutations}</span> /{' '}
             <span className="text-red-400">{kpis.destructive}</span>
           </div>
         </Card>
-        <Card className="p-4 space-y-1">
+        <Card className="p-3 space-y-1">
           <div className="text-xs text-muted-foreground">{isRu ? 'Активные операторы' : 'Active Actors'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">{kpis.actors}</div>
         </Card>
@@ -124,7 +124,7 @@ export function AuditPage() {
 
       {/* Filter Bar */}
       <Card>
-        <CardHeader className="py-3.5">
+        <CardHeader className="py-2.5">
           <div className="flex flex-wrap items-center gap-2.5">
             <Select
               value={resourceFilter}
@@ -192,7 +192,7 @@ export function AuditPage() {
       </Card>
 
       {isLoading ? (
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-full" />
@@ -214,12 +214,12 @@ export function AuditPage() {
               <table className="data-table w-full text-xs">
                 <thead className="bg-muted/40">
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-2.5 px-3 w-8"></th>
-                    <th className="py-2.5 px-3">{isRu ? 'Время' : 'Timestamp'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Пользователь' : 'Actor'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Действие' : 'Action'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Ресурс' : 'Resource'}</th>
-                    <th className="py-2.5 px-3">IP</th>
+                    <th className="py-1.5 px-2 w-8"></th>
+                    <th className="py-1.5 px-2">{isRu ? 'Время' : 'Timestamp'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Пользователь' : 'Actor'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Действие' : 'Action'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Ресурс' : 'Resource'}</th>
+                    <th className="py-1.5 px-2">IP</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -230,7 +230,7 @@ export function AuditPage() {
                     return (
                       <React.Fragment key={entry.id}>
                         <tr className="border-b last:border-b-0 hover:bg-muted/20">
-                          <td className="py-2.5 px-3">
+                          <td className="py-1.5 px-2">
                             {hasDetails && (
                               <button
                                 type="button"
@@ -246,10 +246,10 @@ export function AuditPage() {
                               </button>
                             )}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-muted-foreground tabular-nums">
+                          <td className="py-1.5 px-2 font-mono text-muted-foreground tabular-nums">
                             {formatDateTime(entry.createdAt, timezone)}
                           </td>
-                          <td className="py-2.5 px-3 font-semibold">
+                          <td className="py-1.5 px-2 font-semibold">
                             {entry.user?.username || 'system'}
                             {entry.user?.role && (
                               <span className="ml-1.5 text-[10px] text-muted-foreground">
@@ -257,16 +257,16 @@ export function AuditPage() {
                               </span>
                             )}
                           </td>
-                          <td className="py-2.5 px-3">
+                          <td className="py-1.5 px-2">
                             <Badge variant={actionBadgeVariant(entry.action)} className="font-mono text-[10px]">
                               {entry.action}
                             </Badge>
                           </td>
-                          <td className="py-2.5 px-3 font-mono">
+                          <td className="py-1.5 px-2 font-mono">
                             {entry.resource}
                             {entry.resourceId ? `:${entry.resourceId.slice(0, 12)}` : ''}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-muted-foreground">
+                          <td className="py-1.5 px-2 font-mono text-muted-foreground">
                             {entry.ip || '—'}
                           </td>
                         </tr>

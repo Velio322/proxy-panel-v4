@@ -150,7 +150,7 @@ export function InspectorsPage() {
       />
 
       {/* 3-Card Clickable Inspector KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-3">
         <button
           type="button"
           onClick={() => setTab('srh')}
@@ -287,26 +287,26 @@ export function InspectorsPage() {
                   <table className="data-table w-full text-xs">
                     <thead className="bg-muted/30">
                       <tr className="border-b text-left text-muted-foreground">
-                        <th className="py-2.5 px-2">{isRu ? 'Время' : 'Time'}</th>
-                        <th className="py-2.5 px-2">{isRu ? 'Клиент' : 'Client'}</th>
-                        <th className="py-2.5 px-2">IP</th>
-                        <th className="py-2.5 px-2">{isRu ? 'Приложение / User-Agent' : 'Detected App / User-Agent'}</th>
-                        <th className="py-2.5 px-2">{isRu ? 'Формат / Правило SRR' : 'Format / SRR Rule'}</th>
-                        <th className="py-2.5 px-2">HWID</th>
-                        <th className="py-2.5 px-2">{isRu ? 'HTTP Статус' : 'HTTP Status'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Время' : 'Time'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Клиент' : 'Client'}</th>
+                        <th className="py-1.5 px-2">IP</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Приложение / User-Agent' : 'Detected App / User-Agent'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Формат / Правило SRR' : 'Format / SRR Rule'}</th>
+                        <th className="py-1.5 px-2">HWID</th>
+                        <th className="py-1.5 px-2">{isRu ? 'HTTP Статус' : 'HTTP Status'}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {srhEntries.map((item) => (
                         <tr key={item.id} className="border-b last:border-b-0 hover:bg-muted/20">
-                          <td className="py-2.5 px-2 font-mono text-muted-foreground">
+                          <td className="py-1.5 px-2 font-mono text-muted-foreground">
                             {formatDateTime(item.createdAt, timezone)}
                           </td>
-                          <td className="py-2.5 px-2 font-semibold">
+                          <td className="py-1.5 px-2 font-semibold">
                             {item.username || item.clientId || '—'}
                           </td>
-                          <td className="py-2.5 px-2 font-mono">{item.ip}</td>
-                          <td className="py-2.5 px-2">
+                          <td className="py-1.5 px-2 font-mono">{item.ip}</td>
+                          <td className="py-1.5 px-2">
                             {item.detectedApp && (
                               <Badge variant="outline" className="mr-1.5">
                                 {item.detectedApp}
@@ -316,16 +316,16 @@ export function InspectorsPage() {
                               {item.userAgent}
                             </span>
                           </td>
-                          <td className="py-2.5 px-2">
+                          <td className="py-1.5 px-2">
                             {item.format && <Badge variant="secondary">{item.format}</Badge>}
                             {item.srrRuleName && (
                               <span className="ml-1.5 text-muted-foreground">({item.srrRuleName})</span>
                             )}
                           </td>
-                          <td className="py-2.5 px-2 font-mono text-muted-foreground">
+                          <td className="py-1.5 px-2 font-mono text-muted-foreground">
                             {item.hwid || '—'}
                           </td>
-                          <td className="py-2.5 px-2">
+                          <td className="py-1.5 px-2">
                             <Badge variant={item.status >= 200 && item.status < 300 ? 'success' : 'destructive'}>
                               {item.status}
                             </Badge>
@@ -393,12 +393,12 @@ export function InspectorsPage() {
                   <table className="data-table w-full text-xs">
                     <thead className="bg-muted/30">
                       <tr className="border-b text-left text-muted-foreground">
-                        <th className="py-2.5 px-2">HWID</th>
-                        <th className="py-2.5 px-2">{isRu ? 'Клиент' : 'Client'}</th>
-                        <th className="py-2.5 px-2">{isRu ? 'ОС / Модель' : 'OS / Model'}</th>
-                        <th className="py-2.5 px-2">IP</th>
-                        <th className="py-2.5 px-2">{isRu ? 'Активность' : 'Last Seen'}</th>
-                        <th className="py-2.5 px-2 text-right">{isRu ? 'Действие' : 'Action'}</th>
+                        <th className="py-1.5 px-2">HWID</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Клиент' : 'Client'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'ОС / Модель' : 'OS / Model'}</th>
+                        <th className="py-1.5 px-2">IP</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Активность' : 'Last Seen'}</th>
+                        <th className="py-1.5 px-2 text-right">{isRu ? 'Действие' : 'Action'}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -406,7 +406,7 @@ export function InspectorsPage() {
                         const isCollision = hwidCollisionSet.has(dev.hwid);
                         return (
                           <tr key={dev.id} className="border-b last:border-b-0 hover:bg-muted/20">
-                            <td className="py-2.5 px-2 font-mono">
+                            <td className="py-1.5 px-2 font-mono">
                               <div className="flex items-center gap-1.5">
                                 <span>{dev.hwid}</span>
                                 {isCollision && (
@@ -416,7 +416,7 @@ export function InspectorsPage() {
                                 )}
                               </div>
                             </td>
-                            <td className="py-2.5 px-2 font-semibold">
+                            <td className="py-1.5 px-2 font-semibold">
                               {dev.username || dev.clientId}
                               {dev.deviceLimit != null && (
                                 <span className="ml-1.5 text-muted-foreground">
@@ -424,16 +424,16 @@ export function InspectorsPage() {
                                 </span>
                               )}
                             </td>
-                            <td className="py-2.5 px-2">
+                            <td className="py-1.5 px-2">
                               {[dev.os, dev.osVersion, dev.model].filter(Boolean).join(' ') ||
                                 dev.userAgent ||
                                 '—'}
                             </td>
-                            <td className="py-2.5 px-2 font-mono">{dev.ip || '—'}</td>
-                            <td className="py-2.5 px-2 font-mono text-muted-foreground">
+                            <td className="py-1.5 px-2 font-mono">{dev.ip || '—'}</td>
+                            <td className="py-1.5 px-2 font-mono text-muted-foreground">
                               {formatDateTime(dev.lastSeenAt, timezone)}
                             </td>
-                            <td className="py-2.5 px-2 text-right">
+                            <td className="py-1.5 px-2 text-right">
                               <Button
                                 type="button"
                                 size="sm"
@@ -501,30 +501,30 @@ export function InspectorsPage() {
                   <table className="data-table w-full text-xs">
                     <thead className="bg-muted/30">
                       <tr className="border-b text-left text-muted-foreground">
-                        <th className="py-2.5 px-2">{isRu ? 'Время' : 'Timestamp'}</th>
-                        <th className="py-2.5 px-2">{isRu ? 'Нода' : 'Node'}</th>
-                        <th className="py-2.5 px-2">{isRu ? 'Клиент' : 'Client'}</th>
-                        <th className="py-2.5 px-2">IP</th>
-                        <th className="py-2.5 px-2">{isRu ? 'Протокол / Правило' : 'Protocol / Rule'}</th>
-                        <th className="py-2.5 px-2">{isRu ? 'Действие' : 'Action'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Время' : 'Timestamp'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Нода' : 'Node'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Клиент' : 'Client'}</th>
+                        <th className="py-1.5 px-2">IP</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Протокол / Правило' : 'Protocol / Rule'}</th>
+                        <th className="py-1.5 px-2">{isRu ? 'Действие' : 'Action'}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredTorrentEntries.map((rep) => (
                         <tr key={rep.id} className="border-b last:border-b-0 hover:bg-muted/20">
-                          <td className="py-2.5 px-2 font-mono text-muted-foreground">
+                          <td className="py-1.5 px-2 font-mono text-muted-foreground">
                             {formatDateTime(rep.createdAt, timezone)}
                           </td>
-                          <td className="py-2.5 px-2">{rep.nodeName || rep.nodeId || '—'}</td>
-                          <td className="py-2.5 px-2 font-semibold">
+                          <td className="py-1.5 px-2">{rep.nodeName || rep.nodeId || '—'}</td>
+                          <td className="py-1.5 px-2 font-semibold">
                             {rep.username || rep.clientId || '—'}
                           </td>
-                          <td className="py-2.5 px-2 font-mono">{rep.sourceIp}</td>
-                          <td className="py-2.5 px-2">
+                          <td className="py-1.5 px-2 font-mono">{rep.sourceIp}</td>
+                          <td className="py-1.5 px-2">
                             {rep.protocol && <Badge variant="outline">{rep.protocol}</Badge>}
                             {rep.rule && <span className="ml-1.5 font-mono">{rep.rule}</span>}
                           </td>
-                          <td className="py-2.5 px-2">
+                          <td className="py-1.5 px-2">
                             <Badge variant="destructive">{rep.action || 'BLOCKED'}</Badge>
                           </td>
                         </tr>

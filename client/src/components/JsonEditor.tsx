@@ -268,7 +268,7 @@ export function JsonEditor({
             <pre
               ref={highlightRef}
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5"
+              className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5 min-w-0"
             >
               {lines.map((line, i) => (
                 <div key={i}>

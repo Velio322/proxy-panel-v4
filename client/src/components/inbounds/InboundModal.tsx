@@ -590,7 +590,7 @@ export function InboundModal({
           </TabsList>
 
           <TabsContent value="general" className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Node</Label>
                 <Select

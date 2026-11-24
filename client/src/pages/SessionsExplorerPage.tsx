@@ -182,8 +182,8 @@ export function SessionsExplorerPage() {
       />
 
       {/* 4-Card Sessions KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-4 space-y-1.5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Активные туннели' : 'Active Connections'}</span>
             <Activity className="h-4 w-4 text-emerald-400" />
@@ -194,7 +194,7 @@ export function SessionsExplorerPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Уникальные клиенты' : 'Unique Clients'}</span>
             <Users className="h-4 w-4 text-primary" />
@@ -205,7 +205,7 @@ export function SessionsExplorerPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Уникальные IP' : 'Unique Source IPs'}</span>
             <Globe className="h-4 w-4 text-cyan-400" />
@@ -216,7 +216,7 @@ export function SessionsExplorerPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Трафик сессий' : 'Session Traffic'}</span>
             <Server className="h-4 w-4 text-teal-400" />
@@ -238,7 +238,7 @@ export function SessionsExplorerPage() {
 
       {/* Filter Toolbar */}
       <Card>
-        <CardHeader className="py-3.5">
+        <CardHeader className="py-2.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             {nodes.length <= 6 ? (
               <StatusFilterPills items={nodePills} value={nodeFilter} onChange={setNodeFilter} />
@@ -316,14 +316,14 @@ export function SessionsExplorerPage() {
               <table className="data-table w-full text-xs">
                 <thead className="bg-muted/40">
                   <tr className="border-b border-border/80 text-left text-muted-foreground">
-                    <th className="py-2.5 px-3">{isRu ? 'Клиент' : 'Client'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Нода' : 'Node'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Протокол / Тег' : 'Protocol / Inbound'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'IP клиента' : 'Source IP'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Назначение' : 'Target'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Трафик' : 'Traffic'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Подключён' : 'Connected At'}</th>
-                    <th className="py-2.5 px-3 text-right">{isRu ? 'Действие' : 'Action'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Клиент' : 'Client'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Нода' : 'Node'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Протокол / Тег' : 'Protocol / Inbound'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'IP клиента' : 'Source IP'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Назначение' : 'Target'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Трафик' : 'Traffic'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Подключён' : 'Connected At'}</th>
+                    <th className="py-1.5 px-2 text-right">{isRu ? 'Действие' : 'Action'}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -334,16 +334,16 @@ export function SessionsExplorerPage() {
                     const protoColor = PROTOCOL_COLORS[upProto];
                     return (
                       <tr key={s.id} className="border-b border-border/60 last:border-b-0 hover:bg-accent/35">
-                        <td className="py-2.5 px-3 font-semibold">
+                        <td className="py-1.5 px-2 font-semibold">
                           {s.username || s.clientId || 'anonymous'}
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-1.5 px-2">
                           <span className="inline-flex items-center gap-1.5">
                             <Server className="h-3.5 w-3.5 text-primary" />
                             <span>{resolvedNodeName}</span>
                           </span>
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-1.5 px-2">
                           <div className="flex items-center gap-1.5">
                             {s.protocol && (
                               <Badge
@@ -358,11 +358,11 @@ export function SessionsExplorerPage() {
                             )}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 font-mono">{s.sourceIp}</td>
-                        <td className="py-2.5 px-3 font-mono text-muted-foreground">
+                        <td className="py-1.5 px-2 font-mono">{s.sourceIp}</td>
+                        <td className="py-1.5 px-2 font-mono text-muted-foreground">
                           {s.target || '—'}
                         </td>
-                        <td className="py-2.5 px-3 font-mono tabular-nums">
+                        <td className="py-1.5 px-2 font-mono tabular-nums">
                           <span className="text-emerald-400">
                             ↓ {formatBytes(s.downloadBytes ?? 0, { compact: true, locale: language })}
                           </span>{' '}
@@ -371,10 +371,10 @@ export function SessionsExplorerPage() {
                             ↑ {formatBytes(s.uploadBytes ?? 0, { compact: true, locale: language })}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-muted-foreground">
+                        <td className="py-1.5 px-2 font-mono text-muted-foreground">
                           {formatDateTime(s.connectedAt, timezone)}
                         </td>
-                        <td className="py-2.5 px-3 text-right">
+                        <td className="py-1.5 px-2 text-right">
                           <Button
                             type="button"
                             size="sm"

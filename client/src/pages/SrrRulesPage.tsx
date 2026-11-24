@@ -227,18 +227,18 @@ export function SrrRulesPage() {
       />
 
       {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-4 space-y-1">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-3 space-y-1">
           <div className="text-xs text-muted-foreground">{isRu ? 'Активные правила' : 'Active Rules'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">
             {activeCount} / {rules.length}
           </div>
         </Card>
-        <Card className="p-4 space-y-1">
+        <Card className="p-3 space-y-1">
           <div className="text-xs text-muted-foreground">{isRu ? 'Правила блокировки' : 'Block / Drop Rules'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">{blockCount}</div>
         </Card>
-        <Card className="p-4 space-y-1">
+        <Card className="p-3 space-y-1">
           <div className="text-xs text-muted-foreground">{isRu ? 'Доступно шаблонов' : 'Linked Templates'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">{templates.length}</div>
         </Card>
@@ -280,7 +280,7 @@ export function SrrRulesPage() {
       </Card>
 
       {isLoading ? (
-        <Card className="p-8 text-center text-sm text-muted-foreground">
+        <Card className="p-6 text-center text-sm text-muted-foreground">
           {isRu ? 'Загрузка правил...' : 'Loading rules...'}
         </Card>
       ) : rules.length === 0 ? (
@@ -394,7 +394,7 @@ export function SrrRulesPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Название правила' : 'Rule Name'}</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} />

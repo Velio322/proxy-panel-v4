@@ -154,7 +154,7 @@ export function NodeBladeCard({
               <span className={cn('h-2 w-2 shrink-0 rounded-full', theme.dot)} />
               <Link
                 to={`/nodes/${node.id}`}
-                className="truncate text-sm sm:text-base font-bold tracking-tight hover:text-primary transition-colors"
+                className="break-words text-sm sm:text-base font-bold tracking-tight hover:text-primary transition-colors min-w-0"
               >
                 {node.name}
               </Link>
@@ -179,7 +179,7 @@ export function NodeBladeCard({
               {locationParts.length > 0 && (
                 <span className="inline-flex items-center gap-1 rounded border border-border/70 bg-muted/40 px-1.5 py-0 text-[10px] text-muted-foreground">
                   <Globe className="h-2.5 w-2.5 text-primary/80" />
-                  <span className="truncate max-w-[140px]">{locationParts.join(' · ')}</span>
+                  <span className="break-words min-w-0">{locationParts.join(' · ')}</span>
                 </span>
               )}
             </div>
@@ -192,7 +192,7 @@ export function NodeBladeCard({
                 className="inline-flex items-center gap-1 rounded border border-border/70 bg-background/60 px-1.5 py-0.5 font-mono text-[11px] text-foreground transition-colors hover:border-primary/45 hover:text-primary"
                 title={isRu ? 'Скопировать адрес' : 'Copy host:port'}
               >
-                <span className="truncate max-w-[180px]">
+                <span className="break-words min-w-0">
                   {node.host}:{node.port}
                 </span>
                 {copiedHost ? (
@@ -380,7 +380,7 @@ export function NodeBladeCard({
           {/* Traffic & Network Box */}
           <div className="min-w-0 rounded-lg border border-border/70 bg-background/55 p-2.5 space-y-1.5">
             <div className="flex items-center justify-between gap-1.5">
-              <span className="text-[11px] text-muted-foreground truncate">
+              <span className="text-[11px] text-muted-foreground break-words min-w-0">
                 {isRu ? 'Трафик' : 'Traffic'}
               </span>
               <span className="font-mono text-xs font-bold tabular-nums text-foreground">
@@ -389,8 +389,8 @@ export function NodeBladeCard({
             </div>
 
             <div className="flex items-center justify-between gap-1 font-mono text-[11px] tabular-nums">
-              <span className="truncate text-emerald-400">↓ {formatBytes(totalDl, { locale: language })}</span>
-              <span className="truncate text-cyan-400">↑ {formatBytes(totalUl, { locale: language })}</span>
+              <span className="break-words text-emerald-400 min-w-0">↓ {formatBytes(totalDl, { locale: language })}</span>
+              <span className="break-words text-cyan-400 min-w-0">↑ {formatBytes(totalUl, { locale: language })}</span>
             </div>
 
             <div className="telemetry-track flex h-1.5 w-full overflow-hidden rounded-full">
@@ -400,12 +400,12 @@ export function NodeBladeCard({
 
             <div className="flex items-center justify-between gap-1 font-mono text-[10px] text-muted-foreground tabular-nums">
               {latestMetric?.uploadBps != null || latestMetric?.downloadBps != null ? (
-                <span className="truncate">
+                <span className="break-words min-w-0">
                   ↑{formatBps(latestMetric.uploadBps, language)} · ↓
                   {formatBps(latestMetric.downloadBps, language)}
                 </span>
               ) : (
-                <span className="truncate">{isRu ? 'Счётчик' : 'Counter'}</span>
+                <span className="break-words min-w-0">{isRu ? 'Счётчик' : 'Counter'}</span>
               )}
               {(latestMetric?.tcpConnections != null || latestMetric?.udpSockets != null) && (
                 <span className="shrink-0">
@@ -477,8 +477,8 @@ export function NodeBladeCard({
                   to={`/nodes/${node.id}?tab=updates`}
                   className="flex items-center justify-between gap-1 rounded border border-border/70 bg-background/70 px-1.5 py-1 transition-colors hover:border-primary/45"
                 >
-                  <span className="text-[10px] text-muted-foreground truncate">{c.key}</span>
-                  <span className="font-mono text-[11px] font-semibold truncate">
+                  <span className="text-[10px] text-muted-foreground break-words min-w-0">{c.key}</span>
+                  <span className="font-mono text-[11px] font-semibold break-words min-w-0">
                     {c.version || '—'}
                   </span>
                 </Link>

@@ -152,16 +152,16 @@ export function SubscriptionTemplatesPage() {
       />
 
       {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-4 space-y-1">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-3 space-y-1">
           <div className="text-xs text-muted-foreground">{isRu ? 'Всего шаблонов' : 'Total Templates'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">{templates.length}</div>
         </Card>
-        <Card className="p-4 space-y-1">
+        <Card className="p-3 space-y-1">
           <div className="text-xs text-muted-foreground">{isRu ? 'Шаблоны по умолчанию' : 'Default Profiles'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">{defaultCount}</div>
         </Card>
-        <Card className="p-4 space-y-1">
+        <Card className="p-3 space-y-1">
           <div className="text-xs text-muted-foreground">{isRu ? 'Покрыто форматов' : 'Formats Covered'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">
             {distinctTypes} / {TEMPLATE_TYPES.length}
@@ -170,7 +170,7 @@ export function SubscriptionTemplatesPage() {
       </div>
 
       {isLoading ? (
-        <Card className="p-8 text-center text-sm text-muted-foreground">
+        <Card className="p-6 text-center text-sm text-muted-foreground">
           {isRu ? 'Загрузка шаблонов...' : 'Loading templates...'}
         </Card>
       ) : templates.length === 0 ? (
@@ -190,7 +190,7 @@ export function SubscriptionTemplatesPage() {
           }
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {templates.map((tmpl) => (
             <div
               key={tmpl.id}
@@ -205,9 +205,9 @@ export function SubscriptionTemplatesPage() {
               />
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 font-bold text-sm truncate">
+                  <div className="flex items-center gap-2 font-bold text-sm break-words min-w-0">
                     <FileCode2 className="h-4 w-4 text-primary shrink-0" />
-                    <span className="truncate">{tmpl.name}</span>
+                    <span className="break-words min-w-0">{tmpl.name}</span>
                   </div>
                   {tmpl.isDefault && (
                     <Badge variant="success">{isRu ? 'По умолч.' : 'Default'}</Badge>
@@ -247,7 +247,7 @@ export function SubscriptionTemplatesPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Название шаблона' : 'Template Name'}</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} />

@@ -210,8 +210,8 @@ export function InboundsPage() {
       />
 
       {/* 4-Card Protocols KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-4 space-y-2.5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-3 space-y-2.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Протоколы (Inbounds)' : 'Total Inbounds'}</span>
             <Network className="h-4 w-4 text-emerald-400" />
@@ -232,7 +232,7 @@ export function InboundsPage() {
           />
         </Card>
 
-        <Card className="p-4 space-y-2.5">
+        <Card className="p-3 space-y-2.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Распределение по ядрам' : 'Core Engines'}</span>
             <Cpu className="h-4 w-4 text-cyan-400" />
@@ -257,7 +257,7 @@ export function InboundsPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2.5">
+        <Card className="p-3 space-y-2.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Покрытие нод' : 'Node Coverage'}</span>
             <Server className="h-4 w-4 text-primary" />
@@ -280,7 +280,7 @@ export function InboundsPage() {
           />
         </Card>
 
-        <Card className="p-4 space-y-2.5">
+        <Card className="p-3 space-y-2.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Sniffing и Port-Share' : 'Sniffing & Port-Share'}</span>
             <Shield className="h-4 w-4 text-amber-400" />
@@ -299,7 +299,7 @@ export function InboundsPage() {
 
       {/* Filter Toolbar */}
       <Card>
-        <CardHeader className="py-3.5">
+        <CardHeader className="py-2.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <StatusFilterPills
               items={statusPills}
@@ -354,7 +354,7 @@ export function InboundsPage() {
 
       {/* Main Content */}
       {isLoading ? (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2">
           <Skeleton className="h-40 w-full rounded-xl" />
           <Skeleton className="h-40 w-full rounded-xl" />
         </div>
@@ -381,7 +381,7 @@ export function InboundsPage() {
           }
         />
       ) : viewMode === 'blades' ? (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2">
           {filtered.map((ib) => (
             <InboundBladeCard
               key={ib.id}
@@ -403,20 +403,20 @@ export function InboundsPage() {
               <table className="data-table w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr className="border-b border-border/80 text-left text-xs text-muted-foreground">
-                    <th className="py-2.5 px-3">{isRu ? 'Тег / Название' : 'Tag'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Протокол' : 'Protocol'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Ядро' : 'Engine'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Нода' : 'Node'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Адрес : Порт' : 'Listen : Port'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Доп. порты' : 'Shares'}</th>
-                    <th className="py-2.5 px-3">{t('common.status')}</th>
-                    <th className="py-2.5 px-3 text-right">{t('common.actions')}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Тег / Название' : 'Tag'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Протокол' : 'Protocol'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Ядро' : 'Engine'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Нода' : 'Node'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Адрес : Порт' : 'Listen : Port'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Доп. порты' : 'Shares'}</th>
+                    <th className="py-1.5 px-2">{t('common.status')}</th>
+                    <th className="py-1.5 px-2 text-right">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((ib) => (
                     <tr key={ib.id} className="border-b border-border/60 last:border-b-0 hover:bg-accent/35">
-                      <td className="py-2.5 px-3 font-medium">
+                      <td className="py-1.5 px-2 font-medium">
                         <button
                           type="button"
                           onClick={() => {
@@ -429,27 +429,27 @@ export function InboundsPage() {
                           <span>{ib.tag}</span>
                         </button>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-1.5 px-2">
                         <Badge className={cn('border', PROTOCOL_COLORS[ib.protocol])}>{ib.protocol}</Badge>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-xs text-muted-foreground">
+                      <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">
                         {getCoreForProtocol(ib.protocol)}
                       </td>
-                      <td className="py-2.5 px-3 text-xs text-muted-foreground">
+                      <td className="py-1.5 px-2 text-xs text-muted-foreground">
                         {ib.node?.name ?? ib.nodeId}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-xs">
+                      <td className="py-1.5 px-2 font-mono text-xs">
                         {ib.listen}:{ib.port}
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-1.5 px-2">
                         <Badge variant="outline">{ib.portShares?.length ?? 0}</Badge>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-1.5 px-2">
                         <Badge variant={ib.enable ? 'success' : 'secondary'}>
                           {ib.enable ? t('common.enabled') : t('common.disabled')}
                         </Badge>
                       </td>
-                      <td className="py-2.5 px-3 text-right">
+                      <td className="py-1.5 px-2 text-right">
                         <div className="inline-flex items-center gap-1.5">
                           <Button
                             type="button"

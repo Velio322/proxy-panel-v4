@@ -57,7 +57,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
     <div className="space-y-4">
       {form.protocol === 'VLESS' && (
         <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>XTLS Flow</Label>
               <Select
@@ -141,7 +141,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
       )}
 
       {form.protocol === 'VMESS' && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>VMess Cipher</Label>
             <Select
@@ -196,7 +196,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
       )}
 
       {form.protocol === 'SHADOWSOCKS' && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Method</Label>
             <Select
@@ -266,7 +266,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
 
       {form.protocol === 'HYSTERIA2' && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Upload Limit (Mbps)</Label>
               <Input
@@ -325,7 +325,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
             />
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Masquerade (URL or JSON)</Label>
               <Input
@@ -347,7 +347,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
 
       {form.protocol === 'TUIC' && (
         <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Congestion Control</Label>
               <Select
@@ -411,7 +411,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
       )}
 
       {form.protocol === 'NAIVEPROXY' && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Protocol</Label>
             <Select
@@ -487,7 +487,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
       )}
 
       {form.protocol === 'MIERU' && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Transport</Label>
             <Select
@@ -545,7 +545,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
 
       {form.protocol === 'ANYTLS' && (
         <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label>Idle Check Interval</Label>
               <Input
@@ -588,7 +588,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
           <div className="text-xs font-semibold uppercase tracking-wide text-primary">
             ShadowTLS v3 Handshake & Detour (Sing-box)
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>ShadowTLS Version</Label>
               <Select
@@ -656,7 +656,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
 
       {isXray && (
         <div className="border-t pt-4 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Transport Network</Label>
               <Select
@@ -682,7 +682,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
 
           {(form.network === 'tcp' || form.network === 'raw') && (
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>Header Camouflage</Label>
                   <Select
@@ -707,7 +707,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
                 </div>
               </div>
               {form.tcpHeaderType === 'http' && (
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-2 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label>HTTP Header Host</Label>
                     <Input
@@ -731,7 +731,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
 
           {form.network === 'ws' && (
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>WebSocket Path</Label>
                   <Input value={form.wsPath} onChange={(e) => onChange({ wsPath: e.target.value })} />
@@ -763,7 +763,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
 
           {form.network === 'grpc' && (
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>gRPC Service Name</Label>
                   <Input
@@ -817,7 +817,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
           )}
 
           {form.network === 'httpupgrade' && (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>HTTPUpgrade Path</Label>
                 <Input
@@ -844,7 +844,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
 
           {form.network === 'xhttp' && (
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <Label>XHTTP Path</Label>
                   <Input
@@ -879,7 +879,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
                   </Select>
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <Label>xmux maxConcurrency</Label>
                   <Input
@@ -910,7 +910,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
                   XHTTP v26 Tuning (xmux reuse, scMaxEachPostBytes, padding, headers, downloadSettings)
                 </summary>
                 <div className="mt-3 space-y-3">
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-2 sm:grid-cols-3">
                     <div className="space-y-1.5">
                       <Label>cMaxReuseTimes</Label>
                       <Input
@@ -976,7 +976,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
                       />
                     </div>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     <div className="flex items-center justify-between rounded-lg border px-3 py-2">
                       <Label>noGRPCHeader</Label>
                       <Switch
@@ -1018,7 +1018,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
           )}
 
           {form.network === 'h2' && (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>H2 Path</Label>
                 <Input value={form.h2Path} onChange={(e) => onChange({ h2Path: e.target.value })} />
@@ -1032,7 +1032,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
 
           {form.network === 'kcp' && (
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>Header Type</Label>
                   <Select
@@ -1104,7 +1104,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
                     </label>
                   ))}
                 </div>
-                <div className="grid gap-3 pt-2 sm:grid-cols-2">
+                <div className="grid gap-2 pt-2 sm:grid-cols-2">
                   <div className="flex items-center justify-between rounded-lg border px-3 py-2">
                     <Label>routeOnly</Label>
                     <Switch
@@ -1139,7 +1139,7 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
                   />
                 </div>
                 {form.sockoptEnabled && (
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-2 sm:grid-cols-3">
                     <div className="space-y-1.5">
                       <Label>SO_MARK</Label>
                       <Input

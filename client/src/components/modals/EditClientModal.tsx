@@ -315,7 +315,7 @@ export function EditClientModal({
           </TabsList>
 
           <TabsContent value="profile" className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Email</Label>
                 <Input value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -448,7 +448,7 @@ export function EditClientModal({
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Заметка' : 'Note'}</Label>
                 <Input value={note} onChange={(e) => setNote(e.target.value)} />

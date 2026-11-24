@@ -116,8 +116,8 @@ export function BackupPage() {
       />
 
       {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-4 space-y-2">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-3 space-y-2">
           <div className="text-xs text-muted-foreground">{isRu ? 'Успешные копии' : 'Successful Snapshots'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">
             {stats.ok} / {stats.total}
@@ -130,14 +130,14 @@ export function BackupPage() {
           />
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="text-xs text-muted-foreground">{isRu ? 'Суммарный объём архивов' : 'Total Archive Size'}</div>
           <div className="font-mono text-2xl font-bold tabular-nums">
             {formatBytes(stats.totalBytes, { locale: language })}
           </div>
         </Card>
 
-        <Card className="p-4 space-y-1.5">
+        <Card className="p-3 space-y-1.5">
           <div className="text-xs text-muted-foreground">{isRu ? 'Последний бэкап' : 'Latest Snapshot'}</div>
           <div className="font-mono text-sm font-bold">
             {stats.latest ? formatDateTime(stats.latest, timezone) : '—'}
@@ -145,7 +145,7 @@ export function BackupPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-3 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
@@ -154,7 +154,7 @@ export function BackupPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Тип копии' : 'Backup Scope'}</Label>
                 <Select value={type} onValueChange={setType}>
@@ -230,7 +230,7 @@ export function BackupPage() {
                 : 'To restore a downloaded database snapshot safely without schema drift, stop the panel worker and run:'}
             </p>
             <div className="rack-inset flex items-center justify-between gap-2 rounded-md px-2.5 py-2 font-mono text-[11px] text-foreground">
-              <span className="truncate">{RESTORE_CMD}</span>
+              <span className="break-words min-w-0">{RESTORE_CMD}</span>
               <Button
                 type="button"
                 size="icon"
@@ -247,7 +247,7 @@ export function BackupPage() {
       </div>
 
       {isLoading ? (
-        <Card className="p-10 text-center text-sm text-muted-foreground">
+        <Card className="p-6 text-center text-sm text-muted-foreground">
           {isRu ? 'Загрузка истории бэкапов...' : 'Loading backup logs...'}
         </Card>
       ) : logs.length === 0 ? (
@@ -278,13 +278,13 @@ export function BackupPage() {
               <table className="data-table w-full text-xs">
                 <thead className="bg-muted/40">
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-2.5 px-3">{isRu ? 'Дата создания' : 'Created At'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Тип' : 'Type'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Хранилище' : 'Destination'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Файл' : 'Filename'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Размер' : 'Size'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Статус' : 'Status'}</th>
-                    <th className="py-2.5 px-3 text-right">{isRu ? 'Скачать' : 'Download'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Дата создания' : 'Created At'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Тип' : 'Type'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Хранилище' : 'Destination'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Файл' : 'Filename'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Размер' : 'Size'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Статус' : 'Status'}</th>
+                    <th className="py-1.5 px-2 text-right">{isRu ? 'Скачать' : 'Download'}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -292,18 +292,18 @@ export function BackupPage() {
                     const isDone = log.status === 'SUCCESS' || log.status === 'COMPLETED';
                     return (
                       <tr key={log.id} className="border-b last:border-b-0 hover:bg-muted/20">
-                        <td className="py-2.5 px-3 font-mono text-muted-foreground tabular-nums">
+                        <td className="py-1.5 px-2 font-mono text-muted-foreground tabular-nums">
                           {formatDateTime(log.createdAt, timezone)}
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-1.5 px-2">
                           <Badge variant="outline">{log.type}</Badge>
                         </td>
-                        <td className="py-2.5 px-3 uppercase font-mono">{log.destination}</td>
-                        <td className="py-2.5 px-3 font-mono">{log.filename || log.id}</td>
-                        <td className="py-2.5 px-3 font-mono tabular-nums">
+                        <td className="py-1.5 px-2 uppercase font-mono">{log.destination}</td>
+                        <td className="py-1.5 px-2 font-mono">{log.filename || log.id}</td>
+                        <td className="py-1.5 px-2 font-mono tabular-nums">
                           {log.sizeBytes != null ? formatBytes(log.sizeBytes, { locale: language }) : '—'}
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-1.5 px-2">
                           <Badge
                             variant={
                               isDone ? 'success' : log.status === 'FAILED' ? 'destructive' : 'warning'
@@ -317,7 +317,7 @@ export function BackupPage() {
                             </div>
                           )}
                         </td>
-                        <td className="py-2.5 px-3 text-right">
+                        <td className="py-1.5 px-2 text-right">
                           {isDone && (
                             <Button size="sm" variant="outline" asChild>
                               <a

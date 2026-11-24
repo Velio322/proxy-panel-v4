@@ -285,8 +285,8 @@ export function HostsPage() {
       />
 
       {/* 4-Card KPI Ribbon */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-4 space-y-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Всего хостов' : 'Total Hosts'}</span>
             <Globe className="h-4 w-4 text-emerald-400" />
@@ -302,7 +302,7 @@ export function HostsPage() {
           />
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'CDN / Прокси-хосты' : 'CDN Enabled'}</span>
             <Shield className="h-4 w-4 text-cyan-400" />
@@ -313,7 +313,7 @@ export function HostsPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Фрагментация TLS' : 'TLS Fragment'}</span>
             <Network className="h-4 w-4 text-primary" />
@@ -324,7 +324,7 @@ export function HostsPage() {
           </div>
         </Card>
 
-        <Card className="p-4 space-y-2">
+        <Card className="p-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{isRu ? 'Покрыто протоколов' : 'Covered Inbounds'}</span>
             <Network className="h-4 w-4 text-amber-400" />
@@ -339,7 +339,7 @@ export function HostsPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3 flex flex-row items-center justify-between gap-3">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3">
           <CardTitle className="text-sm">
             {isRu ? `Список хостов (${hosts.length})` : `Host Overrides (${hosts.length})`}
           </CardTitle>
@@ -431,7 +431,7 @@ export function HostsPage() {
               <table className="data-table w-full text-sm">
                 <thead className="bg-muted/30">
                   <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="w-9 py-2.5 px-3">
+                    <th className="w-9 py-1.5 px-2">
                       <Checkbox
                         checked={hosts.length > 0 && hosts.every((h) => selectedHostIds.includes(h.id))}
                         onCheckedChange={(checked) =>
@@ -440,47 +440,47 @@ export function HostsPage() {
                         aria-label="Select all hosts"
                       />
                     </th>
-                    <th className="py-2.5 px-3">{isRu ? 'Название (Remark)' : 'Remark'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Протокол' : 'Inbound'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Адрес : Порт' : 'Address : Port'}</th>
-                    <th className="py-2.5 px-3">SNI / Host / Path</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Теги и опции' : 'Tags & Flags'}</th>
-                    <th className="py-2.5 px-3">{isRu ? 'Статус' : 'Status'}</th>
-                    <th className="py-2.5 px-3 text-right">{isRu ? 'Действия' : 'Actions'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Название (Remark)' : 'Remark'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Протокол' : 'Inbound'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Адрес : Порт' : 'Address : Port'}</th>
+                    <th className="py-1.5 px-2">SNI / Host / Path</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Теги и опции' : 'Tags & Flags'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Статус' : 'Status'}</th>
+                    <th className="py-1.5 px-2 text-right">{isRu ? 'Действия' : 'Actions'}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {hosts.map((h) => (
                     <tr key={h.id} className="border-b last:border-b-0 hover:bg-accent/30">
-                      <td className="py-2.5 px-3">
+                      <td className="py-1.5 px-2">
                         <Checkbox
                           checked={selectedHostIds.includes(h.id)}
                           onCheckedChange={() => toggleSelectHost(h.id)}
                           aria-label={`Select ${h.remark}`}
                         />
                       </td>
-                      <td className="py-2.5 px-3 font-medium">
+                      <td className="py-1.5 px-2 font-medium">
                         <div className="flex items-center gap-2">
                           <Globe className="h-4 w-4 shrink-0 text-primary" />
                           <div className="min-w-0">
-                            <div className="truncate">{h.remark}</div>
+                            <div className="break-words min-w-0">{h.remark}</div>
                             {h.serverDescription && (
-                              <div className="truncate text-[11px] font-normal text-muted-foreground">
+                              <div className="break-words text-[11px] font-normal text-muted-foreground min-w-0">
                                 {h.serverDescription}
                               </div>
                             )}
                           </div>
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 text-xs">{h.inbound?.tag ?? h.inboundId}</td>
-                      <td className="py-2.5 px-3 font-mono text-xs">
+                      <td className="py-1.5 px-2 text-xs">{h.inbound?.tag ?? h.inboundId}</td>
+                      <td className="py-1.5 px-2 font-mono text-xs">
                         {h.address}
                         {h.port ? `:${h.port}` : ''}
                       </td>
-                      <td className="py-2.5 px-3 text-xs text-muted-foreground">
+                      <td className="py-1.5 px-2 text-xs text-muted-foreground">
                         {[h.sni, h.host, h.path].filter(Boolean).join(' · ') || '—'}
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-1.5 px-2">
                         <div className="flex flex-wrap gap-1">
                           {Array.isArray(h.tags) &&
                             h.tags.map((tag) => (
@@ -496,12 +496,12 @@ export function HostsPage() {
                           {h.pinnedPeerCertSha256 && <Badge variant="outline">PinCert</Badge>}
                         </div>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-1.5 px-2">
                         <Badge variant={h.enable ? 'success' : 'secondary'}>
                           {h.enable ? (isRu ? 'Включён' : 'Enabled') : isRu ? 'Отключён' : 'Disabled'}
                         </Badge>
                       </td>
-                      <td className="py-2.5 px-3 text-right">
+                      <td className="py-1.5 px-2 text-right">
                         <div className="inline-flex gap-1">
                           <Button size="icon" variant="ghost" onClick={() => toggleMut.mutate(h.id)}>
                             <Power className="h-4 w-4" />
@@ -542,7 +542,7 @@ export function HostsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>{isRu ? 'Протокол (Inbound)' : 'Inbound'}</Label>
                 <Select value={inboundId || 'none'} onValueChange={(v) => setInboundId(v === 'none' ? '' : v)}>
@@ -671,7 +671,7 @@ export function HostsPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label>Fragment Packets</Label>
                 <Input placeholder="tlshello" value={fragmentPackets} onChange={(e) => setFragmentPackets(e.target.value)} />
@@ -686,7 +686,7 @@ export function HostsPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>xhttpExtra JSON (optional)</Label>
                 <Textarea
@@ -707,7 +707,7 @@ export function HostsPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-3">
               <div className="flex items-center justify-between rounded-lg border px-3 py-2">
                 <Label>CDN Mode</Label>
                 <Switch checked={isCdn} onCheckedChange={setIsCdn} />
