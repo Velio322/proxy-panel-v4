@@ -196,6 +196,8 @@ pub struct SubEntry {
     pub anytls_min_idle: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub naive_proto: Option<String>,
+    /// Opt-in `insecure-concurrency` for the naive client config (parallel TCP connections).
+    pub naive_concurrency: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mieru_transport: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -305,6 +307,7 @@ impl Default for SubEntry {
             anytls_idle_timeout: None,
             anytls_min_idle: None,
             naive_proto: None,
+            naive_concurrency: None,
             mieru_transport: None,
             mieru_port_range: None,
             mieru_domain: None,
@@ -1075,6 +1078,18 @@ pub fn build_entry(
                     .unwrap_or_else(|| "https".into())
                     .to_ascii_lowercase(),
             );
+            // The certificate is issued for the naive domain, so clients must connect by that
+            // name (the node host may be a bare IP, which breaks SNI and validation).
+            let naive_domain = jstr(settings, &["domain"])
+                .or_else(|| jstr(settings, &["sni"]))
+                .or_else(|| jstr(stream, &["sni"]))
+                .map(|d| d.trim().to_string())
+                .filter(|d| !d.is_empty() && !d.contains(':') && !is_ip_literal(d));
+            if let Some(d) = naive_domain {
+                e.host = d.clone();
+                e.sni = Some(d);
+            }
+            e.naive_concurrency = ju32(settings, &["insecureConcurrency"]).filter(|n| *n > 1);
             if e.security.is_none() {
                 e.security = Some("tls".into());
             }

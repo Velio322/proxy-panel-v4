@@ -336,7 +336,11 @@ impl ProcessManager {
             .iter()
             .filter(|i| i.enable && i.protocol == Protocol::Naiveproxy)
         {
-            let caddyfile = naive::generate_caddyfile(ib, &self.config.naive_access_log_path())?;
+            let caddyfile = naive::generate_caddyfile(
+                ib,
+                &self.config.naive_access_log_path(),
+                &tmp_dir_path.join(format!("naive-{}.admin.sock", ib.id)),
+            )?;
             let tmp_naive = naive::caddyfile_path(tmp_dir_path, &ib.id)?;
             tokio::fs::write(&tmp_naive, caddyfile.as_bytes())
                 .await
@@ -571,10 +575,9 @@ impl ProcessManager {
             if unchanged(&format!("naive:{}", ib.id)) && self.naive_procs.contains_key(&ib.id) {
                 continue;
             }
-            if let Some(mut mc) = self.naive_procs.remove(&ib.id) {
-                terminate_child(&mut mc.child).await;
-            }
-            let caddyfile = naive::generate_caddyfile(ib, &self.config.naive_access_log_path())?;
+            let sock = naive::admin_socket_path(&self.config.config_dir, &ib.id)?;
+            let caddyfile =
+                naive::generate_caddyfile(ib, &self.config.naive_access_log_path(), &sock)?;
             let path = naive::caddyfile_path(&self.config.config_dir, &ib.id)?;
             write_atomic_0600(&path, caddyfile.as_bytes()).await?;
 
@@ -586,6 +589,17 @@ impl ProcessManager {
                 .filter(|s| !s.is_empty())
                 .unwrap_or("/var/www/html");
             let _ = naive::ensure_fallback_index(Path::new(fallback_root)).await;
+
+            // Running process with an admin socket: apply the change in place (graceful reload,
+            // live tunnels keep flowing). Only the first change after an upgrade, or a failed
+            // reload, falls through to a restart.
+            if self.naive_procs.contains_key(&ib.id) && self.naive_reload(&path, &sock).await {
+                continue;
+            }
+            if let Some(mut mc) = self.naive_procs.remove(&ib.id) {
+                terminate_child(&mut mc.child).await;
+            }
+            let _ = tokio::fs::remove_file(&sock).await;
 
             if binary_exists(&self.config.naive_bin).await {
                 let naive_env = self.naive_env().await;
@@ -962,6 +976,41 @@ impl ProcessManager {
             ));
         }
         env
+    }
+
+    /// `caddy reload` through the admin socket. False when there is no socket (process started
+    /// with `admin off`) or the reload failed, so the caller restarts the process instead.
+    async fn naive_reload(&self, caddyfile: &Path, sock: &Path) -> bool {
+        if tokio::fs::metadata(sock).await.is_err() {
+            return false;
+        }
+        let mut cmd = Command::new(&self.config.naive_bin);
+        cmd.args(["reload", "--config"])
+            .arg(caddyfile)
+            .args(["--adapter", "caddyfile", "--address"])
+            .arg(format!("unix/{}", sock.display()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        for (k, v) in self.naive_env().await {
+            cmd.env(k, v);
+        }
+        match tokio::time::timeout(Duration::from_secs(10), cmd.output()).await {
+            Ok(Ok(out)) if out.status.success() => {
+                self.logs.push("naive", "info", "config reloaded in place").await;
+                true
+            }
+            Ok(Ok(out)) => {
+                let err = String::from_utf8_lossy(&out.stderr);
+                let msg = format!("naive reload failed, restarting: {}", err.trim());
+                self.logs.push("naive", "warn", msg).await;
+                false
+            }
+            _ => {
+                self.logs.push("naive", "warn", "naive reload timed out, restarting").await;
+                false
+            }
+        }
     }
 
     async fn naive_env(&self) -> Vec<(String, String)> {

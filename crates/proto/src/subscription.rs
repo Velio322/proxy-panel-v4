@@ -329,10 +329,13 @@ pub fn render_json(entries: &[SubEntry], info: &UserInfo) -> Result<String, SubE
             }
             Protocol::Naiveproxy => {
                 let proxy_no_frag = raw.split('#').next().unwrap_or(&raw);
-                let naive_cfg = json!({
+                let mut naive_cfg = json!({
                     "listen": "socks://127.0.0.1:1080",
                     "proxy": proxy_no_frag,
                 });
+                if let Some(n) = e.naive_concurrency {
+                    naive_cfg["insecure-concurrency"] = json!(n);
+                }
                 proxies.push(naive_cfg.clone());
                 links.push(share.clone());
                 structured.push(json!({
