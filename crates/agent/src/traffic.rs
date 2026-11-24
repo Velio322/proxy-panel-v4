@@ -11,6 +11,17 @@ use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader};
 const MAX_TRACKER_BASELINE_ENTRIES: usize = 10_000;
 const CORE_KEY_SEP: char = '\u{1f}';
 
+/// Cores whose cumulative counters survive an agent restart (mita `metrics.pb`, the naive
+/// access log). Their first sighting must be seeded silently: the counter already holds
+/// traffic that was reported (or predates accounting) and would otherwise be counted again.
+/// Xray and sing-box are restarted together with the agent, so their counters start from zero
+/// and everything they report is new traffic.
+const PERSISTENT_CORES: &[&str] = &["mieru", "naive"];
+
+fn core_is_persistent(core: &str) -> bool {
+    PERSISTENT_CORES.contains(&core)
+}
+
 /// Baseline key for one user counter within one proxy core.
 fn core_key(core: &str, user_id: &str) -> String {
     format!("{core}{CORE_KEY_SEP}{user_id}")
@@ -540,7 +551,6 @@ impl CumulativeTrafficTracker {
     }
 
     /// Whether the tracker has already established baselines for `core`.
-    /// A core becomes known after its first sighting (seeding).
     fn core_known(&self, core: &str) -> bool {
         self.previous
             .keys()
@@ -553,8 +563,9 @@ impl CumulativeTrafficTracker {
     /// Baselines are tracked per `(core, user)` so cores with different lifecycles stay
     /// independent: a volatile core resetting its counters (xray restart) can never mask or
     /// double-count a persistent core's cumulative (mita metrics.pb, naive access log).
-    /// The first sighting of a core is silently seeded (no delta) so totals accumulated
-    /// before an agent deploy or a parser fix are not re-counted.
+    /// The first sighting of a persistent core (`PERSISTENT_CORES`) is silently seeded (no delta)
+    /// so totals accumulated before an agent deploy or a parser fix are not re-counted. Volatile
+    /// cores (xray, sing-box) count from zero, as their counters restart with the agent.
     pub async fn compute_delta_multi(
         &mut self,
         per_core: &[(&str, &HashMap<String, TrafficCounter>)],
@@ -563,12 +574,12 @@ impl CumulativeTrafficTracker {
         let mut baseline_changed = false;
 
         for (core, users) in per_core {
-            let core_established = self.core_known(core);
+            let seed_core = core_is_persistent(core) && !self.core_known(core);
             for (id, cur) in users.iter() {
                 let key = core_key(core, id);
                 let (prev_up, prev_down) = self.previous.get(&key).copied().unwrap_or((0, 0));
-                let (upload, download) = if !core_established {
-                    // First sighting of this core: seed the persistent cumulative silently.
+                let (upload, download) = if seed_core {
+                    // First sighting of a persistent core: seed its cumulative silently.
                     (0, 0)
                 } else if cur.upload >= prev_up && cur.download >= prev_down {
                     (cur.upload - prev_up, cur.download - prev_down)
@@ -778,9 +789,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn volatile_core_traffic_before_first_poll_is_counted() {
+        let path = pending_path("volatile-first");
+        let mut t = CumulativeTrafficTracker::new(&path);
+        // Xray restarts together with the agent, so whatever it already counted when we first
+        // see a user is new traffic. Seeding it would lose that traffic for good.
+        let cur = per_core(&[
+            ("xray", &[("velio", 5_000, 9_000)]),
+            ("singbox", &[("velio", 70, 80)]),
+        ]);
+        let report = t.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
+        assert_eq!(report.stats["velio"].upload, 5_070);
+        assert_eq!(report.stats["velio"].download, 9_080);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn restart_counts_volatile_core_but_seeds_persistent_core() {
+        let path = pending_path("restart-mixed");
+        let mut t1 = CumulativeTrafficTracker::new(&path);
+        // Normal operation before the restart: only mieru is known (xray was idle).
+        let before = per_core(&[("mieru", &[("velio", 1_000, 2_000)])]);
+        t1.compute_delta_multi(&as_ref_maps(&before)).await.unwrap();
+
+        // Agent restart: baselines are reloaded, xray shows up for the first time with traffic
+        // that flowed before the first poll, mieru kept its persistent cumulative.
+        let mut t2 = CumulativeTrafficTracker::new(&path);
+        t2.load_pending().await.unwrap();
+        let after = per_core(&[
+            ("mieru", &[("velio", 1_000, 2_000)]),
+            ("xray", &[("velio", 300, 400)]),
+        ]);
+        let report = t2.compute_delta_multi(&as_ref_maps(&after)).await.unwrap();
+        assert_eq!(report.stats["velio"].upload, 300, "xray counted, mieru not re-counted");
+        assert_eq!(report.stats["velio"].download, 400);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
     async fn baseline_survives_tracker_restart_without_double_count() {
         let path = pending_path("baseline-survives");
-        let mut cur = per_core(&[("xray", &[("velio", 100, 200)])]);
+        let mut cur = per_core(&[("mieru", &[("velio", 100, 200)])]);
         let mut t1 = CumulativeTrafficTracker::new(&path);
         let seeded = t1.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
         assert!(seeded.stats.is_empty(), "first sight must seed");
@@ -896,12 +945,12 @@ mod tests {
         let mut t = CumulativeTrafficTracker::new(&path);
         t.load_pending().await.expect("legacy file must load");
         let seed = t
-            .compute_delta_multi(&as_ref_maps(&per_core(&[("xray", &[("u", 7, 9)])])))
+            .compute_delta_multi(&as_ref_maps(&per_core(&[("mieru", &[("u", 7, 9)])])))
             .await
             .unwrap();
         assert!(seed.stats.is_empty(), "legacy file has no per-core baselines: seed");
         let delta = t
-            .compute_delta_multi(&as_ref_maps(&per_core(&[("xray", &[("u", 17, 19)])])))
+            .compute_delta_multi(&as_ref_maps(&per_core(&[("mieru", &[("u", 17, 19)])])))
             .await
             .unwrap();
         assert_eq!(delta.stats["u"].upload, 10);
@@ -922,7 +971,7 @@ mod tests {
         t.load_pending().await.expect("load legacy baselines");
         // Merged baselines cannot be attributed to a core: seed silently instead of
         // misinterpreting the cumulative as a delta.
-        let cur = per_core(&[("xray", &[("velio", 474_297_882, 4_162_145_186)])]);
+        let cur = per_core(&[("mieru", &[("velio", 474_297_882, 4_162_145_186)])]);
         let report = t.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
         assert!(report.stats.is_empty(), "merged legacy baselines must not explode into a delta");
         let _ = tokio::fs::remove_file(&path).await;
