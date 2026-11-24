@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Braces, CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react';
 import {
   Dialog,
@@ -366,17 +366,31 @@ export function InboundModal({
   const [validating, setValidating] = useState(false);
   const [validationRes, setValidationRes] = useState<XrayValidationResult | null>(null);
 
+  // `nodes` is re-fetched in the background (sidebar, nodes page) and gets a new identity on
+  // every refresh. Keep it out of the reset effect's dependencies, otherwise the dialog is
+  // reset to the General tab and unsaved edits are lost while the user is typing.
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
   useEffect(() => {
     if (!open) return;
     const initial = inbound
       ? inboundToForm(inbound)
-      : createDefaultInboundForm(defaultNodeId || nodes[0]?.id || '');
+      : createDefaultInboundForm(defaultNodeId || nodesRef.current[0]?.id || '');
     setForm(initial);
     setRawText(JSON.stringify(formToPayload(initial), null, 2));
     setRawDirty(false);
     setValidationRes(null);
     setActiveTab('general');
-  }, [open, inbound, defaultNodeId, nodes]);
+  }, [open, inbound, defaultNodeId]);
+
+  // Nodes may arrive after the dialog was opened for a new inbound: fill in the node only
+  // while it is still empty, without touching the rest of the form or the active tab.
+  const firstNodeId = nodes[0]?.id || '';
+  useEffect(() => {
+    if (!open || inbound || !firstNodeId) return;
+    setForm((prev) => (prev.nodeId ? prev : { ...prev, nodeId: firstNodeId }));
+  }, [open, inbound, firstNodeId]);
 
   const patchForm = (patch: Partial<InboundFormState>) => {
     setForm((prev) => {
