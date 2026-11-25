@@ -1595,6 +1595,7 @@ async fn probe_binary_version(bin: &Path, args: &[&str]) -> Option<String> {
     }
     let mut cmd = Command::new(bin);
     cmd.args(args)
+        .kill_on_drop(true)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

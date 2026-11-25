@@ -432,7 +432,10 @@ pub fn parse_version_output(kind: CoreKind, output: &str) -> Option<String> {
 
 async fn smoke_test_core_binary(kind: CoreKind, bin_path: &Path) -> Result<Option<String>, String> {
     let mut cmd = Command::new(bin_path);
-    cmd.arg("version")
+    // telemt has no `version` subcommand: it treats the argument as a config path and starts serving.
+    let version_arg = if kind == CoreKind::Telemt { "--version" } else { "version" };
+    cmd.arg(version_arg)
+        .kill_on_drop(true)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
