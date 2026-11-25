@@ -2,7 +2,8 @@ use dashmap::DashMap;
 use mypanel_proto::{ActiveSession, CommandAck, Envelope, LogChunk};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use tokio::sync::{broadcast, mpsc, oneshot};
+use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc, oneshot, Notify};
 
 const MAX_LOG_RING: usize = 500;
 
@@ -21,6 +22,8 @@ pub struct StoredLogEntry {
 struct WorkerConn {
     conn_id: u64,
     tx: mpsc::UnboundedSender<Envelope>,
+    /// Wakes the session writer to send a WebSocket `Ping` right now (used for RTT measurement).
+    ping_now: Arc<Notify>,
 }
 
 #[derive(Debug)]
@@ -31,6 +34,8 @@ pub struct WorkerHub {
     sessions: DashMap<String, Vec<ActiveSession>>,
     /// Latest `StatusReport` per node, serialised as JSON (served as metrics without any HTTP call).
     last_status: DashMap<String, (std::time::Instant, serde_json::Value)>,
+    /// Latest WebSocket Ping/Pong round trip per node in milliseconds, with the time it was measured.
+    rtt: DashMap<String, (std::time::Instant, u32)>,
     log_tx: broadcast::Sender<StoredLogEntry>,
     next_conn_id: std::sync::atomic::AtomicU64,
     /// Cancelled when the panel is shutting down so sessions can send a proper Close frame.
@@ -52,19 +57,29 @@ impl WorkerHub {
             logs: DashMap::new(),
             sessions: DashMap::new(),
             last_status: DashMap::new(),
+            rtt: DashMap::new(),
             log_tx,
             next_conn_id: std::sync::atomic::AtomicU64::new(1),
             shutdown: tokio_util::sync::CancellationToken::new(),
         }
     }
 
-    pub fn register(&self, node_id: &str, tx: mpsc::UnboundedSender<Envelope>) -> u64 {
+    /// Registers a node session. Returns the connection id and the handle that lets the panel
+    /// request an immediate WebSocket `Ping` for this session.
+    pub fn register(&self, node_id: &str, tx: mpsc::UnboundedSender<Envelope>) -> (u64, Arc<Notify>) {
         let conn_id = self
             .next_conn_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.conns
-            .insert(node_id.to_string(), WorkerConn { conn_id, tx });
-        conn_id
+        let ping_now = Arc::new(Notify::new());
+        self.conns.insert(
+            node_id.to_string(),
+            WorkerConn {
+                conn_id,
+                tx,
+                ping_now: Arc::clone(&ping_now),
+            },
+        );
+        (conn_id, ping_now)
     }
 
     pub fn unregister(&self, node_id: &str, conn_id: u64) -> bool {
@@ -92,6 +107,38 @@ impl WorkerHub {
     ) -> Option<serde_json::Value> {
         let e = self.last_status.get(node_id)?;
         (e.0.elapsed() <= max_age).then(|| e.1.clone())
+    }
+
+    /// Stores a measured WebSocket round trip for `node_id`.
+    pub fn set_rtt(&self, node_id: &str, millis: u32) {
+        self.rtt
+            .insert(node_id.to_string(), (std::time::Instant::now(), millis));
+    }
+
+    /// Last WebSocket round trip of `node_id` when it is younger than `max_age`.
+    pub fn fresh_rtt(&self, node_id: &str, max_age: std::time::Duration) -> Option<u32> {
+        let e = self.rtt.get(node_id)?;
+        (e.0.elapsed() <= max_age).then_some(e.1)
+    }
+
+    /// Sends a WebSocket `Ping` now and waits for the matching `Pong`; returns the round trip in ms.
+    /// `None` when the node is not connected or does not answer within `timeout`.
+    pub async fn measure_rtt(&self, node_id: &str, timeout: std::time::Duration) -> Option<u32> {
+        let ping_now = Arc::clone(&self.conns.get(node_id)?.ping_now);
+        let asked = std::time::Instant::now();
+        ping_now.notify_one();
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if let Some(e) = self.rtt.get(node_id) {
+                if e.0 >= asked {
+                    return Some(e.1);
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
     }
 
     pub fn shutdown_token(&self) -> tokio_util::sync::CancellationToken {
@@ -310,5 +357,49 @@ fn infer_log_level(line: &str, stream: &str) -> String {
         "WARN".to_string()
     } else {
         "INFO".to_string()
+    }
+}
+
+#[cfg(test)]
+mod rtt_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn measure_rtt_returns_the_sample_taken_after_the_request() {
+        let hub = Arc::new(WorkerHub::new());
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_conn, ping_now) = hub.register("n1", tx);
+        // A stale sample from the periodic keep-alive must not satisfy a fresh measurement.
+        hub.set_rtt("n1", 80);
+
+        let answering = Arc::clone(&hub);
+        tokio::spawn(async move {
+            ping_now.notified().await;
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            answering.set_rtt("n1", 37);
+        });
+
+        assert_eq!(hub.measure_rtt("n1", Duration::from_secs(2)).await, Some(37));
+        assert_eq!(hub.fresh_rtt("n1", Duration::from_secs(5)), Some(37));
+    }
+
+    #[tokio::test]
+    async fn measure_rtt_is_none_for_unknown_or_silent_nodes() {
+        let hub = WorkerHub::new();
+        assert_eq!(hub.measure_rtt("missing", Duration::from_millis(50)).await, None);
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_conn, _ping_now) = hub.register("silent", tx);
+        assert_eq!(hub.measure_rtt("silent", Duration::from_millis(100)).await, None);
+    }
+
+    #[test]
+    fn fresh_rtt_expires() {
+        let hub = WorkerHub::new();
+        hub.set_rtt("n1", 12);
+        assert_eq!(hub.fresh_rtt("n1", Duration::from_secs(60)), Some(12));
+        assert_eq!(hub.fresh_rtt("n1", Duration::ZERO), None);
+        assert_eq!(hub.fresh_rtt("other", Duration::from_secs(60)), None);
     }
 }

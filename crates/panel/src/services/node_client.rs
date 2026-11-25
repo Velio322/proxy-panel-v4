@@ -353,9 +353,17 @@ async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bo
     };
     match polled {
         Ok(val) => {
-            // Latency is only meaningful for a real HTTP round trip.
-            let ping_ms: Option<i32> = (!over_ws)
-                .then(|| i32::try_from(started.elapsed().as_millis()).unwrap_or(0));
+            // HTTP polls time the request itself. A node on WebSocket gets a live Ping/Pong round
+            // trip (falling back to the last sample from the periodic keep-alive Ping).
+            let ping_ms: Option<i32> = if over_ws {
+                match state.hub.measure_rtt(&node.id, Duration::from_secs(3)).await {
+                    Some(ms) => Some(ms),
+                    None => state.hub.fresh_rtt(&node.id, Duration::from_secs(90)),
+                }
+                .and_then(|ms| i32::try_from(ms).ok())
+            } else {
+                Some(i32::try_from(started.elapsed().as_millis()).unwrap_or(0))
+            };
             let parsed: Option<StatusReport> = serde_json::from_value(val.clone()).ok();
 
             let (version, info) = match &parsed {

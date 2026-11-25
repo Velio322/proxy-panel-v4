@@ -10,6 +10,8 @@ use axum::response::Response;
 use futures_util::{SinkExt, StreamExt};
 use mypanel_proto::{ConfigUpdate, Envelope, TrafficAck};
 use sqlx::Row;
+use std::collections::VecDeque;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -108,7 +110,11 @@ pub async fn upgrade(
 async fn handle_socket(state: AppState, node_id: String, node_name: String, socket: WebSocket) {
     let (mut ws_tx, mut ws_rx) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Envelope>();
-    let conn_id = state.hub.register(&node_id, tx.clone());
+    let (conn_id, ping_now) = state.hub.register(&node_id, tx.clone());
+    // Set by the writer when a Ping goes out; the reader turns the matching Pong into an RTT sample.
+    let ping_sent: Arc<std::sync::Mutex<VecDeque<std::time::Instant>>> =
+        Arc::new(std::sync::Mutex::new(VecDeque::new()));
+    let writer_ping_sent = Arc::clone(&ping_sent);
 
     let _ = sqlx::query(
         r#"UPDATE "Node" SET status = 'ONLINE', "lastCheckAt" = $2, "lastOnlineAt" = $2, "updatedAt" = $2 WHERE id = $1"#,
@@ -146,7 +152,17 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                     None => break,
                 },
                 _ = ping.tick() => Message::Ping(axum::body::Bytes::from_static(b"mp3")),
+                _ = ping_now.notified() => Message::Ping(axum::body::Bytes::from_static(b"mp3")),
             };
+            if matches!(msg, Message::Ping(_)) {
+                if let Ok(mut queue) = writer_ping_sent.lock() {
+                    // Pongs come back in Ping order, so each Pong pairs with the oldest unanswered Ping.
+                    if queue.len() >= 8 {
+                        queue.pop_front();
+                    }
+                    queue.push_back(std::time::Instant::now());
+                }
+            }
             if !send_frame(&mut ws_tx, msg).await {
                 break;
             }
@@ -178,6 +194,14 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
         let text = match msg {
             Message::Text(t) => t.to_string(),
             Message::Close(_) => break,
+            Message::Pong(_) => {
+                let sent = ping_sent.lock().ok().and_then(|mut queue| queue.pop_front());
+                if let Some(sent) = sent {
+                    let ms = u32::try_from(sent.elapsed().as_millis()).unwrap_or(u32::MAX);
+                    state.hub.set_rtt(&node_id, ms);
+                }
+                continue;
+            }
             // Pong/Ping/Binary only refresh liveness (axum answers Ping automatically).
             _ => continue,
         };
