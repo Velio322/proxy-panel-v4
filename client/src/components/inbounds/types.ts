@@ -203,6 +203,14 @@ export interface InboundFormState {
   mieruLoggingLevel: 'FATAL' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG' | 'TRACE';
   mieruDomain: string;
 
+  // Telegram WEB proxy (telemt)
+  tgwebDomain: string;
+  tgwebPublicAddr: string;
+  tgwebBasePath: string;
+  tgwebCarrier: 'https' | 'https-lanes' | 'websocket' | 'websocket-lanes';
+  tgwebSecretMode: 'dd' | 'plain';
+  tgwebFallbackRoot: string;
+
   // AnyTLS
   anytlsPaddingScheme: string;
   anytlsIdleCheckInterval: string;

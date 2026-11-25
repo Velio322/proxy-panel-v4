@@ -794,7 +794,7 @@ fn clash_proxy(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError> {
             p.insert("multiplexing".into(), json!("MULTIPLEXING_LOW"));
             Ok(Some(Value::Object(p)))
         }
-        Protocol::Naiveproxy | Protocol::Shadowtls => Ok(None),
+        Protocol::Naiveproxy | Protocol::Shadowtls | Protocol::Tgweb => Ok(None),
     }
 }
 
@@ -1273,7 +1273,7 @@ pub(crate) fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value
             out.insert("tls".into(), singbox_tls(e));
             Ok(Some(Value::Object(out)))
         }
-        Protocol::Mieru | Protocol::Naiveproxy => Ok(None),
+        Protocol::Mieru | Protocol::Naiveproxy | Protocol::Tgweb => Ok(None),
     }
 }
 

@@ -204,6 +204,12 @@ pub struct SubEntry {
     pub mieru_port_range: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mieru_domain: Option<String>,
+    /// Telegram WEB proxy: `plain` or `dd` (FakeTLS `ee` secrets are not supported by WEB mode).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tgweb_secret_mode: Option<String>,
+    /// Telegram WEB proxy: optional URL base path (`telegram/web`), without slashes at the ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tgweb_base_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port_range: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -311,6 +317,8 @@ impl Default for SubEntry {
             mieru_transport: None,
             mieru_port_range: None,
             mieru_domain: None,
+            tgweb_secret_mode: None,
+            tgweb_base_path: None,
             port_range: None,
             ech_config: None,
             vless_enc: None,
@@ -1110,6 +1118,32 @@ pub fn build_entry(
             e.mieru_port_range = jstr(settings, &["portRange"]);
             e.mieru_domain = jstr(settings, &["domain"]).or_else(|| e.sni.clone());
         }
+        Protocol::Tgweb => {
+            e.password = if !ctx.secret.is_empty() {
+                ctx.secret.clone()
+            } else {
+                jstr(settings, &["secret"]).unwrap_or_default()
+            };
+            e.tgweb_secret_mode = Some(tgweb_secret_mode(settings));
+            e.tgweb_base_path = jstr(settings, &["basePath"])
+                .map(|p| p.trim().trim_matches('/').to_string())
+                .filter(|p| !p.is_empty());
+            // The link must carry the public hostname that owns the certificate. WEB mode is
+            // always served over HTTPS on 443, so the node host (often a bare IP) is not enough.
+            let domain = jstr(settings, &["domain"])
+                .or_else(|| jstr(settings, &["host"]))
+                .or_else(|| jstr(settings, &["sni"]))
+                .map(|d| d.trim().to_string())
+                .filter(|d| !d.is_empty() && !d.contains(':') && !is_ip_literal(d));
+            if let Some(d) = domain {
+                e.host = d.clone();
+                e.sni = Some(d);
+            }
+            e.port = 443;
+            if e.security.is_none() {
+                e.security = Some("tls".into());
+            }
+        }
         Protocol::Anytls => {
             e.password = if !ctx.secret.is_empty() {
                 ctx.secret.clone()
@@ -1453,6 +1487,7 @@ pub fn build_uri(entry: &SubEntry) -> Result<String, SubError> {
         Protocol::Mieru => mieru_config(entry).map(|v| v.to_string()),
         Protocol::Anytls => Ok(anytls_uri(entry)),
         Protocol::Shadowtls => Ok(shadowtls_uri(entry)),
+        Protocol::Tgweb => tgweb_link(entry),
     }
 }
 
@@ -1469,7 +1504,7 @@ pub fn display_link(entry: &SubEntry) -> Result<String, SubError> {
 /// and `/sub/:token` subscription payloads.
 pub fn share_link(entry: &SubEntry) -> Result<String, SubError> {
     match entry.protocol {
-        Protocol::Naiveproxy | Protocol::Mieru => display_link(entry),
+        Protocol::Naiveproxy | Protocol::Mieru | Protocol::Tgweb => display_link(entry),
         _ if !entry.raw.is_empty() => Ok(entry.raw.clone()),
         _ => build_uri(entry),
     }
@@ -1909,6 +1944,74 @@ pub fn naive_link(e: &SubEntry) -> String {
     format!("naive+{}", naive_uri(e))
 }
 
+/// Normalizes `settings.secretMode` for the Telegram WEB proxy (`plain` or `dd`).
+pub fn tgweb_secret_mode(settings: &Value) -> String {
+    match jstr(settings, &["secretMode"])
+        .unwrap_or_else(|| "dd".into())
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "plain" => "plain".into(),
+        _ => "dd".into(),
+    }
+}
+
+/// Derives the 32-hex-char MTProxy secret from any per-user credential, deterministically.
+///
+/// The panel stores a random URL-safe credential per client; telemt needs exactly 16 raw bytes
+/// (32 hex chars). Hashing keeps the value stable across restarts without a new DB column.
+pub fn tgweb_user_secret_hex(credential: &str) -> String {
+    let digest = Sha256::digest(format!("tgweb-secret-v1:{credential}").as_bytes());
+    digest[..16].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Builds a Telegram Desktop `tg://webproxy` link.
+///
+/// The `server` value is `HOST` or `HOST/BASE` (percent-encoded). Without a base path the secret
+/// is the legacy hex string; with one it is unpadded base64url of `0x70 || client_secret`, where
+/// `client_secret` is the raw secret (`plain`) or `0xdd || secret` (`dd`).
+pub fn tgweb_link(e: &SubEntry) -> Result<String, SubError> {
+    if e.host.trim().is_empty() || is_ip_literal(e.host.trim()) {
+        return Err(SubError::Invalid(
+            "Telegram WEB proxy needs a DNS hostname (settings.domain), not an IP address".into(),
+        ));
+    }
+    let hex = tgweb_user_secret_hex(&e.password);
+    let dd = e.tgweb_secret_mode.as_deref() != Some("plain");
+    let base = e
+        .tgweb_base_path
+        .as_deref()
+        .map(|p| p.trim_matches('/'))
+        .filter(|p| !p.is_empty());
+    let (server, secret) = match base {
+        None => (
+            e.host.trim().to_string(),
+            if dd { format!("dd{hex}") } else { hex },
+        ),
+        Some(path) => {
+            let raw = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap_or(0))
+                .collect::<Vec<u8>>();
+            let mut payload = vec![0x70u8];
+            if dd {
+                payload.push(0xdd);
+            }
+            payload.extend_from_slice(&raw);
+            (
+                format!("{}/{}", e.host.trim(), path),
+                URL_SAFE_NO_PAD.encode(payload),
+            )
+        }
+    };
+    Ok(format!(
+        "tg://webproxy?server={}&secret={}",
+        encode_uri_component(&server),
+        secret
+    ))
+}
+
 /// Builds a native Mieru client configuration JSON document, validating `portRange`.
 pub fn mieru_config(e: &SubEntry) -> Result<Value, SubError> {
     let transport = e
@@ -2092,4 +2195,80 @@ pub fn shadowtls_uri(e: &SubEntry) -> String {
         e.port,
         encode_uri_component(&e.tag)
     )
+}
+
+#[cfg(test)]
+mod tgweb_tests {
+    use super::*;
+
+    fn entry(base: Option<&str>, mode: &str) -> SubEntry {
+        SubEntry {
+            protocol: Protocol::Tgweb,
+            host: "tg.example.com".into(),
+            port: 443,
+            password: "client-credential".into(),
+            tgweb_secret_mode: Some(mode.into()),
+            tgweb_base_path: base.map(Into::into),
+            ..SubEntry::default()
+        }
+    }
+
+    #[test]
+    fn secret_is_32_hex_and_stable() {
+        let a = tgweb_user_secret_hex("client-credential");
+        assert_eq!(a.len(), 32);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(a, tgweb_user_secret_hex("client-credential"));
+        assert_ne!(a, tgweb_user_secret_hex("another"));
+    }
+
+    #[test]
+    fn root_link_uses_hex_secret_with_dd_prefix() {
+        let hex = tgweb_user_secret_hex("client-credential");
+        assert_eq!(
+            tgweb_link(&entry(None, "dd")).unwrap(),
+            format!("tg://webproxy?server=tg.example.com&secret=dd{hex}")
+        );
+        assert_eq!(
+            tgweb_link(&entry(None, "plain")).unwrap(),
+            format!("tg://webproxy?server=tg.example.com&secret={hex}")
+        );
+    }
+
+    #[test]
+    fn path_link_encodes_server_and_base64url_secret() {
+        let link = tgweb_link(&entry(Some("/telegram/web/"), "dd")).unwrap();
+        assert!(link.starts_with("tg://webproxy?server=tg.example.com%2Ftelegram%2Fweb&secret="));
+        let secret = link.rsplit("secret=").next().unwrap();
+        let raw = URL_SAFE_NO_PAD.decode(secret).unwrap();
+        // 0x70 marker, 0xdd (dd mode), then the 16 raw secret bytes.
+        assert_eq!(raw.len(), 18);
+        assert_eq!(&raw[..2], &[0x70, 0xdd]);
+        let hex: String = raw[2..].iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, tgweb_user_secret_hex("client-credential"));
+
+        let plain = tgweb_link(&entry(Some("telegram/web"), "plain")).unwrap();
+        let raw = URL_SAFE_NO_PAD
+            .decode(plain.rsplit("secret=").next().unwrap())
+            .unwrap();
+        assert_eq!(raw.len(), 17);
+        assert_eq!(raw[0], 0x70);
+    }
+
+    #[test]
+    fn ip_host_is_rejected_and_share_link_routes_to_tgweb() {
+        let mut e = entry(None, "dd");
+        e.host = "203.0.113.10".into();
+        assert!(tgweb_link(&e).is_err());
+        let ok = entry(None, "dd");
+        assert!(share_link(&ok).unwrap().starts_with("tg://webproxy?"));
+        assert!(display_link(&ok).unwrap().starts_with("tg://webproxy?"));
+    }
+
+    #[test]
+    fn secret_mode_defaults_to_dd() {
+        assert_eq!(tgweb_secret_mode(&json!({})), "dd");
+        assert_eq!(tgweb_secret_mode(&json!({"secretMode": "PLAIN"})), "plain");
+        assert_eq!(tgweb_secret_mode(&json!({"secretMode": "ee"})), "dd");
+    }
 }

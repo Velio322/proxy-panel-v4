@@ -2,7 +2,7 @@ use crate::config::{AgentConfig, AGENT_VERSION};
 use crate::cores::xray_grpc::{
     diff_configs, ConfigDiff, TonicXrayClient, UserOp, XrayHandlerClient,
 };
-use crate::cores::{mieru, naive, singbox, validate_inbound, write_atomic_0600, xray};
+use crate::cores::{mieru, naive, singbox, tgweb, validate_inbound, write_atomic_0600, xray};
 use crate::port_share::{remap_inbounds, PortShareRuntime};
 use crate::telemetry::TelemetryCollector;
 use crate::traffic::{
@@ -109,6 +109,7 @@ pub struct ProcessManager {
     singbox_proc: Option<ManagedChild>,
     naive_procs: HashMap<String, ManagedChild>,
     mieru_procs: HashMap<String, ManagedChild>,
+    tgweb_procs: HashMap<String, ManagedChild>,
 
     port_share: PortShareRuntime,
     telemetry: TelemetryCollector,
@@ -147,6 +148,7 @@ impl ProcessManager {
             singbox_proc: None,
             naive_procs: HashMap::new(),
             mieru_procs: HashMap::new(),
+            tgweb_procs: HashMap::new(),
             port_share: PortShareRuntime::new(),
             telemetry: TelemetryCollector::new(),
             singbox_tracker: SingboxConnectionTracker::new(),
@@ -202,6 +204,7 @@ impl ProcessManager {
             "singbox" => self.singbox_running(),
             "naive" => self.naive_running(),
             "mieru" => self.mieru_running(),
+            "telemt" => self.tgweb_running(),
             _ => false,
         }
     }
@@ -216,6 +219,7 @@ impl ProcessManager {
                 "singbox" => singbox::is_singbox_protocol(i.protocol),
                 "naive" => i.protocol == Protocol::Naiveproxy,
                 "mieru" => i.protocol == Protocol::Mieru,
+                "telemt" => i.protocol == Protocol::Tgweb,
                 _ => false,
             };
             let in_share = i.port_shares.iter().filter(|s| s.enable).any(|s| {
@@ -224,6 +228,7 @@ impl ProcessManager {
                     "singbox" => singbox::is_singbox_protocol(s.protocol),
                     "naive" => s.protocol == Protocol::Naiveproxy,
                     "mieru" => s.protocol == Protocol::Mieru,
+                    "telemt" => s.protocol == Protocol::Tgweb,
                     _ => false,
                 }
             });
@@ -385,6 +390,19 @@ impl ProcessManager {
             tokio::fs::write(&tmp_mieru, &bytes)
                 .await
                 .map_err(|e| format!("Failed to write temp mieru config: {e}"))?;
+        }
+
+        for ib in remapped
+            .inbounds
+            .iter()
+            .filter(|i| i.enable && i.protocol == Protocol::Tgweb)
+        {
+            // Generation validates domain, public address, carrier and user names.
+            let cfg = tgweb::generate_config(ib)?;
+            let tmp = tgweb::tgweb_config_path(tmp_dir_path, &ib.id)?;
+            tokio::fs::write(&tmp, cfg.as_bytes())
+                .await
+                .map_err(|e| format!("Failed to write temp tgweb config: {e}"))?;
         }
 
         Ok(())
@@ -759,6 +777,85 @@ impl ProcessManager {
             }
         }
 
+        // --- Telegram WEB proxy (telemt): one process per inbound
+        prune_dead_children(&mut self.tgweb_procs);
+        let tgweb_inbounds: Vec<&InboundConfig> = remapped
+            .inbounds
+            .iter()
+            .filter(|i| i.enable && i.protocol == Protocol::Tgweb)
+            .collect();
+        let stale_tgweb: Vec<String> = self
+            .tgweb_procs
+            .keys()
+            .filter(|id| !tgweb_inbounds.iter().any(|i| &i.id == *id))
+            .cloned()
+            .collect();
+        for id in stale_tgweb {
+            if let Some(mut mc) = self.tgweb_procs.remove(&id) {
+                terminate_child(&mut mc.child).await;
+            }
+        }
+        for (idx, ib) in tgweb_inbounds.into_iter().enumerate() {
+            if idx > 0 {
+                problems.push(format!(
+                    "tgweb inbound '{}' skipped: only one Telegram WEB inbound per node is supported",
+                    ib.tag
+                ));
+                continue;
+            }
+            // telemt reloads users on its own (config watcher), but a changed WEB listener or vhost
+            // needs a restart; a fingerprint change always restarts, which is the safe default.
+            if unchanged(&format!("tgweb:{}", ib.id)) && self.tgweb_procs.contains_key(&ib.id) {
+                continue;
+            }
+            if let Some(mut mc) = self.tgweb_procs.remove(&ib.id) {
+                terminate_child(&mut mc.child).await;
+            }
+            let cfg = tgweb::generate_config(ib)?;
+            let path = tgweb::tgweb_config_path(&self.config.config_dir, &ib.id)?;
+            write_atomic_0600(&path, cfg.as_bytes()).await?;
+            let data_dir = tgweb::tgweb_data_dir(&self.config.config_dir, &ib.id)?;
+            let _ = tokio::fs::create_dir_all(&data_dir).await;
+            let fallback_root = ib
+                .settings
+                .get("fallbackRoot")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("/var/www/html");
+            let _ = naive::ensure_fallback_index(Path::new(fallback_root)).await;
+
+            if !binary_exists(&self.config.telemt_bin).await {
+                self.warn_missing_core("telemt", &self.config.telemt_bin.clone(), &ib.tag)
+                    .await;
+                problems.push(format!(
+                    "telemt binary missing: inbound '{}' is not running",
+                    ib.tag
+                ));
+                continue;
+            }
+            let child = self
+                .spawn_core(
+                    "telemt",
+                    &self.config.telemt_bin.clone(),
+                    &[
+                        "--data-path",
+                        &data_dir.to_string_lossy(),
+                        "--silent",
+                        &path.to_string_lossy(),
+                    ],
+                    Vec::new(),
+                )
+                .await?;
+            self.tgweb_procs.insert(ib.id.clone(), child);
+            if !wait_listening(&probe_host(&ib.listen), ib.port, Duration::from_secs(12)).await {
+                problems.push(format!(
+                    "telemt inbound '{}' is not listening on port {} after start",
+                    ib.tag, ib.port
+                ));
+            }
+        }
+
         if !unchanged("portshare") {
             if let Err(err) = self.port_share.apply(&remapped.groups).await {
                 self.logs
@@ -858,6 +955,13 @@ impl ProcessManager {
             .any(|i| !self.mieru_procs.contains_key(&i.id));
         if mieru_missing && binary_exists(&self.config.mieru_bin).await {
             dead.push("mieru".to_string());
+        }
+        prune_dead_children(&mut self.tgweb_procs);
+        let tgweb_missing = enabled()
+            .filter(|i| i.protocol == Protocol::Tgweb)
+            .any(|i| !self.tgweb_procs.contains_key(&i.id));
+        if tgweb_missing && binary_exists(&self.config.telemt_bin).await {
+            dead.push("telemt".to_string());
         }
         dead
     }
@@ -973,6 +1077,9 @@ impl ProcessManager {
             terminate_child(&mut mc.child).await;
         }
         for (_, mut mc) in self.mieru_procs.drain() {
+            terminate_child(&mut mc.child).await;
+        }
+        for (_, mut mc) in self.tgweb_procs.drain() {
             terminate_child(&mut mc.child).await;
         }
     }
@@ -1122,6 +1229,11 @@ impl ProcessManager {
         !self.naive_procs.is_empty()
     }
 
+    pub fn tgweb_running(&mut self) -> bool {
+        prune_dead_children(&mut self.tgweb_procs);
+        !self.tgweb_procs.is_empty()
+    }
+
     pub fn mieru_running(&mut self) -> bool {
         prune_dead_children(&mut self.mieru_procs);
         !self.mieru_procs.is_empty()
@@ -1195,6 +1307,13 @@ impl ProcessManager {
             }
         }
 
+        if self.tgweb_running() {
+            let map = self.collect_tgweb_traffic().await;
+            if !map.is_empty() {
+                out.push(("telemt", map));
+            }
+        }
+
         let naive_map = self
             .naive_log_reader
             .poll(&self.config.naive_access_log_path())
@@ -1231,6 +1350,19 @@ impl ProcessManager {
             }
         }
         HashMap::new()
+    }
+
+    async fn collect_tgweb_traffic(&self) -> HashMap<String, TrafficCounter> {
+        let url = format!("http://127.0.0.1:{}/metrics", tgweb::TGWEB_METRICS_PORT);
+        let resp = tokio::time::timeout(Duration::from_secs(3), self.http_client.get(&url).send()).await;
+        let Ok(Ok(resp)) = resp else { return HashMap::new() };
+        if !resp.status().is_success() {
+            return HashMap::new();
+        }
+        match tokio::time::timeout(Duration::from_secs(3), resp.text()).await {
+            Ok(Ok(text)) => tgweb::parse_telemt_metrics(&text),
+            _ => HashMap::new(),
+        }
     }
 
     async fn collect_mieru_traffic(&self) -> HashMap<String, TrafficCounter> {
@@ -1355,6 +1487,7 @@ impl ProcessManager {
         let singbox_running = self.singbox_running();
         let naive_running = self.naive_running();
         let mieru_running = self.mieru_running();
+        let tgweb_running = self.tgweb_running();
 
         let xray_pid = if xray_running {
             self.xray_proc.as_ref().and_then(|p| p.pid)
@@ -1445,6 +1578,11 @@ impl ProcessManager {
                     "installed": binary_exists(&self.config.mieru_bin).await,
                     "version": self.core_versions.get("mieru").cloned(),
                 },
+                "telemt": {
+                    "running": tgweb_running,
+                    "installed": binary_exists(&self.config.telemt_bin).await,
+                    "version": self.core_versions.get("telemt").cloned(),
+                },
             })),
             traffic: traffic_summary,
         }
@@ -1483,11 +1621,12 @@ async fn detect_core_versions(cfg: &AgentConfig) -> HashMap<String, String> {
     use crate::updater::{parse_version_output, CoreKind};
 
     let mut versions = HashMap::new();
-    let (xv, sbv, nv, mv) = tokio::join!(
+    let (xv, sbv, nv, mv, tv) = tokio::join!(
         probe_binary_version(&cfg.xray_bin, &["version"]),
         probe_binary_version(&cfg.singbox_bin, &["version"]),
         probe_binary_version(&cfg.naive_bin, &["version"]),
         probe_binary_version(&cfg.mieru_bin, &["version"]),
+        probe_binary_version(&cfg.telemt_bin, &["--version"]),
     );
 
     for (kind, out_opt) in [
@@ -1495,6 +1634,7 @@ async fn detect_core_versions(cfg: &AgentConfig) -> HashMap<String, String> {
         (CoreKind::Singbox, sbv),
         (CoreKind::Naive, nv),
         (CoreKind::Mieru, mv),
+        (CoreKind::Telemt, tv),
     ] {
         if let Some(combined) = out_opt {
             if let Some(ver) = parse_version_output(kind, &combined) {
@@ -1623,6 +1763,9 @@ fn core_fingerprints(
             }
             Protocol::Mieru => {
                 out.insert(format!("mieru:{}", ib.id), fingerprint(ib));
+            }
+            Protocol::Tgweb => {
+                out.insert(format!("tgweb:{}", ib.id), fingerprint(ib));
             }
             _ => {}
         }

@@ -82,6 +82,7 @@ fn protocol_offset(proto: Protocol) -> u16 {
         Protocol::Tuic => 700,
         Protocol::Anytls => 800,
         Protocol::Shadowtls => 900,
+        Protocol::Tgweb => 1000,
     }
 }
 
@@ -141,7 +142,7 @@ pub fn remap_inbounds(inbounds: &[InboundConfig]) -> Result<RemappedConfig, Stri
         let enabled_shares: Vec<_> = inbound
             .port_shares
             .iter()
-            .filter(|ps| ps.enable && !matches!(ps.protocol, Protocol::Tuic | Protocol::Mieru))
+            .filter(|ps| ps.enable && !matches!(ps.protocol, Protocol::Tuic | Protocol::Mieru | Protocol::Tgweb))
             .collect();
 
         if enabled_shares.is_empty() {

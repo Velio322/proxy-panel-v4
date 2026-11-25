@@ -128,6 +128,7 @@ fn node_row_to_json(r: &sqlx::postgres::PgRow, include_secret: bool) -> AppResul
         "singboxVersion": r.try_get::<Option<String>, _>("singboxVersion")?,
         "naiveVersion": r.try_get::<Option<String>, _>("naiveVersion").ok().flatten(),
         "mieruVersion": r.try_get::<Option<String>, _>("mieruVersion").ok().flatten(),
+        "telemtVersion": r.try_get::<Option<String>, _>("telemtVersion").ok().flatten(),
         "arch": r.try_get::<Option<String>, _>("arch").ok().flatten().unwrap_or_else(|| "amd64".to_string()),
         "features": r.try_get::<Value, _>("features")?,
         "tags": r.try_get::<Option<Vec<String>>, _>("tags")?.unwrap_or_default(),
@@ -154,7 +155,7 @@ async fn list(
     let mut qb = QueryBuilder::new(
         r#"SELECT id, name, host, port, "apiPort", secret, country, city, isp, status,
                   "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload",
-                  "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch,
+                  "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", "telemtVersion", arch,
                   features, COALESCE(tags, '{}') AS tags,
                   "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt"
            FROM "Node" WHERE 1=1"#,
@@ -260,7 +261,7 @@ async fn get_one(
     let r = sqlx::query(
         r#"SELECT id, name, host, port, "apiPort", secret, country, city, isp, status,
                   "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload",
-                  "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch,
+                  "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", "telemtVersion", arch,
                   features, COALESCE(tags, '{}') AS tags,
                   "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt"
            FROM "Node" WHERE id = $1"#,
@@ -338,7 +339,7 @@ async fn create(
     let r = sqlx::query(
         r#"INSERT INTO "Node" (id, name, host, port, "apiPort", secret, "secretHash", country, city, isp, tags, active, "createdAt", "updatedAt")
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12, $12)
-           RETURNING id, name, host, port, "apiPort", secret, country, city, isp, status, "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload", "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch, features, COALESCE(tags, '{}') AS tags, "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt""#,
+           RETURNING id, name, host, port, "apiPort", secret, country, city, isp, status, "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload", "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", "telemtVersion", arch, features, COALESCE(tags, '{}') AS tags, "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt""#,
     )
     .bind(&id)
     .bind(body.name.trim())
@@ -436,7 +437,7 @@ async fn update(
            SET name = $2, host = $3, port = $4, "apiPort" = $5, secret = $6, "secretHash" = $7,
                country = $8, city = $9, isp = $10, tags = $11, active = $12, "updatedAt" = $13
            WHERE id = $1
-           RETURNING id, name, host, port, "apiPort", secret, country, city, isp, status, "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload", "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", arch, features, COALESCE(tags, '{}') AS tags, "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt""#,
+           RETURNING id, name, host, port, "apiPort", secret, country, city, isp, status, "lastCheckAt", "lastPingMs", uptime, version, "cpuUsage", "memUsage", "netUpload", "netDownload", "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", "telemtVersion", arch, features, COALESCE(tags, '{}') AS tags, "mtlsFingerprint", "mtlsExpiresAt", active, "createdAt", "updatedAt""#,
     )
     .bind(&id)
     .bind(body.name.unwrap_or_else(|| ex.try_get("name").unwrap_or_default()))
@@ -985,7 +986,7 @@ async fn list_core_versions(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let rows = sqlx::query(
-        r#"SELECT id, name, status, arch, "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion"
+        r#"SELECT id, name, status, arch, "xrayVersion", "singboxVersion", "naiveVersion", "mieruVersion", "telemtVersion"
            FROM "Node" WHERE active = true ORDER BY name ASC"#,
     )
     .fetch_all(&state.db)
@@ -1011,6 +1012,7 @@ async fn list_core_versions(
             "singboxVersion": r.try_get::<Option<String>, _>("singboxVersion")?,
             "naiveVersion": r.try_get::<Option<String>, _>("naiveVersion").ok().flatten(),
             "mieruVersion": r.try_get::<Option<String>, _>("mieruVersion").ok().flatten(),
+            "telemtVersion": r.try_get::<Option<String>, _>("telemtVersion").ok().flatten(),
         }));
     }
 

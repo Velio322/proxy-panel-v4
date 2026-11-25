@@ -409,6 +409,7 @@ async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bo
             .bind(uptime_secs)
             .execute(&state.db)
             .await;
+            crate::services::core_updates::store_telemt_version(state, &node.id, &info).await;
 
             record_telemetry_snapshot(state, &node.id, &val, cpu, mem, uptime_secs).await;
 

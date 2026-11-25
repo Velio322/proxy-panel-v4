@@ -190,6 +190,54 @@ pub fn check_static(protocol: Protocol, port: i32, settings: &Value, stream: &Va
                 ));
             }
         }
+        Protocol::Tgweb => {
+            let s = |k: &str| settings.get(k).and_then(Value::as_str).map(str::trim).unwrap_or("");
+            let domain = if s("domain").is_empty() { s("sni") } else { s("domain") };
+            let looks_like_dns = domain.contains('.')
+                && domain.parse::<std::net::IpAddr>().is_err()
+                && domain
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'));
+            if !looks_like_dns {
+                return Err(AppError::validation(
+                    "settings.domain",
+                    "Telegram WEB proxy needs a DNS name with a TLS certificate (not an IP address)",
+                ));
+            }
+            let public: Option<std::net::SocketAddr> = s("publicAddr").parse().ok();
+            if public.map(|a| a.port()) != Some(443) {
+                return Err(AppError::validation(
+                    "settings.publicAddr",
+                    "publicAddr must be '<node public IP>:443'",
+                ));
+            }
+            let base = s("basePath").trim_matches('/');
+            if !base.is_empty()
+                && !base.split('/').all(|seg| {
+                    !seg.is_empty()
+                        && seg.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+                        && seg.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+                })
+            {
+                return Err(AppError::validation(
+                    "settings.basePath",
+                    "basePath must be slash-separated [A-Za-z0-9_-] segments",
+                ));
+            }
+            if !matches!(s("secretMode"), "" | "dd" | "plain") {
+                return Err(AppError::validation("settings.secretMode", "secretMode must be dd or plain"));
+            }
+            if !matches!(s("carrier"), "" | "https" | "https-lanes" | "websocket" | "websocket-lanes") {
+                return Err(AppError::validation("settings.carrier", "Unknown carrier"));
+            }
+            // telemt listens on loopback only; the public port belongs to the TLS terminator.
+            if port_u16 < 1025 {
+                return Err(AppError::validation(
+                    "port",
+                    "The Telegram WEB listener is a private loopback port (1025 or above, e.g. 18080)",
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -325,6 +373,13 @@ mod tests {
         assert!(check_static(Protocol::Mieru, 30000, &json!({"portRange":"100-200"}), &json!({})).is_err());
         assert!(check_static(Protocol::Mieru, 30000, &json!({"portRange":"30000-39000"}), &json!({})).is_err());
         assert!(check_static(Protocol::Mieru, 30000, &json!({"portRange":"30000-30100"}), &json!({})).is_ok());
+        let tg = json!({"domain":"tg.example.com","publicAddr":"203.0.113.10:443"});
+        assert!(check_static(Protocol::Tgweb, 18080, &tg, &json!({})).is_ok());
+        assert!(check_static(Protocol::Tgweb, 443, &tg, &json!({})).is_err());
+        assert!(check_static(Protocol::Tgweb, 18080, &json!({"domain":"203.0.113.10","publicAddr":"203.0.113.10:443"}), &json!({})).is_err());
+        assert!(check_static(Protocol::Tgweb, 18080, &json!({"domain":"tg.example.com"}), &json!({})).is_err());
+        assert!(check_static(Protocol::Tgweb, 18080, &json!({"domain":"tg.example.com","publicAddr":"203.0.113.10:8443"}), &json!({})).is_err());
+        assert!(check_static(Protocol::Tgweb, 18080, &json!({"domain":"tg.example.com","publicAddr":"203.0.113.10:443","basePath":"../x"}), &json!({})).is_err());
     }
 
     #[test]

@@ -191,7 +191,7 @@ usage() {
   --tls-certs-domain <DOMAIN>   Выпустить Let's Encrypt сертификаты в /etc/mypanel3-node/tls
   --self-steal / --no-self-steal Развернуть сайт-заглушку Caddy (:9443) + SSL для Self-Steal Reality (:443 свободен)
   --decoy <1-10|slug|random>    Выбрать шаблон сайта-заглушки (каталог decoys/, по умолчанию выбор в меню)
-  --cores <all|list|none>       Прокси-ядра: xray,singbox,naive,mieru (по умолчанию: all)
+  --cores <all|list|none>       Прокси-ядра: xray,singbox,naive,mieru[,telemt] (по умолчанию: all; telemt ставится только явно)
   --skip-cores                  Синоним --cores none
   --bbr / --no-bbr              Настройка fq + TCP BBR (по умолчанию включено для node/both)
   --no-ufw                      Не изменять правила UFW
@@ -1205,6 +1205,33 @@ install_proxy_cores() {
             else
                 warn "Не удалось скачать/распаковать NaiveProxy; панель доустановит ядро автоматически, когда нода появится онлайн."
             fi
+        fi
+    fi
+
+    # telemt (Telegram WEB proxy) is opt-in: it is installed only when named in --cores, or later
+    # by the panel when a "Telegram WEB" inbound is created on the node.
+    if [[ ",${CORES_SPEC}," == *",telemt,"* && ! -x /usr/local/bin/telemt ]]; then
+        log "Устанавливаю telemt (Telegram WEB proxy)..."
+        local tm_tag="" tmp_dir="" tm_arch="x86_64"
+        [[ "$ARCH" == "arm64" ]] && tm_arch="aarch64"
+        tm_tag="$(github_latest_tag telemt/telemt)"
+        if [[ "$tm_tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            tmp_dir="$(make_tmp_dir)"
+            local tm_url="https://github.com/telemt/telemt/releases/download/${tm_tag}/telemt-${tm_arch}-linux-musl.tar.gz"
+            if download_with_retry "$tm_url" "${tmp_dir}/telemt.tar.gz" && tar -xzf "${tmp_dir}/telemt.tar.gz" -C "$tmp_dir"; then
+                local tm_bin=""
+                tm_bin="$(find "$tmp_dir" -type f -name telemt | head -n 1 || true)"
+                if [[ -n "$tm_bin" ]]; then
+                    install -m 0755 "$tm_bin" /usr/local/bin/telemt
+                    ok "telemt ${tm_tag} установлен."
+                else
+                    warn "Бинарник telemt не найден внутри архива."
+                fi
+            else
+                warn "Не удалось скачать telemt; панель доустановит ядро автоматически при создании инбаунда Telegram WEB."
+            fi
+        else
+            warn "Не удалось определить версию telemt; панель доустановит ядро автоматически."
         fi
     fi
 

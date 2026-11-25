@@ -33,6 +33,7 @@ pub enum CoreKind {
     Singbox,
     Naive,
     Mieru,
+    Telemt,
 }
 
 impl CoreKind {
@@ -42,6 +43,7 @@ impl CoreKind {
             "sing-box" | "singbox" => Ok(Self::Singbox),
             "naive" | "naiveproxy" | "caddy-naive" => Ok(Self::Naive),
             "mieru" | "mita" => Ok(Self::Mieru),
+            "telemt" | "tgweb" => Ok(Self::Telemt),
             other => Err(format!("Unsupported core binary target: {other}")),
         }
     }
@@ -52,6 +54,7 @@ impl CoreKind {
             Self::Singbox => "singbox",
             Self::Naive => "naive",
             Self::Mieru => "mieru",
+            Self::Telemt => "telemt",
         }
     }
 
@@ -61,6 +64,7 @@ impl CoreKind {
             Self::Singbox => &["sing-box", "singbox"],
             Self::Naive => &["caddy", "caddy-naive", "naive"],
             Self::Mieru => &["mita", "mieru"],
+            Self::Telemt => &["telemt"],
         }
     }
 
@@ -70,6 +74,7 @@ impl CoreKind {
             Self::Singbox => &cfg.singbox_bin,
             Self::Naive => &cfg.naive_bin,
             Self::Mieru => &cfg.mieru_bin,
+            Self::Telemt => &cfg.telemt_bin,
         }
     }
 }
@@ -414,6 +419,8 @@ pub fn parse_version_output(kind: CoreKind, output: &str) -> Option<String> {
         CoreKind::Xray => first_line.split_whitespace().nth(1),
         CoreKind::Singbox => first_line.split_whitespace().nth(2),
         CoreKind::Naive | CoreKind::Mieru => first_line.split_whitespace().next(),
+        // `telemt 3.5.17`
+        CoreKind::Telemt => first_line.split_whitespace().nth(1),
     }?;
     let clean = token.trim_start_matches(['v', 'V']).trim();
     if clean.is_empty() {
@@ -566,6 +573,12 @@ pub async fn download_and_update_core(
         .is_some_and(|n| n.contains("mita") || n.contains("mieru"))
     {
         CoreKind::Mieru
+    } else if target_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.contains("telemt"))
+    {
+        CoreKind::Telemt
     } else {
         CoreKind::Xray
     };

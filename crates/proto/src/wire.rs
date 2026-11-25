@@ -45,6 +45,9 @@ pub enum Protocol {
     Anytls,
     #[serde(rename = "SHADOWTLS")]
     Shadowtls,
+    /// Telegram WEB proxy (`tg://webproxy`) served by `telemt` behind a TLS terminator.
+    #[serde(rename = "TGWEB")]
+    Tgweb,
 }
 
 impl Protocol {
@@ -61,6 +64,7 @@ impl Protocol {
             Self::Tuic => "TUIC",
             Self::Anytls => "ANYTLS",
             Self::Shadowtls => "SHADOWTLS",
+            Self::Tgweb => "TGWEB",
         }
     }
 
@@ -77,6 +81,7 @@ impl Protocol {
             Self::Tuic => "TUIC",
             Self::Anytls => "AnyTLS",
             Self::Shadowtls => "ShadowTLS",
+            Self::Tgweb => "Telegram WEB",
         }
     }
 
@@ -90,8 +95,8 @@ impl Protocol {
         protocol
     }
 
-    /// All 10 protocol variants in canonical order.
-    pub const ALL: [Self; 10] = [
+    /// All 11 protocol variants in canonical order.
+    pub const ALL: [Self; 11] = [
         Self::Vless,
         Self::Vmess,
         Self::Trojan,
@@ -102,6 +107,7 @@ impl Protocol {
         Self::Tuic,
         Self::Anytls,
         Self::Shadowtls,
+        Self::Tgweb,
     ];
 }
 
@@ -127,6 +133,7 @@ impl FromStr for Protocol {
             "tuic" => Ok(Self::Tuic),
             "anytls" | "any-tls" => Ok(Self::Anytls),
             "shadowtls" | "shadow-tls" => Ok(Self::Shadowtls),
+            "tgweb" | "telegram-web" | "telegramweb" => Ok(Self::Tgweb),
             _ => Err(WireError::UnknownProtocol(s.to_string())),
         }
     }
@@ -522,6 +529,7 @@ impl TrafficCapability {
             Self::metered("hysteria2", "singbox_stats", "tunnel", true),
             Self::metered("mieru", "mita_metrics", "tunnel", false),
             Self::metered("naive", "caddy_access_log", "access_log", false),
+            Self::metered("telemt", "prometheus_metrics", "tunnel", false),
         ]
     }
 }
@@ -797,11 +805,12 @@ pub struct NodeControlCmd {
 }
 
 /// Repositories core binaries may be downloaded from (`/api/core-update`, `CoreUpdateCmd`).
-const CORE_DOWNLOAD_ALLOWED: [(&str, &str); 4] = [
+const CORE_DOWNLOAD_ALLOWED: [(&str, &str); 5] = [
     ("github.com", "/XTLS/Xray-core/releases/download/"),
     ("github.com", "/SagerNet/sing-box/releases/download/"),
     ("github.com", "/klzgrad/forwardproxy/releases/download/"),
     ("github.com", "/enfein/mieru/releases/download/"),
+    ("github.com", "/telemt/telemt/releases/download/"),
 ];
 
 /// Accepts only `https://github.com/<allowed repo>/releases/download/...` URLs without credentials

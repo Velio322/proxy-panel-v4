@@ -17,6 +17,7 @@ export const PROTOCOLS: readonly Protocol[] = [
   'TUIC',
   'ANYTLS',
   'SHADOWTLS',
+  'TGWEB',
 ] as const;
 
 export const PROTOCOL_LABELS: Record<Protocol, string> = {
@@ -30,6 +31,7 @@ export const PROTOCOL_LABELS: Record<Protocol, string> = {
   TUIC: 'TUIC',
   ANYTLS: 'AnyTLS',
   SHADOWTLS: 'ShadowTLS',
+  TGWEB: 'Telegram WEB',
 };
 
 export const PROTOCOL_COLORS: Record<Protocol, string> = {
@@ -43,9 +45,10 @@ export const PROTOCOL_COLORS: Record<Protocol, string> = {
   TUIC: 'bg-teal-500/15 text-teal-400 border-teal-500/30',
   ANYTLS: 'bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30',
   SHADOWTLS: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+  TGWEB: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
 };
 
-export type ProxyCore = 'xray' | 'singbox' | 'naive' | 'mieru';
+export type ProxyCore = 'xray' | 'singbox' | 'naive' | 'mieru' | 'telemt';
 
 export function getCoreForProtocol(protocol: Protocol): ProxyCore {
   switch (protocol) {
@@ -63,6 +66,8 @@ export function getCoreForProtocol(protocol: Protocol): ProxyCore {
       return 'naive';
     case 'MIERU':
       return 'mieru';
+    case 'TGWEB':
+      return 'telemt';
   }
 }
 

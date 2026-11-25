@@ -17,6 +17,7 @@ const CORE_KEY_SEP: char = '\u{1f}';
 /// Xray and sing-box are restarted together with the agent, so their counters start from zero
 /// and everything they report is new traffic.
 const PERSISTENT_CORES: &[&str] = &["mieru", "naive"];
+// telemt counters live in the process and restart from zero with it, like xray: they are volatile.
 
 fn core_is_persistent(core: &str) -> bool {
     PERSISTENT_CORES.contains(&core)

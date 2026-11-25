@@ -264,16 +264,17 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 .bind(&sr.version)
                 .bind(sr.cpu_usage)
                 .bind(sr.mem_usage)
-                .bind(info.xray)
-                .bind(info.singbox)
-                .bind(info.naive)
-                .bind(info.mieru)
-                .bind(info.arch)
+                .bind(&info.xray)
+                .bind(&info.singbox)
+                .bind(&info.naive)
+                .bind(&info.mieru)
+                .bind(&info.arch)
                 .bind(now)
                 .bind(uptime_secs)
                 .execute(&state.db)
                 .await
                     .map_err(|e| tracing::warn!(error = %e, "node db write failed"));
+                core_updates::store_telemt_version(&state, &node_id, &info).await;
 
                 if let (Some(c), Some(m)) = (sr.cpu_usage, sr.mem_usage) {
                     state.metrics.set_node_telemetry(&node_id, c, m);

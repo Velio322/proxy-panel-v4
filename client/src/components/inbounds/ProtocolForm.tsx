@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { getApiErrorMessage, inboundsApi } from '@/lib/api';
 import { generateSs2022Key, parsePortRange } from '@/lib/core-utils';
 import { toast } from '@/hooks/use-toast';
+import { useUiStore } from '@/lib/store';
 import type { InboundFormState, NetworkType, VlessFlowType } from '@/components/inbounds/types';
 
 interface ProtocolFormProps {
@@ -21,6 +22,7 @@ interface ProtocolFormProps {
 const SNIFFING_DEST_TOKENS = ['http', 'tls', 'quic', 'fakedns'] as const;
 
 export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
+  const isRu = useUiStore((s) => s.language) === 'ru';
   const [keygenLoading, setKeygenLoading] = useState<'vless-x25519' | 'vless-pq' | 'ss2022' | null>(null);
   const isXray =
     form.protocol === 'VLESS' ||
@@ -539,6 +541,81 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
               value={form.mieruDomain}
               onChange={(e) => onChange({ mieruDomain: e.target.value })}
             />
+          </div>
+        </div>
+      )}
+
+      {form.protocol === 'TGWEB' && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {isRu
+              ? 'Прокси для Telegram Desktop (tg://webproxy). Порт ниже — локальный (например 18080); наружу 443 отдаёт Caddy. Нужны DNS-имя с сертификатом и установка из карточки ноды.'
+              : 'Proxy for Telegram Desktop (tg://webproxy). The port above is a private loopback port (e.g. 18080); Caddy serves 443. Needs a DNS name with a certificate.'}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Домен (DNS-имя)' : 'Domain (DNS name)'}</Label>
+              <Input
+                placeholder="tg.example.com"
+                value={form.tgwebDomain}
+                onChange={(e) => onChange({ tgwebDomain: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Публичный адрес ноды (IP:443)' : 'Node public address (IP:443)'}</Label>
+              <Input
+                placeholder="203.0.113.10:443"
+                value={form.tgwebPublicAddr}
+                onChange={(e) => onChange({ tgwebPublicAddr: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Путь (необязательно)' : 'Base path (optional)'}</Label>
+              <Input
+                placeholder="telegram/web"
+                value={form.tgwebBasePath}
+                onChange={(e) => onChange({ tgwebBasePath: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Carrier</Label>
+              <Select
+                value={form.tgwebCarrier}
+                onValueChange={(v) => onChange({ tgwebCarrier: v as InboundFormState['tgwebCarrier'] })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="https-lanes">https-lanes</SelectItem>
+                  <SelectItem value="https">https</SelectItem>
+                  <SelectItem value="websocket">websocket</SelectItem>
+                  <SelectItem value="websocket-lanes">websocket-lanes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Режим секрета' : 'Secret mode'}</Label>
+              <Select
+                value={form.tgwebSecretMode}
+                onValueChange={(v) => onChange({ tgwebSecretMode: v as InboundFormState['tgwebSecretMode'] })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dd">dd</SelectItem>
+                  <SelectItem value="plain">plain</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Папка сайта-заглушки' : 'Decoy site folder'}</Label>
+              <Input
+                value={form.tgwebFallbackRoot}
+                onChange={(e) => onChange({ tgwebFallbackRoot: e.target.value })}
+              />
+            </div>
           </div>
         </div>
       )}

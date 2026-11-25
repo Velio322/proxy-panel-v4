@@ -299,6 +299,20 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
     }),
   },
   {
+    id: 'tgweb-https-lanes',
+    label: 'Telegram WEB proxy (telemt, tg://webproxy) - set domain + public IP',
+    apply: () => ({
+      protocol: 'TGWEB',
+      tag: 'TGWEB',
+      port: '18080',
+      listen: '127.0.0.1',
+      tgwebCarrier: 'https-lanes',
+      tgwebSecretMode: 'dd',
+      tgwebBasePath: '',
+      tgwebFallbackRoot: '/var/www/html',
+    }),
+  },
+  {
     id: 'naive-https-acme',
     label: 'NaiveProxy - HTTPS + Let\'s Encrypt (set domain + email)',
     apply: () => ({

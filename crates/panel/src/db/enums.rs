@@ -18,6 +18,7 @@ pub enum DbProtocol {
     Tuic,
     Anytls,
     Shadowtls,
+    Tgweb,
 }
 
 impl From<DbProtocol> for Protocol {
@@ -33,6 +34,7 @@ impl From<DbProtocol> for Protocol {
             DbProtocol::Tuic => Self::Tuic,
             DbProtocol::Anytls => Self::Anytls,
             DbProtocol::Shadowtls => Self::Shadowtls,
+            DbProtocol::Tgweb => Self::Tgweb,
         }
     }
 }
@@ -50,6 +52,7 @@ impl From<Protocol> for DbProtocol {
             Protocol::Tuic => Self::Tuic,
             Protocol::Anytls => Self::Anytls,
             Protocol::Shadowtls => Self::Shadowtls,
+            Protocol::Tgweb => Self::Tgweb,
         }
     }
 }

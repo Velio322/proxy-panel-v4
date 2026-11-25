@@ -18,6 +18,7 @@ use tokio_util::io::ReaderStream;
 
 const EMBEDDED_INSTALL_SH: &str = include_str!("../../../../install.sh");
 const EMBEDDED_NODE_UPGRADE_SH: &str = include_str!("../../../../deploy/node-upgrade.sh");
+const EMBEDDED_NODE_TGWEB_SH: &str = include_str!("../../../../deploy/node-tgweb.sh");
 
 #[derive(Clone)]
 struct CachedBinaryHash {
@@ -87,6 +88,19 @@ pub async fn node_upgrade_sh() -> impl IntoResponse {
             (header::CACHE_CONTROL, "no-store"),
         ],
         EMBEDDED_NODE_UPGRADE_SH,
+    )
+}
+
+/// Serves the Telegram WEB proxy node preparation script (`GET /node-tgweb.sh`):
+/// `curl -fsSL https://<panel>/node-tgweb.sh | bash -s -- --domain tg.example.com`.
+pub async fn node_tgweb_sh() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        EMBEDDED_NODE_TGWEB_SH,
     )
 }
 

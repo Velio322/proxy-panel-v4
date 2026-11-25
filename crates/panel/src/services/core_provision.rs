@@ -15,6 +15,7 @@ fn core_for_protocol(protocol: &str) -> Option<&'static str> {
     match protocol {
         "NAIVEPROXY" => Some("naive"),
         "MIERU" => Some("mieru"),
+        "TGWEB" => Some("telemt"),
         _ => None,
     }
 }
@@ -23,7 +24,7 @@ fn core_for_protocol(protocol: &str) -> Option<&'static str> {
 /// Old agents omit the field, so absence is never treated as "missing".
 pub fn missing_cores(cores: Option<&Value>) -> Vec<&'static str> {
     let Some(c) = cores else { return Vec::new() };
-    ["naive", "mieru"]
+    ["naive", "mieru", "telemt"]
         .into_iter()
         .filter(|name| {
             c.get(*name)
@@ -45,7 +46,7 @@ pub fn spawn_if_needed(state: &AppState, node_id: &str, cores: Option<&Value>) {
     tokio::spawn(async move {
         let needed: Vec<String> = sqlx::query_scalar(
             r#"SELECT DISTINCT protocol::text FROM "Inbound"
-               WHERE "nodeId" = $1 AND enable = true AND protocol::text IN ('NAIVEPROXY', 'MIERU')"#,
+               WHERE "nodeId" = $1 AND enable = true AND protocol::text IN ('NAIVEPROXY', 'MIERU', 'TGWEB')"#,
         )
         .bind(&node_id)
         .fetch_all(&state.db)
@@ -106,6 +107,7 @@ mod tests {
     fn protocol_to_core_mapping() {
         assert_eq!(core_for_protocol("MIERU"), Some("mieru"));
         assert_eq!(core_for_protocol("NAIVEPROXY"), Some("naive"));
+        assert_eq!(core_for_protocol("TGWEB"), Some("telemt"));
         assert_eq!(core_for_protocol("VLESS"), None);
     }
 }

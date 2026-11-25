@@ -16,6 +16,8 @@ pub const DEFAULT_SINGBOX_BIN: &str = "/usr/local/bin/sing-box";
 pub const DEFAULT_NAIVE_BIN: &str = "/usr/local/bin/caddy-naive";
 /// Default Mieru server (`mita` / `mieru`) binary path.
 pub const DEFAULT_MIERU_BIN: &str = "/usr/local/bin/mita";
+/// Default telemt (Telegram WEB proxy) binary path.
+pub const DEFAULT_TELEMT_BIN: &str = "/usr/local/bin/telemt";
 /// Default local Xray gRPC `StatsService` & `HandlerService` port (`127.0.0.1:10085`).
 pub const DEFAULT_XRAY_API_PORT: u16 = 10085;
 /// Default local Sing-box Clash API address (`127.0.0.1:9091`).
@@ -48,6 +50,8 @@ pub struct AgentConfig {
     pub naive_bin: PathBuf,
     /// Path to the `mita` / `mieru` binary (`MIERU_BIN`).
     pub mieru_bin: PathBuf,
+    /// Path to the `telemt` binary (`TELEMT_BIN`).
+    pub telemt_bin: PathBuf,
     /// Optional `XRAY_LOCATION_ASSET` directory passed to child Xray processes.
     pub xray_asset_dir: Option<PathBuf>,
     /// Local loopback port for Xray gRPC `StatsService` and `HandlerService` (`XRAY_API_PORT`, default `10085`).
@@ -92,6 +96,7 @@ impl Default for AgentConfig {
             singbox_bin: PathBuf::from(DEFAULT_SINGBOX_BIN),
             naive_bin: PathBuf::from(DEFAULT_NAIVE_BIN),
             mieru_bin: PathBuf::from(DEFAULT_MIERU_BIN),
+            telemt_bin: PathBuf::from(DEFAULT_TELEMT_BIN),
             xray_asset_dir: None,
             xray_api_port: DEFAULT_XRAY_API_PORT,
             singbox_api_addr: DEFAULT_SINGBOX_API_ADDR.to_string(),
@@ -172,6 +177,9 @@ impl AgentConfig {
         }
         if let Some(mb) = get("MIERU_BIN") {
             cfg.mieru_bin = PathBuf::from(mb);
+        }
+        if let Some(tb) = get("TELEMT_BIN") {
+            cfg.telemt_bin = PathBuf::from(tb);
         }
         if let Some(ad) = get("XRAY_LOCATION_ASSET") {
             cfg.xray_asset_dir = Some(PathBuf::from(ad));

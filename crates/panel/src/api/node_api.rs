@@ -192,6 +192,7 @@ async fn register(
     .bind(&core_info.arch)
     .execute(&state.db)
     .await?;
+    core_updates::store_telemt_version(&state, &node_id, &core_info).await;
 
     state.metrics.set_node_status(&node_id, &name, true);
 
@@ -302,6 +303,7 @@ async fn heartbeat(
     .bind(uptime_secs)
     .execute(&state.db)
     .await?;
+    core_updates::store_telemt_version(&state, node_id, &core_info).await;
 
     let _ = sqlx::query(
         r#"INSERT INTO "NodeMetric" (id, "nodeId", "cpuUsage", "memUsage", "netUpload", "netDownload", connections, uptime, "recordedAt")

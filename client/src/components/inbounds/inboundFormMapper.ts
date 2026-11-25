@@ -215,6 +215,13 @@ export function createDefaultInboundForm(nodeId = ''): InboundFormState {
     mieruLoggingLevel: 'WARN',
     mieruDomain: '',
 
+    tgwebDomain: '',
+    tgwebPublicAddr: '',
+    tgwebBasePath: '',
+    tgwebCarrier: 'https-lanes',
+    tgwebSecretMode: 'dd',
+    tgwebFallbackRoot: '/var/www/html',
+
     anytlsPaddingScheme: '',
     anytlsIdleCheckInterval: '30s',
     anytlsIdleTimeout: '30s',
@@ -542,6 +549,13 @@ export function inboundToForm(inbound: Inbound): InboundFormState {
     mieruLoggingLevel: (asStr(settings.loggingLevel, 'WARN') as InboundFormState['mieruLoggingLevel']),
     mieruDomain: asStr(settings.domain),
 
+    tgwebDomain: asStr(settings.domain),
+    tgwebPublicAddr: asStr(settings.publicAddr),
+    tgwebBasePath: asStr(settings.basePath),
+    tgwebCarrier: (asStr(settings.carrier, 'https-lanes') as InboundFormState['tgwebCarrier']),
+    tgwebSecretMode: asStr(settings.secretMode, 'dd') === 'plain' ? 'plain' : 'dd',
+    tgwebFallbackRoot: asStr(settings.fallbackRoot, '/var/www/html'),
+
     anytlsPaddingScheme: Array.isArray(settings.paddingScheme)
       ? settings.paddingScheme.map(String).join('\n')
       : asStr(settings.paddingScheme),
@@ -733,6 +747,15 @@ export function formToPayload(form: InboundFormState): Record<string, unknown> {
     settings.loggingLevel = form.mieruLoggingLevel;
     if (form.mieruDomain.trim()) settings.domain = form.mieruDomain.trim();
     if (form.sni.trim()) settings.sni = form.sni.trim();
+  } else if (form.protocol === 'TGWEB') {
+    settings.domain = form.tgwebDomain.trim();
+    settings.publicAddr = form.tgwebPublicAddr.trim();
+    const basePath = form.tgwebBasePath.trim().replace(/^\/+|\/+$/g, '');
+    if (basePath) settings.basePath = basePath;
+    else delete settings.basePath;
+    settings.carrier = form.tgwebCarrier;
+    settings.secretMode = form.tgwebSecretMode;
+    if (form.tgwebFallbackRoot.trim()) settings.fallbackRoot = form.tgwebFallbackRoot.trim();
   } else if (form.protocol === 'ANYTLS') {
     if (form.password.trim()) settings.password = form.password.trim();
     if (form.sni.trim()) settings.sni = form.sni.trim();

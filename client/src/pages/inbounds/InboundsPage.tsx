@@ -118,7 +118,7 @@ export function InboundsPage() {
     let totalShares = 0;
     let sniffingCount = 0;
     const nodeIds = new Set<string>();
-    const cores: Record<string, number> = { xray: 0, singbox: 0, naive: 0, mieru: 0 };
+    const cores: Record<string, number> = { xray: 0, singbox: 0, naive: 0, mieru: 0, telemt: 0 };
 
     for (const ib of inbounds) {
       if (ib.enable) enabled += 1;
@@ -253,6 +253,10 @@ export function InboundsPage() {
             <div className="rack-inset rounded-md py-1.5">
               <div className="text-[10px] text-muted-foreground">Mieru</div>
               <div className="font-bold">{stats.cores.mieru}</div>
+            </div>
+            <div className="rack-inset rounded-md py-1.5">
+              <div className="text-[10px] text-muted-foreground">TG</div>
+              <div className="font-bold">{stats.cores.telemt}</div>
             </div>
           </div>
         </Card>

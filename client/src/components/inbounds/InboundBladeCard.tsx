@@ -38,6 +38,7 @@ const CORE_LABELS: Record<string, string> = {
   singbox: 'Sing-box',
   naive: 'NaiveProxy',
   mieru: 'Mieru (mita)',
+  telemt: 'telemt (Telegram WEB)',
 };
 
 export function InboundBladeCard({

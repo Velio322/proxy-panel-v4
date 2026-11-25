@@ -1,6 +1,7 @@
 pub mod mieru;
 pub mod naive;
 pub mod singbox;
+pub mod tgweb;
 pub mod xray;
 pub mod xray_grpc;
 

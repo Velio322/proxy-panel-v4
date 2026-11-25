@@ -17,6 +17,7 @@ pub struct ExtractedCoreInfo {
     pub singbox: Option<String>,
     pub naive: Option<String>,
     pub mieru: Option<String>,
+    pub telemt: Option<String>,
     pub arch: Option<String>,
 }
 
@@ -50,7 +51,7 @@ struct CoreSpec {
     repo: &'static str,
 }
 
-const CORE_SPECS: [CoreSpec; 4] = [
+const CORE_SPECS: [CoreSpec; 5] = [
     CoreSpec {
         canonical: "xray",
         display_name: "Xray-core",
@@ -71,6 +72,11 @@ const CORE_SPECS: [CoreSpec; 4] = [
         display_name: "Mieru (mita)",
         repo: "enfein/mieru",
     },
+    CoreSpec {
+        canonical: "telemt",
+        display_name: "telemt (Telegram WEB proxy)",
+        repo: "telemt/telemt",
+    },
 ];
 
 pub fn normalize_core(raw: &str) -> AppResult<&'static str> {
@@ -79,6 +85,7 @@ pub fn normalize_core(raw: &str) -> AppResult<&'static str> {
         "singbox" | "sing-box" => Ok("singbox"),
         "naive" | "naiveproxy" | "caddy-naive" => Ok("naive"),
         "mieru" | "mita" => Ok("mieru"),
+        "telemt" | "tgweb" => Ok("telemt"),
         other => Err(AppError::bad_request(format!(
             "Unsupported proxy core: {other}"
         ))),
@@ -104,6 +111,13 @@ fn spec_for(canonical: &str) -> AppResult<&'static CoreSpec> {
         .ok_or_else(|| AppError::bad_request(format!("Unsupported proxy core: {canonical}")))
 }
 
+/// Stores the telemt version a node reported; no-op when the node did not report one.
+pub async fn store_telemt_version(state: &AppState, node_id: &str, info: &ExtractedCoreInfo) {
+    if let Some(ver) = info.telemt.as_deref() {
+        write_node_core_version(state, node_id, "telemt", ver).await;
+    }
+}
+
 pub fn extract_core_info(cores: Option<&Value>) -> ExtractedCoreInfo {
     let Some(c) = cores else {
         return ExtractedCoreInfo::default();
@@ -124,6 +138,7 @@ pub fn extract_core_info(cores: Option<&Value>) -> ExtractedCoreInfo {
         singbox: read_ver("/singbox/version"),
         naive: read_ver("/naive/version"),
         mieru: read_ver("/mieru/version"),
+        telemt: read_ver("/telemt/version"),
         arch,
     }
 }
@@ -314,6 +329,11 @@ fn select_asset<'a>(
                 })
             })
         }
+        ("telemt", _) => {
+            // x86_64 / aarch64 musl builds are statically linked and run on any distro.
+            let triple = if arch == "arm64" { "aarch64" } else { "x86_64" };
+            find_exact(&format!("telemt-{triple}-linux-musl.tar.gz"))
+        }
         ("naive", "amd64") => find_exact("caddy-forwardproxy-naive.tar.xz").or_else(|| {
             assets.iter().find(|a| {
                 a.get("name").and_then(Value::as_str).is_some_and(|n| {
@@ -475,11 +495,12 @@ pub async fn list_catalog(state: &AppState, arch: &str, force_refresh: bool) -> 
         }
     }
 
-    let (r_xray, r_sb, r_naive, r_mieru) = tokio::join!(
+    let (r_xray, r_sb, r_naive, r_mieru, r_telemt) = tokio::join!(
         resolve_release(state, "xray", None, norm_arch, force_refresh),
         resolve_release(state, "singbox", None, norm_arch, force_refresh),
         resolve_release(state, "naive", None, norm_arch, force_refresh),
         resolve_release(state, "mieru", None, norm_arch, force_refresh),
+        resolve_release(state, "telemt", None, norm_arch, force_refresh),
     );
 
     let results = [
@@ -487,9 +508,10 @@ pub async fn list_catalog(state: &AppState, arch: &str, force_refresh: bool) -> 
         (&CORE_SPECS[1], r_sb),
         (&CORE_SPECS[2], r_naive),
         (&CORE_SPECS[3], r_mieru),
+        (&CORE_SPECS[4], r_telemt),
     ];
 
-    let mut out = Vec::with_capacity(4);
+    let mut out = Vec::with_capacity(5);
     let mut ok_count = 0usize;
     for (spec, res) in results {
         match res {
@@ -541,6 +563,7 @@ async fn read_node_core_version(
         "singbox" => r#"SELECT "singboxVersion" FROM "Node" WHERE id = $1"#,
         "naive" => r#"SELECT "naiveVersion" FROM "Node" WHERE id = $1"#,
         "mieru" => r#"SELECT "mieruVersion" FROM "Node" WHERE id = $1"#,
+        "telemt" => r#"SELECT "telemtVersion" FROM "Node" WHERE id = $1"#,
         _ => return None,
     };
     sqlx::query_scalar::<_, Option<String>>(sql)
@@ -563,6 +586,7 @@ async fn write_node_core_version(
         "singbox" => r#"UPDATE "Node" SET "singboxVersion" = $2, "updatedAt" = $3 WHERE id = $1"#,
         "naive" => r#"UPDATE "Node" SET "naiveVersion" = $2, "updatedAt" = $3 WHERE id = $1"#,
         "mieru" => r#"UPDATE "Node" SET "mieruVersion" = $2, "updatedAt" = $3 WHERE id = $1"#,
+        "telemt" => r#"UPDATE "Node" SET "telemtVersion" = $2, "updatedAt" = $3 WHERE id = $1"#,
         _ => return,
     };
     let _ = sqlx::query(sql)
@@ -600,7 +624,7 @@ pub async fn trigger_core_update(
                 && std::env::var("ALLOW_CUSTOM_CORE_URLS").map(|v| v != "true").unwrap_or(true)
             {
                 return Err(AppError::bad_request(
-                    "downloadUrl must be an official GitHub release URL of Xray-core, sing-box, klzgrad/forwardproxy or enfein/mieru (set ALLOW_CUSTOM_CORE_URLS=true to override)",
+                    "downloadUrl must be an official GitHub release URL of Xray-core, sing-box, klzgrad/forwardproxy, enfein/mieru or telemt/telemt (set ALLOW_CUSTOM_CORE_URLS=true to override)",
                 ));
             }
             let clean_sha = normalize_sha256(s).ok_or_else(|| {

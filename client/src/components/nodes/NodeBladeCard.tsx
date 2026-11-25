@@ -121,6 +121,7 @@ export function NodeBladeCard({
     { key: 'Sing-box', version: node.singboxVersion },
     { key: 'Naive', version: node.naiveVersion },
     { key: 'Mieru', version: node.mieruVersion },
+    { key: 'telemt', version: node.telemtVersion },
   ];
 
   const theme = statusTheme(node.status);

@@ -11,7 +11,8 @@ export type Protocol =
   | 'MIERU'
   | 'TUIC'
   | 'ANYTLS'
-  | 'SHADOWTLS';
+  | 'SHADOWTLS'
+  | 'TGWEB';
 
 export type TrafficResetStrategy =
   | 'NO_RESET'
@@ -293,6 +294,7 @@ export interface NodeItem {
   singboxVersion?: string | null;
   naiveVersion?: string | null;
   mieruVersion?: string | null;
+  telemtVersion?: string | null;
   arch?: string | null;
   features?: Record<string, unknown> | null;
   tags: string[];
