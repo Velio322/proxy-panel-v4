@@ -271,7 +271,7 @@ export function NodeDetailPage() {
   });
 
   const coreUpdateMut = useMutation({
-    mutationFn: (payload: { core: 'xray' | 'singbox' | 'naive' | 'mieru'; version?: string }) =>
+    mutationFn: (payload: { core: 'xray' | 'singbox' | 'naive' | 'mieru' | 'telemt'; version?: string }) =>
       nodesApi.coreUpdate(id, payload),
     onMutate: (vars) => setUpdatingCore(vars.core),
     onSuccess: (res, vars) => {
@@ -378,7 +378,7 @@ export function NodeDetailPage() {
   const downloadBps = metrics?.downloadBps ?? ht?.network?.downloadBps ?? null;
 
   const cores: Array<{
-    key: 'xray' | 'singbox' | 'naive' | 'mieru';
+    key: 'xray' | 'singbox' | 'naive' | 'mieru' | 'telemt';
     label: string;
     sourceLabel: string;
     installed?: string | null;
@@ -416,6 +416,14 @@ export function NodeDetailPage() {
       installed: metrics?.cores?.mieru?.version ?? node?.mieruVersion,
       running: metrics?.cores?.mieru?.running ?? metrics?.mieruRunning,
       pid: metrics?.mieruPid,
+    },
+    {
+      key: 'telemt',
+      label: 'telemt (Telegram WEB)',
+      sourceLabel: 'Prometheus',
+      installed: metrics?.cores?.telemt?.version ?? node?.telemtVersion,
+      running: metrics?.cores?.telemt?.running,
+      pid: null,
     },
   ];
 

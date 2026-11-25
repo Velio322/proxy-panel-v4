@@ -783,6 +783,7 @@ export function NodesPage() {
                           n.singboxVersion && `SB ${n.singboxVersion}`,
                           n.naiveVersion && `Naive ${n.naiveVersion}`,
                           n.mieruVersion && `Mieru ${n.mieruVersion}`,
+                          n.telemtVersion && `telemt ${n.telemtVersion}`,
                         ]
                           .filter(Boolean)
                           .join(' · ') || '—'}

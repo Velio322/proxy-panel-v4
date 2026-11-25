@@ -401,6 +401,7 @@ export function NodeInstallModal({
                             liveNode?.singboxVersion && `sing-box ${liveNode.singboxVersion}`,
                             liveNode?.naiveVersion && `naive ${liveNode.naiveVersion}`,
                             liveNode?.mieruVersion && `mieru ${liveNode.mieruVersion}`,
+                            liveNode?.telemtVersion && `telemt ${liveNode.telemtVersion}`,
                           ]
                             .filter(Boolean)
                             .join(' • ') || (isRu ? 'Телеметрия активна' : 'Telemetry active')

@@ -603,7 +603,7 @@ export function SettingsPage() {
   };
 
   const updateCoreMut = useMutation({
-    mutationFn: ({ nodeId, core }: { nodeId: string; core: 'xray' | 'singbox' | 'naive' | 'mieru' }) =>
+    mutationFn: ({ nodeId, core }: { nodeId: string; core: 'xray' | 'singbox' | 'naive' | 'mieru' | 'telemt' }) =>
       nodesApi.coreUpdate(nodeId, { core }),
     onMutate: (vars) => setUpdatingCoreKey(`${vars.nodeId}:${vars.core}`),
     onSuccess: (res, vars) => {
@@ -1515,11 +1515,12 @@ export function SettingsPage() {
               <div className="space-y-2.5">
                 {nodes.map((n) => {
                   const nodeBusy = updatingCoreKey?.startsWith(`${n.id}:`) ?? false;
-                  const coreButtons: Array<{ core: 'xray' | 'singbox' | 'naive' | 'mieru'; label: string }> = [
+                  const coreButtons: Array<{ core: 'xray' | 'singbox' | 'naive' | 'mieru' | 'telemt'; label: string }> = [
                     { core: 'xray', label: 'Xray' },
                     { core: 'singbox', label: 'Sing-box' },
                     { core: 'naive', label: 'NaiveProxy' },
                     { core: 'mieru', label: 'Mieru' },
+                    { core: 'telemt', label: 'telemt' },
                   ];
                   return (
                     <div
@@ -1536,7 +1537,7 @@ export function SettingsPage() {
                         </div>
                         <div className="font-mono text-[11px] text-muted-foreground">
                           Xray: {n.xrayVersion || '—'} · Sing-box: {n.singboxVersion || '—'} · Naive:{' '}
-                          {n.naiveVersion || '—'} · Mieru: {n.mieruVersion || '—'}
+                          {n.naiveVersion || '—'} · Mieru: {n.mieruVersion || '—'} · telemt: {n.telemtVersion || '—'}
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-1.5">

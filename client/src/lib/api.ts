@@ -578,7 +578,7 @@ export const nodesApi = {
   },
   coreUpdate: async (
     id: string,
-    payload: { core: 'xray' | 'singbox' | 'naive' | 'mieru'; version?: string },
+    payload: { core: 'xray' | 'singbox' | 'naive' | 'mieru' | 'telemt'; version?: string },
   ): Promise<{
     ok?: boolean;
     success?: boolean;

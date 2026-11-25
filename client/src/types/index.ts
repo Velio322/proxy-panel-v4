@@ -646,6 +646,7 @@ export interface NodeMonitoringMetrics {
     singbox?: { running?: boolean; version?: string | null };
     naive?: { running?: boolean; version?: string | null };
     mieru?: { running?: boolean; version?: string | null };
+    telemt?: { running?: boolean; version?: string | null };
   };
   coreStatuses?: Record<string, string>;
   traffic?: {
@@ -664,7 +665,7 @@ export interface NodeMonitoringMetrics {
 }
 
 export interface CoreVersionEntry {
-  core: 'xray' | 'singbox' | 'naive' | 'mieru';
+  core: 'xray' | 'singbox' | 'naive' | 'mieru' | 'telemt';
   name?: string;
   latestVersion: string;
   tag?: string;
