@@ -6,8 +6,9 @@ use crate::traffic::CumulativeTrafficTracker;
 use futures_util::{SinkExt, StreamExt};
 use mypanel_proto::{
     ApplyConfigRequest, CommandAck, EmptyPayload, Envelope, NodeControlAction, RegisterRequest,
-    RegisterSystemInfo, SessionsList, TrafficCounter, TrafficReport,
+    RegisterSystemInfo, SessionsList, TrafficCounter,
 };
+use crate::traffic::attach_key_meta;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -245,7 +246,9 @@ async fn connect_and_serve(
             let guard = tracker.lock().await;
             guard.pending_replay(REPLAY_PER_TICK, &std::collections::HashSet::new())
         };
-        for report in pending {
+        let meta_map = pm.lock().await.traffic_user_meta();
+        for mut report in pending {
+            attach_key_meta(&mut report, &meta_map);
             send_envelope(&mut write, &Envelope::TrafficReport(report)).await?;
         }
     }
@@ -315,6 +318,9 @@ async fn connect_and_serve(
                     (report, tr.take_overflow_reports())
                 };
                 let sent_batch = report.batch_id.clone();
+                let meta_map = pm.lock().await.traffic_user_meta();
+                let mut report = report;
+                attach_key_meta(&mut report, &meta_map);
                 send_envelope(&mut write, &Envelope::TrafficReport(report)).await?;
                 let mut sent_ids: std::collections::HashSet<String> = extra
                     .iter()
@@ -322,6 +328,8 @@ async fn connect_and_serve(
                     .collect();
                 sent_ids.extend(sent_batch);
                 for r in extra {
+                    let mut r = r;
+                    attach_key_meta(&mut r, &meta_map);
                     send_envelope(&mut write, &Envelope::TrafficReport(r)).await?;
                 }
                 // Re-deliver batches whose ack never arrived (panel dedups by batch id).
@@ -330,6 +338,8 @@ async fn connect_and_serve(
                     tr.pending_replay(REPLAY_PER_TICK, &sent_ids)
                 };
                 for r in stale {
+                    let mut r = r;
+                    attach_key_meta(&mut r, &meta_map);
                     send_envelope(&mut write, &Envelope::TrafficReport(r)).await?;
                 }
             }

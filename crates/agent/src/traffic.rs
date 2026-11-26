@@ -1,7 +1,9 @@
 use crate::cores::write_atomic_0600;
 use crate::cores::xray_grpc::StatEntry;
 use base64::Engine as _;
-use mypanel_proto::{ActiveSession, Protocol, TrafficCounter, TrafficReport, MAX_TRAFFIC_ENTRIES};
+use mypanel_proto::{
+    ActiveSession, Protocol, TrafficCounter, TrafficKeyMeta, TrafficReport, MAX_TRAFFIC_ENTRIES,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -26,6 +28,21 @@ fn core_is_persistent(core: &str) -> bool {
 /// Baseline key for one user counter within one proxy core.
 fn core_key(core: &str, user_id: &str) -> String {
     format!("{core}{CORE_KEY_SEP}{user_id}")
+}
+
+/// Attaches per-user `(protocol, inboundTag)` metadata to a report, restricted to the keys the
+/// report actually carries. Unknown keys (e.g. stale batches whose users were deleted) simply
+/// stay unmapped and the panel records them without protocol/tag, as before.
+pub fn attach_key_meta(
+    report: &mut TrafficReport,
+    sources: &HashMap<String, TrafficKeyMeta>,
+) {
+    let meta: HashMap<String, TrafficKeyMeta> = report
+        .stats
+        .keys()
+        .filter_map(|k| sources.get(k).cloned().map(|m| (k.clone(), m)))
+        .collect();
+    report.key_meta = if meta.is_empty() { None } else { Some(meta) };
 }
 
 /// Parses Xray `StatsService` entries (`user>>><email>>>>traffic>>>uplink|downlink`),
@@ -721,6 +738,7 @@ impl CumulativeTrafficTracker {
                 self.pending_batches.get(&id).map(|stats| TrafficReport {
                     batch_id: Some(id.clone()),
                     stats: stats.clone(),
+                    key_meta: None,
                 })
             })
             .collect()
@@ -792,6 +810,7 @@ impl CumulativeTrafficTracker {
             return Ok(TrafficReport {
                 batch_id: None,
                 stats: HashMap::new(),
+                key_meta: None,
             });
         }
 
@@ -805,6 +824,7 @@ impl CumulativeTrafficTracker {
             let report = TrafficReport {
                 batch_id: Some(batch_id.clone()),
                 stats: chunk.clone(),
+                key_meta: None,
             };
             report
                 .validate()
@@ -828,6 +848,7 @@ impl CumulativeTrafficTracker {
             .map(|(batch_id, stats)| TrafficReport {
                 batch_id: Some(batch_id.clone()),
                 stats: stats.clone(),
+                key_meta: None,
             })
             .collect()
     }
@@ -843,6 +864,7 @@ impl CumulativeTrafficTracker {
             .map(|(batch_id, stats)| TrafficReport {
                 batch_id: Some(batch_id.clone()),
                 stats: stats.clone(),
+                key_meta: None,
             })
             .collect()
     }

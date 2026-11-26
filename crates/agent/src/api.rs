@@ -16,6 +16,7 @@ use mypanel_proto::{
     ApplyConfigRequest, ApplyConfigResponse, CoreUpdateCmd, DropSessionCmd, SessionsList,
     TrafficAckRequest, TrafficCollectResponse, TrafficCounter,
 };
+use crate::traffic::attach_key_meta;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -255,12 +256,16 @@ async fn handle_traffic_collect(State(state): State<ApiState>) -> Response {
     };
     let cur_refs: Vec<(&str, &HashMap<String, TrafficCounter>)> =
         cur_by_core.iter().map(|(c, m)| (*c, m)).collect();
+    let meta_map = state.pm.lock().await.traffic_user_meta();
     let mut tr = tracker.lock().await;
     if let Err(e) = tr.compute_delta_multi(&cur_refs).await {
         tracing::warn!(error = %e, "traffic delta computation failed");
     }
     let mut reports = tr.pending_reports();
     reports.truncate(MAX_COLLECT_REPORTS);
+    for r in reports.iter_mut() {
+        attach_key_meta(r, &meta_map);
+    }
     Json(TrafficCollectResponse { reports }).into_response()
 }
 

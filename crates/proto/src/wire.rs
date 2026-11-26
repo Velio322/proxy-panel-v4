@@ -425,6 +425,18 @@ pub struct TrafficCounter {
 }
 
 /// Batched traffic report emitted by a node agent.
+/// Optional per-key metadata attached to a [`TrafficReport`] by newer agents so the panel can
+/// fill `TrafficLog.protocol` / `TrafficLog.inboundTag`. Absent (None) on older agents.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrafficKeyMeta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_tag: Option<String>,
+}
+
+/// Batched traffic report emitted by a node agent.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrafficReport {
@@ -432,6 +444,10 @@ pub struct TrafficReport {
     pub batch_id: Option<String>,
     #[serde(default)]
     pub stats: HashMap<String, TrafficCounter>,
+    /// Best-effort `(user key -> protocol/inbound tag)` mapping. Older panels ignore it;
+    /// older agents simply never send it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_meta: Option<HashMap<String, TrafficKeyMeta>>,
 }
 
 impl TrafficReport {
@@ -446,6 +462,16 @@ impl TrafficReport {
             }
             if counter.upload > MAX_SAFE_BYTES || counter.download > MAX_SAFE_BYTES {
                 return Err(WireError::Validation("Invalid traffic bytes".into()));
+            }
+        }
+        if let Some(meta) = &self.key_meta {
+            if meta.len() > MAX_TRAFFIC_ENTRIES {
+                return Err(WireError::Validation("Too many traffic meta records".into()));
+            }
+            for (key, _) in meta {
+                if key.is_empty() || key.len() > MAX_TRAFFIC_KEY_LEN {
+                    return Err(WireError::Validation("Invalid traffic meta key".into()));
+                }
             }
         }
         Ok(())

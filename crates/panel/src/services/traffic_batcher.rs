@@ -381,8 +381,16 @@ pub async fn record_report(state: &AppState, node_id: &str, report: TrafficRepor
     let batch_key = batch_id.as_deref().map(str::trim).filter(|b| !b.is_empty());
     let mut deferred = false;
     let mut expected_receipts: Vec<String> = Vec::new();
+    let key_meta = report.key_meta.unwrap_or_default();
     for (email, stat) in report.stats {
         let receipt = receipt_id_for(node_id, batch_key, &email);
+        let meta = key_meta.get(&email);
+        let protocol = meta
+            .and_then(|m| m.protocol.as_deref())
+            .and_then(|s| s.parse::<Protocol>().ok());
+        let inbound_tag = meta
+            .and_then(|m| m.inbound_tag.clone())
+            .filter(|s| !s.is_empty());
         let outcome = add_traffic(
             state,
             node_id,
@@ -392,8 +400,8 @@ pub async fn record_report(state: &AppState, node_id: &str, report: TrafficRepor
             stat.unmetered,
             receipt.clone(),
             batch_id.clone(),
-            None,
-            None,
+            protocol,
+            inbound_tag,
         )
         .await;
         match outcome {

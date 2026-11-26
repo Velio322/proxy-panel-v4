@@ -43,8 +43,7 @@ pub use wire::{
     NetworkTelemetry, NodeUser, PortShareConfig, ProcessMemoryTelemetry, ProcessTelemetry,
     Protocol, RegisterRequest, RegisterResponse, RegisterSystemInfo, RoutingRuleConfig,
     SessionsList, StatusReport, StatusTrafficSummary, TrafficAck, TrafficCapability,
-    TrafficCounter, TrafficMode, TrafficReport, UptimeTelemetry, WireError, MAX_SAFE_BYTES,
-    is_allowed_core_download_url, NodeControlAction, NodeControlCmd, TrafficAckRequest,
-    TrafficCollectResponse,
-    MAX_TRAFFIC_ENTRIES, MAX_TRAFFIC_KEY_LEN,
+    TrafficCounter, TrafficKeyMeta, TrafficMode, TrafficReport, UptimeTelemetry, WireError,
+    MAX_SAFE_BYTES, is_allowed_core_download_url, NodeControlAction, NodeControlCmd,
+    TrafficAckRequest, TrafficCollectResponse, MAX_TRAFFIC_ENTRIES, MAX_TRAFFIC_KEY_LEN,
 };
