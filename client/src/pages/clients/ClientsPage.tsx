@@ -26,7 +26,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   PageHero,
   RackEmptyState,
-  SplitBar,
   StatusFilterPills,
   ViewModeToggle,
 } from '@/components/ui/PagePrimitives';
@@ -39,7 +38,7 @@ import { BulkAssignNodesModal } from '@/components/modals/BulkAssignNodesModal';
 import { ClientRow } from '@/pages/clients/components/ClientRow';
 import { ClientBladeCard } from '@/pages/clients/components/ClientBladeCard';
 import { clientsApi, dashboardApi, getApiErrorMessage, nodesApi, plansApi } from '@/lib/api';
-import { PROTOCOLS, formatBytes } from '@/lib/core-utils';
+import { PROTOCOLS, cn, formatBytes } from '@/lib/core-utils';
 import { useTranslation } from '@/lib/i18n';
 import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
@@ -314,112 +313,35 @@ export function ClientsPage() {
         }
       />
 
-      {/* 4-Card Client Telemetry Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3 space-y-2.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'База клиентов' : 'Client Fleet'}</span>
-            <Users className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold tabular-nums">{clientStats.globalTotal}</span>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {clientStats.globalActive} {isRu ? 'акт.' : 'act.'} · {clientStats.globalBanned}{' '}
-              {isRu ? 'блок.' : 'ban.'}
-            </span>
-          </div>
-          <SplitBar
-            segments={[
-              {
-                pct:
-                  clientStats.globalTotal > 0
-                    ? (clientStats.globalActive / clientStats.globalTotal) * 100
-                    : 100,
-                className: 'bg-emerald-400',
-              },
-              {
-                pct:
-                  clientStats.globalTotal > 0
-                    ? (clientStats.globalBanned / clientStats.globalTotal) * 100
-                    : 0,
-                className: 'bg-red-500',
-              },
-            ]}
-          />
-        </Card>
-
-        <Card className="p-3 space-y-2.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Потреблённый трафик' : 'Consumed Traffic'}</span>
-            <Activity className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {formatBytes(clientStats.totalUsed, { locale: language })}
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center justify-between font-mono text-[11px] tabular-nums">
-              <span className="text-emerald-400">
-                ↓ {formatBytes(clientStats.totalDl, { compact: true, locale: language })}
-              </span>
-              <span className="text-cyan-400">
-                ↑ {formatBytes(clientStats.totalUl, { compact: true, locale: language })}
-              </span>
-            </div>
-            <SplitBar
-              segments={[
-                { pct: clientStats.dlPct, className: 'bg-emerald-400' },
-                { pct: 100 - clientStats.dlPct, className: 'bg-cyan-400' },
-              ]}
-            />
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Маршрутизация по нодам' : 'Node Pinning'}</span>
-            <Server className="h-4 w-4 text-primary" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold tabular-nums">{clientStats.pinnedCount}</span>
-            <span className="text-xs text-muted-foreground">
-              {isRu ? `привязаны · ${clientStats.allNodesCount} все ноды` : `pinned · ${clientStats.allNodesCount} all nodes`}
-            </span>
-          </div>
-          <SplitBar
-            segments={[
-              {
-                pct: clients.length > 0 ? (clientStats.allNodesCount / clients.length) * 100 : 100,
-                className: 'bg-emerald-400',
-              },
-              {
-                pct: clients.length > 0 ? (clientStats.pinnedCount / clients.length) * 100 : 0,
-                className: 'bg-cyan-400',
-              },
-              {
-                pct: clients.length > 0 ? (clientStats.noNodesCount / clients.length) * 100 : 0,
-                className: 'bg-amber-400',
-              },
-            ]}
-          />
-        </Card>
-
-        <Card className="p-3 space-y-2.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Контроль квот и сроков' : 'Quota & Expiry Watch'}</span>
-            <ShieldAlert className="h-4 w-4 text-amber-400" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold tabular-nums">
-              {clientStats.expiringOrHighQuota}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {isRu ? '< 7 дн. или > 85% лимита' : '< 7d or > 85% quota'}
-            </span>
-          </div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? `Доступно тарифов: ${plans.length}` : `Active plans available: ${plans.length}`}
-          </div>
-        </Card>
+      {/* Compact KPI strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-medium text-muted-foreground">
+          <Users className="h-3.5 w-3.5 text-emerald-400" />
+          <span className="font-mono font-bold tabular-nums text-foreground">{clientStats.globalTotal}</span>
+          {isRu ? 'клиентов' : 'clients'}
+          <span className="text-emerald-500">· {clientStats.globalActive} {isRu ? 'акт.' : 'act.'}</span>
+          <span className="text-red-400">· {clientStats.globalBanned} {isRu ? 'блок.' : 'ban.'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Activity className="h-3 w-3 text-cyan-400" />
+          <span className="text-foreground">{formatBytes(clientStats.totalUsed, { locale: language })}</span>
+          <span className="text-emerald-400">↓{formatBytes(clientStats.totalDl, { compact: true, locale: language })}</span>
+          <span className="text-cyan-400">↑ {formatBytes(clientStats.totalUl, { compact: true, locale: language })}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Server className="h-3 w-3 text-primary" />
+          <span className="text-foreground">{clientStats.pinnedCount}</span> {isRu ? 'привязаны' : 'pinned'}
+          <span>· {clientStats.allNodesCount} {isRu ? 'все ноды' : 'all-nodes'}</span>
+          <span>· {clientStats.noNodesCount} {isRu ? 'без нод' : 'none'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <ShieldAlert className="h-3 w-3 text-amber-400" />
+          <span className={cn('font-bold', clientStats.expiringOrHighQuota > 0 ? 'text-amber-500' : 'text-muted-foreground')}>
+            {clientStats.expiringOrHighQuota}
+          </span>
+          {isRu ? 'в зоне риска' : 'at risk'}
+          <span className="text-muted-foreground">· {plans.length} {isRu ? 'тарифов' : 'plans'}</span>
+        </span>
       </div>
 
       {/* Bulk Action Bar */}

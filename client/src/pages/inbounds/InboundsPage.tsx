@@ -30,7 +30,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   PageHero,
   RackEmptyState,
-  SplitBar,
   StatusFilterPills,
   ViewModeToggle,
 } from '@/components/ui/PagePrimitives';
@@ -209,96 +208,31 @@ export function InboundsPage() {
         }
       />
 
-      {/* 4-Card Protocols KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3 space-y-2.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Протоколы (Inbounds)' : 'Total Inbounds'}</span>
-            <Network className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold tabular-nums">
-              {stats.enabled} / {stats.total}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {stats.disabled} {isRu ? 'откл.' : 'off'}
-            </span>
-          </div>
-          <SplitBar
-            segments={[
-              { pct: stats.total > 0 ? (stats.enabled / stats.total) * 100 : 100, className: 'bg-emerald-400' },
-              { pct: stats.total > 0 ? (stats.disabled / stats.total) * 100 : 0, className: 'bg-zinc-600' },
-            ]}
-          />
-        </Card>
-
-        <Card className="p-3 space-y-2.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Распределение по ядрам' : 'Core Engines'}</span>
-            <Cpu className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="grid grid-cols-4 gap-1.5 pt-0.5 text-center font-mono text-xs">
-            <div className="rack-inset rounded-md py-1.5">
-              <div className="text-[10px] text-muted-foreground">Xray</div>
-              <div className="font-bold">{stats.cores.xray}</div>
-            </div>
-            <div className="rack-inset rounded-md py-1.5">
-              <div className="text-[10px] text-muted-foreground">SB</div>
-              <div className="font-bold">{stats.cores.singbox}</div>
-            </div>
-            <div className="rack-inset rounded-md py-1.5">
-              <div className="text-[10px] text-muted-foreground">Naive</div>
-              <div className="font-bold">{stats.cores.naive}</div>
-            </div>
-            <div className="rack-inset rounded-md py-1.5">
-              <div className="text-[10px] text-muted-foreground">Mieru</div>
-              <div className="font-bold">{stats.cores.mieru}</div>
-            </div>
-            <div className="rack-inset rounded-md py-1.5">
-              <div className="text-[10px] text-muted-foreground">TG</div>
-              <div className="font-bold">{stats.cores.telemt}</div>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Покрытие нод' : 'Node Coverage'}</span>
-            <Server className="h-4 w-4 text-primary" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold tabular-nums">
-              {stats.coveredNodes} / {nodes.length}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {isRu ? 'нод с протоколами' : 'nodes configured'}
-            </span>
-          </div>
-          <SplitBar
-            segments={[
-              {
-                pct: nodes.length > 0 ? (stats.coveredNodes / nodes.length) * 100 : 100,
-                className: 'bg-primary',
-              },
-            ]}
-          />
-        </Card>
-
-        <Card className="p-3 space-y-2.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Sniffing и Port-Share' : 'Sniffing & Port-Share'}</span>
-            <Shield className="h-4 w-4 text-amber-400" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold tabular-nums">{stats.sniffingCount}</span>
-            <span className="text-xs text-muted-foreground">
-              {isRu ? `sniffing · ${stats.totalShares} доп. портов` : `sniffing · ${stats.totalShares} shares`}
-            </span>
-          </div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Авто-детекция TLS/HTTP/QUIC трафика' : 'Deep packet protocol detection active'}
-          </div>
-        </Card>
+      {/* Compact KPI strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Network className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{stats.enabled}</span>
+          <span className="text-muted-foreground">/ {stats.total} {isRu ? 'активны' : 'enabled'}</span>
+          {stats.disabled > 0 && <span className="text-zinc-500">· {stats.disabled} {isRu ? 'откл.' : 'off'}</span>}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Cpu className="h-3 w-3 text-cyan-400" />
+          Xray <span className="font-bold text-foreground">{stats.cores.xray}</span>
+          <span>· SB {stats.cores.singbox}</span>
+          <span>· Naive {stats.cores.naive}</span>
+          <span>· Mieru {stats.cores.mieru}</span>
+          <span>· TG {stats.cores.telemt}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Server className="h-3 w-3 text-primary" />
+          <span className="text-foreground">{stats.coveredNodes}</span>/ {nodes.length} {isRu ? 'нод с протоколами' : 'nodes covered'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Shield className="h-3 w-3 text-amber-400" />
+          <span className="text-foreground">{stats.sniffingCount}</span> {isRu ? 'sniffing' : 'sniffing'}
+          <span>· {stats.totalShares} {isRu ? 'доп. портов' : 'shares'}</span>
+        </span>
       </div>
 
       {/* Filter Toolbar */}
