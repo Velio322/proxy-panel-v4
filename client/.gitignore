@@ -1,0 +1,7 @@
+client/tsconfig.node.tsbuildinfo
+client/tsconfig.tsbuildinfo
+client/vite.config.d.ts
+*.tsbuildinfo
+client/vite.config.d.ts
+vite.config.d.ts
+vite.config.js
