@@ -76,6 +76,14 @@ api.interceptors.response.use(
     if (status === 401 && !isAuthProbe) {
       onUnauthorizedCallback?.();
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        try {
+          window.sessionStorage.setItem(
+            'auth_return_to',
+            `${window.location.pathname}${window.location.search}`,
+          );
+        } catch {
+          // Session storage unavailable (private mode) — fall back to plain redirect.
+        }
         window.location.assign('/login');
       }
     }

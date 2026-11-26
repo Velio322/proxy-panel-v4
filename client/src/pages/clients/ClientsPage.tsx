@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useDeferredValue } from 'react';
 import {
   Activity,
   ArrowRightLeft,
@@ -99,11 +100,12 @@ export function ClientsPage() {
     [nodes],
   );
 
+  const deferredSearch = useDeferredValue(search);
   const { data: res, isLoading } = useQuery({
-    queryKey: ['clients', search, bannedFilter, protocolFilter, nodeFilter, page],
+    queryKey: ['clients', deferredSearch, bannedFilter, protocolFilter, nodeFilter, page],
     queryFn: () =>
       clientsApi.list({
-        search: search.trim() || undefined,
+        search: deferredSearch.trim() || undefined,
         banned: bannedFilter === 'all' ? undefined : bannedFilter,
         protocol: protocolFilter === 'all' ? undefined : protocolFilter,
         nodeId: nodeFilter === 'all' ? undefined : nodeFilter,
@@ -249,9 +251,16 @@ export function ClientsPage() {
   };
 
   const handleCopyUuid = async (c: Client) => {
-    await navigator.clipboard.writeText(c.uuid);
-    setCopiedUuidId(c.id);
-    window.setTimeout(() => setCopiedUuidId(null), 1500);
+    try {
+      await navigator.clipboard.writeText(c.uuid);
+      setCopiedUuidId(c.id);
+      window.setTimeout(() => setCopiedUuidId(null), 1500);
+    } catch {
+      toast({
+        title: isRu ? 'Не удалось скопировать' : 'Copy failed',
+        variant: 'destructive',
+      });
+    }
   };
 
   const openEdit = (c: Client, tab: EditClientTab = 'profile') => {

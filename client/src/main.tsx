@@ -1,8 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from '@/App';
+import { toast } from '@/hooks/use-toast';
+import { useUiStore } from '@/lib/store';
 import '@/index.css';
 
 const queryClient = new QueryClient({
@@ -15,6 +17,18 @@ const queryClient = new QueryClient({
       refetchIntervalInBackground: false,
     },
   },
+  queryCache: new QueryCache({
+    onError: (error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 401) return;
+      const ru = useUiStore.getState().language !== 'en';
+      toast({
+        title: ru ? 'Ошибка загрузки данных' : 'Failed to load data',
+        description: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      });
+    },
+  }),
 });
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

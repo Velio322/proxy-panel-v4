@@ -1,5 +1,7 @@
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import {
   ChevronRight,
   LogOut,
@@ -74,12 +76,20 @@ export function MainLayout() {
   const location = useLocation();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const queryClient = useQueryClient();
   const theme = useUiStore((s) => s.theme);
   const toggleTheme = useUiStore((s) => s.toggleTheme);
   const healthStatus = usePublicConfigStore((s) => s.healthStatus);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      api.get('/auth/me').catch(() => undefined);
+    }, 10 * 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const breadcrumbs = useMemo(() => {
     const parts = location.pathname.split('/').filter(Boolean);
@@ -94,6 +104,7 @@ export function MainLayout() {
 
   const handleLogout = async () => {
     await logout();
+    queryClient.clear();
     navigate('/login');
   };
 

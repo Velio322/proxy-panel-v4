@@ -51,9 +51,23 @@ export function LoginPage() {
   const displayName = branding.panelName || DEFAULT_PANEL_NAME;
   const versionBadge = healthVersion ? `v${healthVersion.replace(/^v/i, '')}` : 'v4.0.0';
 
+  const returnTo = (): string => {
+    let target = '/';
+    try {
+      const saved = window.sessionStorage.getItem('auth_return_to');
+      if (saved?.startsWith('/') && !saved.startsWith('//')) {
+        target = saved;
+      }
+      window.sessionStorage.removeItem('auth_return_to');
+    } catch {
+      // Session storage unavailable — default to home.
+    }
+    return target;
+  };
+
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/', { replace: true });
+      navigate(returnTo(), { replace: true });
     }
   }, [isAuthenticated, navigate]);
 
@@ -67,7 +81,7 @@ export function LoginPage() {
       setSubmitting(true);
       try {
         await loginWithTelegram(tgUser);
-        navigate('/', { replace: true });
+        navigate(returnTo(), { replace: true });
       } catch (err) {
         setError(getApiErrorMessage(err, 'Telegram login failed'));
       } finally {
@@ -98,7 +112,7 @@ export function LoginPage() {
     try {
       const res = await login(username.trim(), password);
       if (!res.requires2fa) {
-        navigate('/', { replace: true });
+        navigate(returnTo(), { replace: true });
       }
     } catch (err) {
       setError(getApiErrorMessage(err, t('auth.invalidCredentials')));
@@ -113,7 +127,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await verify2fa(totpCode.trim());
-      navigate('/', { replace: true });
+      navigate(returnTo(), { replace: true });
     } catch (err) {
       setError(getApiErrorMessage(err, 'Invalid 2FA code'));
     } finally {
@@ -126,7 +140,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await loginWithPasskey(username.trim() || undefined);
-      navigate('/', { replace: true });
+      navigate(returnTo(), { replace: true });
     } catch (err) {
       setError(getApiErrorMessage(err, 'Passkey authentication failed'));
     } finally {

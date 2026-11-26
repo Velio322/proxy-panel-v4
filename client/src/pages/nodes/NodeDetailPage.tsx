@@ -93,6 +93,10 @@ export function NodeDetailPage() {
   const [clientSearch, setClientSearch] = useState('');
   const [liveSamples, setLiveSamples] = useState<Array<{ time: string; cpu: number; mem: number }>>([]);
 
+  useEffect(() => {
+    setLiveSamples([]);
+  }, [id]);
+
   const { data: node } = useQuery({
     queryKey: ['node', id],
     queryFn: () => nodesApi.get(id),

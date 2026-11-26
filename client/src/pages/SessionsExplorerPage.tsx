@@ -50,7 +50,11 @@ export function SessionsExplorerPage() {
         search: search.trim() || undefined,
       });
     },
-    refetchInterval: autoRefresh === 'off' ? false : Number(autoRefresh),
+    refetchInterval: (() => {
+      if (autoRefresh === 'off') return false;
+      const v = Number(autoRefresh);
+      return Number.isFinite(v) && v >= 5_000 ? v : false;
+    })(),
   });
 
   const dropMut = useMutation({

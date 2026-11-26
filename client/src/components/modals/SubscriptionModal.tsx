@@ -389,7 +389,7 @@ export function SubscriptionModal({ open, onOpenChange, client }: SubscriptionMo
               </div>
               <div className="flex flex-wrap justify-center gap-2 text-xs">
                 <a
-                  href={`happ://add/${subUrl}`}
+                  href={`happ://add/${encodeURIComponent(subUrl)}`}
                   className="rounded-md border px-2.5 py-1 hover:bg-accent"
                 >
                   {isRu ? 'Открыть в Happ' : 'Open in Happ'}
