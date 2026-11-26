@@ -29,12 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
-import {
-  MeterBar,
-  RadialGauge,
-  formatUptime,
-  latencyBadgeClass,
-} from '@/components/nodes/NodeTelemetryPrimitives';
+import { MeterBar, formatUptime, latencyBadgeClass } from '@/components/nodes/NodeTelemetryPrimitives';
 import { dashboardApi, monitoringApi, nodesApi } from '@/lib/api';
 import {
   PROTOCOL_COLORS,
@@ -495,22 +490,24 @@ export function DashboardPage() {
               {hostTelemetry?.cpu.count ? `${hostTelemetry.cpu.count} vCPU` : 'HOST'}
             </Badge>
           </CardHeader>
-          <CardContent className="space-y-3.5 text-xs">
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="rack-inset flex flex-col items-center justify-center rounded-xl p-2 text-center">
-                <RadialGauge value={cpuPct} tone="emerald" size={56} label="CPU" />
-                <span className="mt-1.5 text-[11px] text-muted-foreground">{t('dashboard.cpuLoad')}</span>
-              </div>
-              <div className="rack-inset flex flex-col items-center justify-center rounded-xl p-2 text-center">
-                <RadialGauge value={memPct} tone="cyan" size={56} label="RAM" />
-                <span className="mt-1.5 text-[11px] text-muted-foreground">
+          <CardContent className="space-y-2.5 text-xs">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border/70 bg-background/50 px-2 py-1.5 font-mono tabular-nums">
+              <span className="inline-flex items-center gap-1">
+                <Cpu className="h-3 w-3 text-emerald-400" />
+                <span className="font-bold text-foreground">{cpuPct !== null ? `${cpuPct.toFixed(0)}%` : '—'}</span>
+                <span className="text-muted-foreground">CPU</span>
+              </span>
+              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                <HardDrive className="h-3 w-3 text-cyan-400" />
+                <span className="font-semibold text-foreground">{memPct !== null ? `${memPct.toFixed(0)}%` : '—'}</span>
+                RAM
+                <span>
                   {hostTelemetry?.memory.usedBytes && hostTelemetry?.memory.totalBytes
                     ? `${formatBytes(hostTelemetry.memory.usedBytes, { compact: true, locale: language })} / ${formatBytes(hostTelemetry.memory.totalBytes, { compact: true, locale: language })}`
-                    : t('dashboard.memUsage')}
+                    : ''}
                 </span>
-              </div>
+              </span>
             </div>
-
             <div className="grid grid-cols-2 gap-2 font-mono text-[11px] tabular-nums">
               <div className="rack-inset rounded-lg p-2">
                 <div className="text-[10px] uppercase text-muted-foreground">Load Avg</div>

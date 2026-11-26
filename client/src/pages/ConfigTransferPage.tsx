@@ -128,31 +128,24 @@ export function ConfigTransferPage() {
         }
       />
 
-      {/* 3-Card Summary Strip */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="p-3 space-y-1">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Схема данных' : 'Schema Engine'}</span>
-            <FileCode2 className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="font-mono text-xl font-bold">v1 / v2 Topology</div>
-        </Card>
-        <Card className="p-3 space-y-1">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Безопасный импорт' : 'Safe Dry-Run'}</span>
-            <ShieldCheck className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="font-mono text-xl font-bold">Upsert / Create-Only</div>
-        </Card>
-        <Card className="p-3 space-y-1">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Проверка синтаксиса' : 'Live Validation'}</span>
-            <ArrowRightLeft className="h-4 w-4 text-primary" />
-          </div>
-          <div className="font-mono text-xl font-bold">
+      {/* Config transfer KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <FileCode2 className="h-3 w-3 text-emerald-400" />
+          <span className="font-semibold text-foreground">v1 / v2 Topology</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <ShieldCheck className="h-3 w-3 text-cyan-400" />
+          <span className="font-semibold text-foreground">Upsert / Create-Only</span>
+          <span>{isRu ? 'схема' : 'schema'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <ArrowRightLeft className="h-3 w-3 text-primary" />
+          <span className="font-bold text-foreground">
             {importErrors.length === 0 ? (isRu ? 'ОК' : 'Valid') : `${importErrors.length} Err`}
-          </div>
-        </Card>
+          </span>
+          {isRu ? 'синтаксис' : 'validation'}
+        </span>
       </div>
 
       <Tabs defaultValue="export">

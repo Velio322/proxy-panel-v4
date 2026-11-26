@@ -24,12 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
-import {
-  MeterBar,
-  RadialGauge,
-  formatUptime,
-  latencyBadgeClass,
-} from '@/components/nodes/NodeTelemetryPrimitives';
+import { MeterBar, formatUptime, latencyBadgeClass } from '@/components/nodes/NodeTelemetryPrimitives';
 import { monitoringApi, nodesApi } from '@/lib/api';
 import { cn, formatBps, formatBytes } from '@/lib/core-utils';
 import { useUiStore } from '@/lib/store';
@@ -305,63 +300,35 @@ export function MonitoringPage() {
             />
           ) : (
             <div className="space-y-4">
-              {/* 4 Node Instrument Cards */}
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
-                <div className="rack-inset flex items-center gap-2.5 rounded-xl p-2">
-                  <RadialGauge value={nodeCpu} tone="emerald" size={64} label="CPU" />
-                  <div className="space-y-1">
-                    <div className="text-muted-foreground">CPU</div>
-                    <div className="font-mono text-lg font-bold tabular-nums">
-                      {nodeCpu !== null ? `${nodeCpu.toFixed(1)}%` : '—'}
-                    </div>
-                    <div className="font-mono text-[11px] text-muted-foreground">
-                      {activeNode?.arch || m?.cores?.arch || 'x86_64'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rack-inset flex items-center gap-2.5 rounded-xl p-2">
-                  <RadialGauge value={nodeMem} tone="cyan" size={64} label="RAM" />
-                  <div className="space-y-1">
-                    <div className="text-muted-foreground">{isRu ? 'Память' : 'Memory'}</div>
-                    <div className="font-mono text-lg font-bold tabular-nums">
-                      {nodeMem !== null ? `${nodeMem.toFixed(1)}%` : '—'}
-                    </div>
-                    <div className="font-mono text-[11px] text-muted-foreground">
-                      {isRu ? 'Агент:' : 'Agent:'} v{m?.version || activeNode?.version || '4.0'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rack-inset flex flex-col justify-between rounded-xl p-2">
-                  <div className="text-muted-foreground">
-                    {isRu ? 'Онлайн-клиенты и сокеты' : 'Online Users & Sockets'}
-                  </div>
-                  <div className="my-1 font-mono text-xl font-bold tabular-nums">
-                    {m?.onlineUsersCount !== undefined ? m.onlineUsersCount : 0}{' '}
-                    <span className="text-xs font-normal text-muted-foreground">
-                      {isRu ? 'клиентов' : 'users'}
-                    </span>
-                  </div>
-                  <div className="font-mono text-[11px] text-muted-foreground tabular-nums">
-                    TCP {m?.tcpConnections ?? '—'} · UDP {m?.udpSockets ?? '—'} ·{' '}
-                    {formatUptime(m?.uptime, isRu)}
-                  </div>
-                </div>
-
-                <div className="rack-inset flex flex-col justify-between rounded-xl p-2">
-                  <div className="text-muted-foreground">
-                    {isRu ? 'Пропускная способность' : 'Live Throughput'}
-                  </div>
-                  <div className="my-1 space-y-0.5 font-mono text-sm font-bold tabular-nums">
-                    <div className="text-emerald-400">↓ {formatBps(m?.downloadBps, language)}</div>
-                    <div className="text-cyan-400">↑ {formatBps(m?.uploadBps, language)}</div>
-                  </div>
-                  <div className="font-mono text-[11px] text-muted-foreground tabular-nums">
-                    Σ ↓ {formatBytes(activeNode?.netDownload ?? 0, { compact: true, locale: language })} · ↑{' '}
-                    {formatBytes(activeNode?.netUpload ?? 0, { compact: true, locale: language })}
-                  </div>
-                </div>
+              {/* Node vitals chip strip */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+                <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+                  <Cpu className="h-3 w-3 text-emerald-400" />
+                  <span className="font-bold text-foreground">{nodeCpu !== null ? `${nodeCpu.toFixed(0)}%` : '—'}</span>
+                  CPU
+                  <span className="text-muted-foreground">· {activeNode?.arch || m?.cores?.arch || 'x86_64'}</span>
+                </span>
+                <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+                  <HardDrive className="h-3 w-3 text-cyan-400" />
+                  <span className="font-bold text-foreground">{nodeMem !== null ? `${nodeMem.toFixed(0)}%` : '—'}</span>
+                  {isRu ? 'память' : 'mem'}
+                  <span>· {isRu ? 'агент' : 'agent'} v{m?.version || activeNode?.version || '4.0'}</span>
+                </span>
+                <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+                  <Network className="h-3 w-3 text-primary" />
+                  <span className="text-cyan-400 font-semibold">↓ {formatBps(m?.downloadBps, language)}</span>
+                  <span className="text-emerald-400 font-semibold">↑ {formatBps(m?.uploadBps, language)}</span>
+                  <span>Σ ↓ {formatBytes(activeNode?.netDownload ?? 0, { compact: true, locale: language })}</span>
+                  <span>· ↑ {formatBytes(activeNode?.netUpload ?? 0, { compact: true, locale: language })}</span>
+                </span>
+                <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+                  <Activity className="h-3 w-3 text-teal-400" />
+                  <span className="font-bold text-foreground">{m?.onlineUsersCount !== undefined ? m.onlineUsersCount : 0}</span>
+                  {isRu ? 'онлайн' : 'online'}
+                  <span>· TCP {m?.tcpConnections ?? '—'}</span>
+                  <span>· UDP {m?.udpSockets ?? '—'}</span>
+                  <span>· {formatUptime(m?.uptime, isRu)}</span>
+                </span>
               </div>
 
               {/* 4-Core Engine Status Matrix */}
