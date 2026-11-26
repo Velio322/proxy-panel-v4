@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, RefreshCw, ScrollText } from 'lucide-react';
+import { ChevronDown, ChevronRight, RefreshCw, ScrollText, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -103,24 +103,25 @@ export function AuditPage() {
         }
       />
 
-      {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="p-3 space-y-1">
-          <div className="text-xs text-muted-foreground">{isRu ? 'Всего записей' : 'Total Events'}</div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{total}</div>
-        </Card>
-        <Card className="p-3 space-y-1">
-          <div className="text-xs text-muted-foreground">{isRu ? 'Изменения / Удаления (стр.)' : 'Updates / Deletions (page)'}</div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            <span className="text-emerald-400">{kpis.mutations}</span> /{' '}
-            <span className="text-red-400">{kpis.destructive}</span>
-          </div>
-        </Card>
-        <Card className="p-3 space-y-1">
-          <div className="text-xs text-muted-foreground">{isRu ? 'Активные операторы' : 'Active Actors'}</div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{kpis.actors}</div>
-        </Card>
+      {/* Audit KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <ScrollText className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{total}</span>
+          {isRu ? 'записей' : 'events'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          {isRu ? 'изменения/удаления (стр.):' : 'mutations/deletions (page):'}
+          <span className="font-bold text-emerald-400">{kpis.mutations}</span>
+          <span className="font-bold text-red-400">/ {kpis.destructive}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Users className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">{kpis.actors}</span>
+          {isRu ? 'операторов' : 'actors'}
+        </span>
       </div>
+
 
       {/* Filter Bar */}
       <Card>

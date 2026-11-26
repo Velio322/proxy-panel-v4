@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
-import { PageHero, RackEmptyState, SplitBar } from '@/components/ui/PagePrimitives';
+import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
 import { clientsApi, getApiErrorMessage, inspectorsApi } from '@/lib/api';
 import { cn, formatDateTime } from '@/lib/core-utils';
 import { useUiStore } from '@/lib/store';
@@ -164,16 +164,10 @@ export function InspectorsPage() {
             <span>{isRu ? 'Запросы подписок (SRH)' : 'Subscription Requests (SRH)'}</span>
             <FileText className="h-4 w-4 text-emerald-400" />
           </div>
-          <div className="mt-1.5 font-mono text-2xl font-bold tabular-nums">
+          <div className="mt-0.5 font-mono text-sm font-bold tabular-nums">
             {srhData?.total ?? srhEntries.length}
+            <span className="ml-2 text-[11px] font-normal text-emerald-500">{srhOkPct.toFixed(0)}% {isRu ? 'ok' : 'ok'}</span>
           </div>
-          <SplitBar
-            className="mt-2"
-            segments={[
-              { pct: srhOkPct, className: 'bg-emerald-400' },
-              { pct: 100 - srhOkPct, className: 'bg-red-500' },
-            ]}
-          />
         </button>
 
         <button
@@ -189,8 +183,8 @@ export function InspectorsPage() {
             <span>{isRu ? 'Реестр HWID устройств' : 'HWID Device Registry'}</span>
             <Smartphone className="h-4 w-4 text-cyan-400" />
           </div>
-          <div className="mt-1.5 flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold tabular-nums">
+          <div className="mt-0.5 flex items-baseline justify-between">
+            <span className="font-mono text-sm font-bold tabular-nums">
               {hwidData?.total ?? hwidEntries.length}
             </span>
             {hwidCollisionSet.size > 0 && (
@@ -199,8 +193,8 @@ export function InspectorsPage() {
               </Badge>
             )}
           </div>
-          <div className="mt-1.5 text-[11px] text-muted-foreground">
-            {isRu ? 'Привязка аппаратных идентификаторов' : 'Hardware ID device bindings'}
+          <div className="text-[11px] text-muted-foreground">
+            {isRu ? 'Привязка HWID' : 'Hardware ID bindings'}
           </div>
         </button>
 
@@ -217,11 +211,11 @@ export function InspectorsPage() {
             <span>{isRu ? 'Блокировщик торрентов' : 'Torrent Blocker'}</span>
             <ShieldAlert className="h-4 w-4 text-amber-400" />
           </div>
-          <div className="mt-1.5 font-mono text-2xl font-bold tabular-nums">
+          <div className="mt-0.5 font-mono text-sm font-bold tabular-nums">
             {torrentData?.total ?? torrentEntries.length}
           </div>
-          <div className="mt-1.5 text-[11px] text-muted-foreground">
-            {isRu ? 'Срабатывания правил BitTorrent' : 'BitTorrent enforcement events'}
+          <div className="text-[11px] text-muted-foreground">
+            {isRu ? 'Срабатывания BitTorrent' : 'BitTorrent events'}
           </div>
         </button>
       </div>

@@ -127,66 +127,31 @@ export function ClientTrafficPage() {
         }
       />
 
-      {/* 4-Card Summary Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Использовано трафика' : 'Used Traffic'}</span>
-            <Activity className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {formatBytes(used, { locale: language })}
-          </div>
-          <MeterBar value={limit > 0 ? pct : 35} tone="emerald" />
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Лимит и сброс' : 'Quota & Reset'}</span>
-            <Calendar className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {limit > 0 ? formatBytes(limit, { locale: language }) : isRu ? 'Безлимит' : 'Unlimited'}
-          </div>
-          <div className="text-[11px] text-muted-foreground">
-            {client?.nextTrafficResetAt
-              ? `${isRu ? 'Сброс:' : 'Next reset:'} ${formatDate(client.nextTrafficResetAt, undefined, timezone)}`
-              : isRu
-                ? `Истекает: ${client?.expireAt ? formatDate(client.expireAt, undefined, timezone) : 'Никогда'}`
-                : `Expires: ${client?.expireAt ? formatDate(client.expireAt, undefined, timezone) : 'Never'}`}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Задействовано нод' : 'Active Nodes'}</span>
-            <Server className="h-4 w-4 text-primary" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{nodeStats.length}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {client?.allNodes !== false
-              ? isRu
-                ? 'Доступ ко всем нодам'
-                : 'All nodes allowed'
-              : isRu
-                ? `Привязано нод: ${client?.nodes?.length ?? 0}`
-                : `Pinned nodes: ${client?.nodes?.length ?? 0}`}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'HWID Устройства' : 'HWID Devices'}</span>
-            <Smartphone className="h-4 w-4 text-amber-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {devices.length} / {client?.deviceLimit || '∞'}
-          </div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Зарегистрированные клиенты' : 'Registered client endpoints'}
-          </div>
-        </Card>
+      {/* Summary chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Activity className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{formatBytes(used, { locale: language })}</span>
+          <span className="text-muted-foreground">{limit > 0 ? `/ ${formatBytes(limit, { compact: true, locale: language })} (${pct}%)` : isRu ? '· безлимит' : 'unlimited'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Calendar className="h-3 w-3 text-cyan-400" />
+          {client?.nextTrafficResetAt
+            ? `${isRu ? 'сброс' : 'reset'} ${formatDate(client.nextTrafficResetAt, undefined, timezone)}`
+            : `${isRu ? 'истекает' : 'expires'}: ${client?.expireAt ? formatDate(client.expireAt, undefined, timezone) : '∞'}`}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Server className="h-3 w-3 text-primary" />
+          <span className="font-bold text-foreground">{nodeStats.length}</span>
+          {isRu ? 'нод' : 'nodes'}
+          <span>{client?.allNodes !== false ? (isRu ? '· все ноды' : '· all-nodes') : `· ${isRu ? 'привязано' : 'pinned'} ${client?.nodes?.length ?? 0}`}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Smartphone className="h-3 w-3 text-amber-400" />
+          <span className="font-bold text-foreground">{devices.length}</span>/ {client?.deviceLimit || '∞'} HWID
+        </span>
       </div>
+
 
       <Card>
         <CardHeader>

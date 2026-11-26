@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Edit, FileCode2, Plus, Shield, Trash2 } from 'lucide-react';
+import { Check, Edit, FileCode2, Layers, Plus, ScrollText, Shield, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -118,7 +118,7 @@ export function SubscriptionTemplatesPage() {
   });
 
   const defaultCount = templates.filter((t) => t.isDefault).length;
-  const distinctTypes = new Set(templates.map((t) => t.templateType)).size;
+  const formatCount = new Set(templates.map((t) => t.templateType)).size;
 
   return (
     <div className="space-y-5">
@@ -151,23 +151,25 @@ export function SubscriptionTemplatesPage() {
         }
       />
 
-      {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="p-3 space-y-1">
-          <div className="text-xs text-muted-foreground">{isRu ? 'Всего шаблонов' : 'Total Templates'}</div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{templates.length}</div>
-        </Card>
-        <Card className="p-3 space-y-1">
-          <div className="text-xs text-muted-foreground">{isRu ? 'Шаблоны по умолчанию' : 'Default Profiles'}</div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{defaultCount}</div>
-        </Card>
-        <Card className="p-3 space-y-1">
-          <div className="text-xs text-muted-foreground">{isRu ? 'Покрыто форматов' : 'Formats Covered'}</div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {distinctTypes} / {TEMPLATE_TYPES.length}
-          </div>
-        </Card>
+      {/* Templates KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <ScrollText className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{templates.length}</span>
+          {isRu ? 'шаблонов' : 'templates'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Check className="h-3 w-3 text-primary" />
+          <span className="font-bold text-foreground">{defaultCount}</span>
+          {isRu ? 'по умолчанию' : 'defaults'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Layers className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">{formatCount}</span>
+          {isRu ? 'форматов' : 'formats'}
+        </span>
       </div>
+
 
       {isLoading ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">

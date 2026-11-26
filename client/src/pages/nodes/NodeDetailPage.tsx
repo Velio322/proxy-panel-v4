@@ -43,7 +43,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NodeInstallModal } from '@/components/nodes/NodeInstallModal';
 import { NodeLogViewer } from '@/components/nodes/NodeLogViewer';
 import {
-  RadialGauge,
   formatRelativeAgo,
   formatUptime,
   latencyBadgeClass,
@@ -375,7 +374,6 @@ export function NodeDetailPage() {
   };
 
   const cpuPct = metrics?.cpuUsage ?? ht?.cpu?.usagePercent ?? node?.cpuUsage ?? null;
-  const memPct = metrics?.memUsage ?? ht?.memory?.usagePercent ?? node?.memUsage ?? null;
   const tcpCount = metrics?.tcpConnections ?? ht?.connections?.establishedTcp ?? null;
   const udpCount = metrics?.udpSockets ?? ht?.connections?.udpSockets ?? null;
   const uploadBps = metrics?.uploadBps ?? ht?.network?.uploadBps ?? null;
@@ -630,116 +628,41 @@ export function NodeDetailPage() {
 
         {/* Overview & Telemetry Tab */}
         <TabsContent value="telemetry" className="space-y-4">
-          {/* Row 1: 4 Visual Hardware & Network Instruments */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{t('dashboard.cpuLoad')}</span>
-                  <Cpu className="h-3.5 w-3.5 text-emerald-400" />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex items-center gap-3.5">
-                <RadialGauge value={cpuPct} tone="emerald" label="CPU" />
-                <div className="min-w-0 space-y-1 text-xs">
-                  <div className="font-mono font-semibold">
-                    {ht?.cpu?.count != null ? `${ht.cpu.count} vCPU` : isRu ? 'Процессор' : 'Host CPU'}
-                  </div>
-                  <div className="font-mono text-[11px] text-muted-foreground tabular-nums">
-                    Load:{' '}
-                    {ht?.cpu?.loadAverage
-                      ? ht.cpu.loadAverage.map((v) => v.toFixed(2)).join(' / ')
-                      : '—'}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{t('dashboard.memUsage')}</span>
-                  <HardDrive className="h-3.5 w-3.5 text-cyan-400" />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex items-center gap-3.5">
-                <RadialGauge value={memPct} tone="cyan" label="RAM" />
-                <div className="min-w-0 space-y-1 text-xs">
-                  <div className="font-mono font-semibold tabular-nums">
-                    {ht?.memory?.usedBytes != null && ht?.memory?.totalBytes != null
-                      ? `${formatBytes(ht.memory.usedBytes, { locale: language })} / ${formatBytes(ht.memory.totalBytes, { locale: language })}`
-                      : isRu
-                        ? 'Память хоста'
-                        : 'Host Memory'}
-                  </div>
-                  <div className="font-mono text-[11px] text-muted-foreground tabular-nums">
-                    Agent RSS:{' '}
-                    {ht?.process?.memory?.rss != null
-                      ? formatBytes(ht.process.memory.rss, { locale: language })
-                      : '—'}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{isRu ? 'Сетевой канал' : 'Network Throughput'}</span>
-                  <Network className="h-3.5 w-3.5 text-primary" />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1.5 text-xs">
-                <div className="flex items-center justify-between font-mono tabular-nums">
-                  <span className="text-emerald-400 font-semibold">
-                    ↓ {formatBps(downloadBps, language)}
-                  </span>
-                  <span className="text-cyan-400 font-semibold">
-                    ↑ {formatBps(uploadBps, language)}
-                  </span>
-                </div>
-                <div className="border-t border-border/60 pt-1.5 font-mono text-[11px] text-muted-foreground space-y-0.5 tabular-nums">
-                  <div>
-                    {isRu ? 'Счётчик ноды:' : 'Tunnel:'}{' '}
-                    <span className="text-foreground">
-                      ↓ {formatBytes(metrics?.traffic?.total?.download ?? node?.netDownload ?? 0, { locale: language })}
-                      {' · '}↑{' '}
-                      {formatBytes(metrics?.traffic?.total?.upload ?? node?.netUpload ?? 0, { locale: language })}
-                    </span>
-                  </div>
-                  {(ht?.network?.receivedBytes != null || ht?.network?.transmittedBytes != null) && (
-                    <div>
-                      NIC: RX {formatBytes(ht.network.receivedBytes ?? 0, { compact: true, locale: language })} · TX{' '}
-                      {formatBytes(ht.network.transmittedBytes ?? 0, { compact: true, locale: language })}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{isRu ? 'Подключения' : 'Connections'}</span>
-                  <Users className="h-3.5 w-3.5 text-emerald-400" />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-xs">
-                <div className="flex items-baseline justify-between">
-                  <span className="font-mono text-2xl font-bold text-emerald-400 tabular-nums">
-                    {metrics?.onlineUsersCount ?? 0}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {isRu ? 'активных клиентов' : 'online clients'}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-1.5 font-mono text-[11px] tabular-nums">
-                  <Badge variant="outline">TCP {tcpCount ?? '—'}</Badge>
-                  <Badge variant="outline">UDP {udpCount ?? '—'}</Badge>
-                  {node?.version && <Badge variant="secondary">v{node.version}</Badge>}
-                </div>
-              </CardContent>
-            </Card>
+          {/* Row 1: host vitals chip strip */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+            <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+              <Cpu className="h-3 w-3 text-emerald-400" />
+              <span className="font-bold text-foreground">{cpuPct != null ? `${cpuPct.toFixed(0)}%` : '—'}</span>
+              CPU
+              <span className="text-muted-foreground">· {ht?.cpu?.count != null ? `${ht.cpu.count} vCPU` : ''}</span>
+              <span>load {ht?.cpu?.loadAverage ? ht.cpu.loadAverage.map((v) => v.toFixed(2)).join('/') : '—'}</span>
+            </span>
+            <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+              <HardDrive className="h-3 w-3 text-cyan-400" />
+              <span className="font-semibold text-foreground">
+                {ht?.memory?.usedBytes != null && ht?.memory?.totalBytes != null
+                  ? `${formatBytes(ht.memory.usedBytes, { compact: true, locale: language })} / ${formatBytes(ht.memory.totalBytes, { compact: true, locale: language })}`
+                  : '—'}
+              </span>
+              <span>RSS {ht?.process?.memory?.rss != null ? formatBytes(ht.process.memory.rss, { compact: true, locale: language }) : '—'}</span>
+            </span>
+            <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+              <Network className="h-3 w-3 text-primary" />
+              <span className="text-emerald-400 font-semibold">↓ {formatBps(downloadBps, language)}</span>
+              <span className="text-cyan-400 font-semibold">↑ {formatBps(uploadBps, language)}</span>
+            </span>
+            <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+              <Users className="h-3 w-3 text-emerald-400" />
+              <span className="font-bold text-foreground">{metrics?.onlineUsersCount ?? 0}</span>
+              {isRu ? 'онлайн' : 'online'}
+              <span>· TCP {tcpCount ?? '—'}</span>
+              <span>· UDP {udpCount ?? '—'}</span>
+            </span>
+            <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+              <Network className="h-3 w-3 text-teal-400" />
+              <span className="text-foreground">↓ {formatBytes(metrics?.traffic?.total?.download ?? node?.netDownload ?? 0, { compact: true, locale: language })}</span>
+              <span>· TX {formatBytes(ht?.network?.transmittedBytes ?? 0, { compact: true, locale: language })}</span>
+            </span>
           </div>
 
           {/* Row 2: 4-Core Engine Matrix (7/12) + Assigned Inbounds (5/12) */}

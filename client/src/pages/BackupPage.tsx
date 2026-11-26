@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Download, HardDrive, Play, RefreshCw, Terminal } from 'lucide-react';
+import { Archive, Check, Clock, Copy, Database, Download, HardDrive, Play, RefreshCw, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { PageHero, RackEmptyState, SplitBar } from '@/components/ui/PagePrimitives';
+import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
 import { backupApi, getApiErrorMessage } from '@/lib/api';
 import { formatBytes, formatDateTime } from '@/lib/core-utils';
 import { useUiStore } from '@/lib/store';
@@ -115,35 +115,26 @@ export function BackupPage() {
         }
       />
 
-      {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="p-3 space-y-2">
-          <div className="text-xs text-muted-foreground">{isRu ? 'Успешные копии' : 'Successful Snapshots'}</div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {stats.ok} / {stats.total}
-          </div>
-          <SplitBar
-            segments={[
-              { pct: stats.total > 0 ? (stats.ok / stats.total) * 100 : 100, className: 'bg-emerald-400' },
-              { pct: stats.total > 0 ? (stats.failed / stats.total) * 100 : 0, className: 'bg-red-500' },
-            ]}
-          />
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="text-xs text-muted-foreground">{isRu ? 'Суммарный объём архивов' : 'Total Archive Size'}</div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {formatBytes(stats.totalBytes, { locale: language })}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="text-xs text-muted-foreground">{isRu ? 'Последний бэкап' : 'Latest Snapshot'}</div>
-          <div className="font-mono text-sm font-bold">
-            {stats.latest ? formatDateTime(stats.latest, timezone) : '—'}
-          </div>
-        </Card>
+      {/* Backup KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Database className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{stats.ok}</span>
+          <span className="text-muted-foreground">/ {stats.total} {isRu ? 'успешных' : 'ok'}</span>
+          {stats.failed > 0 && <span className="text-red-400">· {stats.failed} {isRu ? 'ошибок' : 'failed'}</span>}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Archive className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">{formatBytes(stats.totalBytes, { locale: language })}</span>
+          {isRu ? 'объём архивов' : 'archive size'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Clock className="h-3 w-3 text-primary" />
+          <span className="font-semibold text-foreground">{stats.latest ? formatDateTime(stats.latest, timezone) : '—'}</span>
+          {isRu ? 'последний' : 'latest'}
+        </span>
       </div>
+
 
       <div className="grid gap-3 lg:grid-cols-3">
         <Card className="lg:col-span-2">

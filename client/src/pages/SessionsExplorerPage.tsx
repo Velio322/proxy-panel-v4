@@ -185,60 +185,30 @@ export function SessionsExplorerPage() {
         }
       />
 
-      {/* 4-Card Sessions KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Активные туннели' : 'Active Connections'}</span>
-            <Activity className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{kpis.total}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Текущие открытые сессии' : 'Currently established sessions'}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Уникальные клиенты' : 'Unique Clients'}</span>
-            <Users className="h-4 w-4 text-primary" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{kpis.uniqueClients}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Авторизованные пользователи онлайн' : 'Authenticated users online'}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Уникальные IP' : 'Unique Source IPs'}</span>
-            <Globe className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{kpis.uniqueIps}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Внешние клиентские адреса' : 'Distinct remote endpoints'}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Трафик сессий' : 'Session Traffic'}</span>
-            <Server className="h-4 w-4 text-teal-400" />
-          </div>
-          <div className="font-mono text-lg font-bold tabular-nums">
-            <span className="text-emerald-400">
-              ↓ {formatBytes(kpis.totalDl, { compact: true, locale: language })}
-            </span>{' '}
-            ·{' '}
-            <span className="text-cyan-400">
-              ↑ {formatBytes(kpis.totalUl, { compact: true, locale: language })}
-            </span>
-          </div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'В рамках текущих подключений' : 'Transferred in active sessions'}
-          </div>
-        </Card>
+      {/* Sessions KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Activity className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{kpis.total}</span>
+          <span className="text-muted-foreground">{isRu ? 'активных туннелей' : 'active connections'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Users className="h-3 w-3 text-primary" />
+          <span className="font-bold text-foreground">{kpis.uniqueClients}</span>
+          {isRu ? 'клиентов' : 'clients'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Globe className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">{kpis.uniqueIps}</span>
+          {isRu ? 'уникальных IP' : 'source IPs'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Server className="h-3 w-3 text-teal-400" />
+          <span className="text-emerald-400">↓{formatBytes(kpis.totalDl, { compact: true, locale: language })}</span>
+          <span className="text-cyan-400">↑ {formatBytes(kpis.totalUl, { compact: true, locale: language })}</span>
+        </span>
       </div>
+
 
       {/* Filter Toolbar */}
       <Card>

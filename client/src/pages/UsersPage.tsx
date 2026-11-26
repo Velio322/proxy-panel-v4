@@ -29,7 +29,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { PageHero, RackEmptyState, SplitBar } from '@/components/ui/PagePrimitives';
+import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
 import { getApiErrorMessage, usersApi } from '@/lib/api';
 import { formatDateTime, randomPassword } from '@/lib/core-utils';
 import { useAuthStore, useUiStore } from '@/lib/store';
@@ -223,48 +223,26 @@ export function UsersPage() {
         }
       />
 
-      {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Аккаунты панели' : 'Panel Accounts'}</span>
-            <Users className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {stats.active} / {stats.total}
-          </div>
-          <SplitBar
-            segments={[
-              { pct: stats.total > 0 ? (stats.active / stats.total) * 100 : 100, className: 'bg-emerald-400' },
-              { pct: stats.total > 0 ? (stats.banned / stats.total) * 100 : 0, className: 'bg-red-500' },
-            ]}
-          />
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Защита 2FA (TOTP)' : '2FA Protected'}</span>
-            <Shield className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {stats.totp} / {stats.total}
-          </div>
-          <SplitBar
-            segments={[
-              { pct: stats.total > 0 ? (stats.totp / stats.total) * 100 : 0, className: 'bg-cyan-400' },
-            ]}
-          />
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Администраторы' : 'Privileged Admins'}</span>
-            <ShieldCheck className="h-4 w-4 text-primary" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{stats.superAdmins}</div>
-          <div className="text-[11px] text-muted-foreground">SUPER_ADMIN / ADMIN</div>
-        </Card>
+      {/* Users KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Users className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{stats.active}</span>
+          <span className="text-muted-foreground">/ {stats.total} {isRu ? 'аккаунтов' : 'accounts'}</span>
+          {stats.banned > 0 && <span className="text-red-400">· {stats.banned} {isRu ? 'блок.' : 'ban.'}</span>}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Shield className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">{stats.totp}</span>
+          2FA
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <ShieldCheck className="h-3 w-3 text-primary" />
+          <span className="font-bold text-foreground">{stats.superAdmins}</span>
+          SUPER_ADMIN/ADMIN
+        </span>
       </div>
+
 
       <Card>
         <CardHeader className="py-2.5">

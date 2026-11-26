@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { PageHero, RackEmptyState, SplitBar } from '@/components/ui/PagePrimitives';
+import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
 import { getApiErrorMessage, hostsApi, inboundsApi } from '@/lib/api';
 import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
@@ -284,59 +284,30 @@ export function HostsPage() {
         }
       />
 
-      {/* 4-Card KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Всего хостов' : 'Total Hosts'}</span>
-            <Globe className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {stats.enabled} / {stats.total}
-          </div>
-          <SplitBar
-            segments={[
-              { pct: stats.total > 0 ? (stats.enabled / stats.total) * 100 : 100, className: 'bg-emerald-400' },
-              { pct: stats.total > 0 ? (stats.disabled / stats.total) * 100 : 0, className: 'bg-zinc-600' },
-            ]}
-          />
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'CDN / Прокси-хосты' : 'CDN Enabled'}</span>
-            <Shield className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{stats.cdn}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Маршрутизация через Edge/CDN' : 'Edge CDN domain overrides'}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Фрагментация TLS' : 'TLS Fragment'}</span>
-            <Network className="h-4 w-4 text-primary" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{stats.fragmentCount}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Обход DPI-фильтрации по SNI' : 'DPI packet fragmentation profiles'}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Покрыто протоколов' : 'Covered Inbounds'}</span>
-            <Network className="h-4 w-4 text-amber-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {stats.inboundsCovered} / {inbounds.length}
-          </div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Инбаундов с переопределением' : 'Inbounds with custom hosts'}
-          </div>
-        </Card>
+      {/* Hosts KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Globe className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{stats.enabled}</span>
+          <span className="text-muted-foreground">/ {stats.total} {isRu ? 'вкл.' : 'enabled'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Shield className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">{stats.cdn}</span>
+          CDN
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Network className="h-3 w-3 text-primary" />
+          <span className="font-bold text-foreground">{stats.fragmentCount}</span>
+          {isRu ? 'TLS-фрагментация' : 'TLS fragment'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Network className="h-3 w-3 text-amber-400" />
+          <span className="font-bold text-foreground">{stats.inboundsCovered}</span>
+          <span className="text-muted-foreground">/ {inbounds.length} {isRu ? 'инбаундов с хостами' : 'inbounds covered'}</span>
+        </span>
       </div>
+
 
       <Card>
         <CardHeader className="pb-2 flex flex-row items-center justify-between gap-3">

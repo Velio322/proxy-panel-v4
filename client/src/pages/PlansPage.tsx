@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Edit, Plus, Smartphone, Sparkles, Trash2, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -198,41 +197,25 @@ export function PlansPage() {
         }
       />
 
-      {/* 3-Card Plans KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Всего тарифов' : 'Total Plans'}</span>
-            <Sparkles className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{stats.total}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {stats.activeCount} {isRu ? 'активных' : 'active'}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Клиентские тарифы (USER)' : 'User Plans'}</span>
-            <Users className="h-4 w-4 text-primary" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{stats.userPlans}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Шаблоны для конечных пользователей' : 'End-user subscription templates'}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Тарифы реселлеров' : 'Reseller Plans'}</span>
-            <Smartphone className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{stats.resellerPlans}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Пакеты для партнёров' : 'Partner bulk allocation tiers'}
-          </div>
-        </Card>
+      {/* Plans KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Sparkles className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{stats.activeCount}</span>
+          <span className="text-muted-foreground">/ {stats.total} {isRu ? 'тарифов' : 'plans'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Users className="h-3 w-3 text-primary" />
+          <span className="font-bold text-foreground">{stats.userPlans}</span>
+          USER
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Smartphone className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">{stats.resellerPlans}</span>
+          {isRu ? 'реселлерских' : 'reseller'}
+        </span>
       </div>
+
 
       {isLoading ? (
         <div className="py-10 text-center text-sm text-muted-foreground">

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   ArrowRight,
+  Cpu,
   Clock,
   Edit,
   Layers,
@@ -488,111 +489,44 @@ export function NodesPage() {
         </Card>
       )}
 
-      {/* Fleet Telemetry Ribbon */}
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Флот нод' : 'Node Fleet'}</span>
-            <Server className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold tabular-nums">
-              {fleetStats.online} / {fleetStats.total}
-            </span>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {fleetStats.totalInbounds} {isRu ? 'протоколов' : 'inbounds'}
-            </span>
-          </div>
-          <div className="telemetry-track flex h-1.5 w-full overflow-hidden rounded-full">
-            {fleetStats.total > 0 && (
-              <>
-                <div
-                  className="h-full bg-emerald-400"
-                  style={{ width: `${(fleetStats.online / fleetStats.total) * 100}%` }}
-                />
-                <div
-                  className="h-full bg-amber-400"
-                  style={{ width: `${(fleetStats.maintenance / fleetStats.total) * 100}%` }}
-                />
-                <div
-                  className="h-full bg-red-500"
-                  style={{ width: `${(fleetStats.error / fleetStats.total) * 100}%` }}
-                />
-              </>
-            )}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Средняя нагрузка' : 'Average Load'}</span>
-            <span className="font-mono text-[11px]">{isRu ? 'онлайн-ноды' : 'online nodes'}</span>
-          </div>
-          <div className="space-y-1 text-xs">
-            <div className="flex items-center justify-between font-mono tabular-nums">
-              <span className="text-muted-foreground">CPU</span>
-              <span className="font-semibold">
-                {fleetStats.avgCpu != null ? `${fleetStats.avgCpu.toFixed(1)}%` : '—'}
-              </span>
-            </div>
-            <MeterBar value={fleetStats.avgCpu} tone="emerald" />
-            <div className="flex items-center justify-between font-mono tabular-nums pt-0.5">
-              <span className="text-muted-foreground">RAM</span>
-              <span className="font-semibold">
-                {fleetStats.avgMem != null ? `${fleetStats.avgMem.toFixed(1)}%` : '—'}
-              </span>
-            </div>
-            <MeterBar value={fleetStats.avgMem} tone="cyan" />
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Суммарный трафик' : 'Fleet Traffic'}</span>
-            <span className="font-mono text-[11px]">↓/↑</span>
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {formatBytes(fleetStats.totalTraffic, { locale: language })}
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center justify-between font-mono text-[11px] tabular-nums">
-              <span className="text-emerald-400">
-                ↓ {formatBytes(fleetStats.totalDown, { locale: language })}
-              </span>
-              <span className="text-cyan-400">
-                ↑ {formatBytes(fleetStats.totalUp, { locale: language })}
-              </span>
-            </div>
-            <div className="telemetry-track flex h-1.5 w-full overflow-hidden rounded-full">
-              <div className="h-full bg-emerald-400" style={{ width: `${fleetStats.dlShare}%` }} />
-              <div className="h-full bg-cyan-400" style={{ width: `${100 - fleetStats.dlShare}%` }} />
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Задержка и протоколы' : 'Latency & Protocols'}</span>
-            <Signal className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="flex items-baseline justify-between">
-            <span className="font-mono text-2xl font-bold tabular-nums">
-              {fleetStats.avgPing != null ? `${Math.round(fleetStats.avgPing)} ms` : '—'}
-            </span>
-            <span className="text-xs text-muted-foreground">{isRu ? 'ср. пинг' : 'avg ping'}</span>
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {fleetStats.protocols.length === 0 ? (
-              <span className="text-xs text-muted-foreground">{isRu ? 'Нет протоколов' : 'No protocols'}</span>
-            ) : (
-              fleetStats.protocols.slice(0, 5).map((p) => (
-                <Badge key={p} className={cn('border px-1.5 py-0 text-[10px]', PROTOCOL_COLORS[p])}>
-                  {p}
-                </Badge>
-              ))
-            )}
-          </div>
-        </Card>
+      {/* Fleet telemetry chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Server className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{fleetStats.online}</span>
+          <span className="text-muted-foreground">/ {fleetStats.total} {isRu ? 'онлайн' : 'online'}</span>
+          <span>· {fleetStats.totalInbounds} {isRu ? 'протоколов' : 'inbounds'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Cpu className="h-3 w-3 text-emerald-400" />
+          <span className="font-semibold text-foreground">{fleetStats.avgCpu != null ? `${fleetStats.avgCpu.toFixed(1)}%` : '—'}</span>
+          CPU
+          <span className="font-semibold text-foreground">
+            {fleetStats.avgMem != null ? `${fleetStats.avgMem.toFixed(1)}%` : '—'}
+          </span>
+          RAM
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Activity className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">{formatBytes(fleetStats.totalTraffic, { locale: language })}</span>
+          <span className="text-emerald-400">↓{formatBytes(fleetStats.totalDown, { compact: true, locale: language })}</span>
+          <span className="text-cyan-400">↑ {formatBytes(fleetStats.totalUp, { compact: true, locale: language })}</span>
+        </span>
+        <span className="inline-flex flex-wrap items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Signal className="h-3 w-3 text-cyan-400" />
+          <span className="font-semibold text-foreground">{fleetStats.avgPing != null ? `${Math.round(fleetStats.avgPing)} ms` : '—'}</span>
+          {isRu ? 'ср. пинг' : 'avg ping'}
+          <span>·</span>
+          {fleetStats.protocols.length === 0 ? (
+            <span>{isRu ? 'нет протоколов' : 'no protocols'}</span>
+          ) : (
+            fleetStats.protocols.slice(0, 5).map((p) => (
+              <Badge key={p} className={cn('shrink-0 border px-1.5 py-0 text-[10px]', PROTOCOL_COLORS[p])}>
+                {p}
+              </Badge>
+            ))
+          )}
+        </span>
       </div>
 
       {/* Filter & Search Toolbar */}

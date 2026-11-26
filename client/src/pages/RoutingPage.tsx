@@ -25,7 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { PageHero, RackEmptyState, SplitBar } from '@/components/ui/PagePrimitives';
+import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
 import { getApiErrorMessage, nodesApi, routingApi } from '@/lib/api';
 import { cn } from '@/lib/core-utils';
 import { useUiStore } from '@/lib/store';
@@ -229,57 +229,30 @@ export function RoutingPage() {
         }
       />
 
-      {/* 4-Card Routing KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Всего правил' : 'Total Rules'}</span>
-            <Waypoints className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {stats.active} / {stats.total}
-          </div>
-          <SplitBar
-            segments={[
-              { pct: stats.total > 0 ? (stats.active / stats.total) * 100 : 100, className: 'bg-emerald-400' },
-              { pct: stats.total > 0 ? (stats.disabled / stats.total) * 100 : 0, className: 'bg-zinc-600' },
-            ]}
-          />
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Блокировка (block)' : 'Block Rules'}</span>
-            <ShieldAlert className="h-4 w-4 text-red-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{stats.blockCount}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Защита от торрентов, рекламы и приватных подсетей' : 'Ads, BitTorrent & private CIDR blocks'}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Напрямую (direct)' : 'Direct Rules'}</span>
-            <Waypoints className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{stats.directCount}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Прямой выход с ноды без проксирования' : 'Direct egress policies'}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Быстрые пресеты' : 'Quick Presets'}</span>
-            <Sparkles className="h-4 w-4 text-amber-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">{presets.length}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {isRu ? 'Шаблоны фильтрации в 1 клик' : 'One-click routing templates'}
-          </div>
-        </Card>
+      {/* Routing KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Waypoints className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{stats.active}</span>
+          <span className="text-muted-foreground">/ {stats.total} {isRu ? 'активны' : 'active'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <ShieldAlert className="h-3 w-3 text-red-400" />
+          <span className="font-bold text-foreground">{stats.blockCount}</span>
+          block
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Waypoints className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">{stats.directCount}</span>
+          direct
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Sparkles className="h-3 w-3 text-amber-400" />
+          <span className="font-bold text-foreground">{presets.length}</span>
+          {isRu ? 'пресетов' : 'presets'}
+        </span>
       </div>
+
 
       {presets.length > 0 && (
         <Card>

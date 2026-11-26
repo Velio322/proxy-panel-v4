@@ -159,36 +159,25 @@ export function ResellersPage() {
         }
       />
 
-      {/* 3-Card KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Активные реселлеры' : 'Active Resellers'}</span>
-            <UserCheck className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {summary.activeCount} / {summary.total}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Суммарный баланс' : 'Total Balance'}</span>
-            <Wallet className="h-4 w-4 text-cyan-400" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">${summary.totalBal.toFixed(2)}</div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Использованный трафик' : 'Aggregate Traffic'}</span>
-            <Activity className="h-4 w-4 text-primary" />
-          </div>
-          <div className="font-mono text-2xl font-bold tabular-nums">
-            {formatBytes(summary.totalUsed, { locale: language })}
-          </div>
-        </Card>
+      {/* Resellers KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <UserCheck className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{summary.activeCount}</span>
+          <span className="text-muted-foreground">/ {summary.total} {isRu ? 'активны' : 'active'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Wallet className="h-3 w-3 text-cyan-400" />
+          <span className="font-bold text-foreground">${summary.totalBal.toFixed(2)}</span>
+          {isRu ? 'баланс' : 'balance'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Activity className="h-3 w-3 text-primary" />
+          <span className="font-bold text-foreground">{formatBytes(summary.totalUsed, { locale: language })}</span>
+          {isRu ? 'трафика' : 'traffic'}
+        </span>
       </div>
+
 
       {isLoading ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">
