@@ -22,12 +22,13 @@ import {
   Server,
   Signal,
   Users,
+  HardDrive,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { PageHero, RackEmptyState, SplitBar } from '@/components/ui/PagePrimitives';
+import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
 import {
   MeterBar,
   RadialGauge,
@@ -45,7 +46,6 @@ import {
 } from '@/lib/core-utils';
 import { useTranslation } from '@/lib/i18n';
 import { useUiStore } from '@/lib/store';
-import type { Protocol } from '@/types';
 
 function auditBadgeVariant(action: string) {
   const up = action.toUpperCase();
@@ -113,16 +113,6 @@ export function DashboardPage() {
     return { ul, dl, total: ul + dl };
   }, [chartData]);
 
-  const activeProtocols = useMemo(() => {
-    const set = new Set<Protocol>();
-    for (const n of nodes) {
-      for (const ib of n.inbounds ?? []) {
-        if (ib.enable) set.add(ib.protocol);
-      }
-    }
-    return Array.from(set);
-  }, [nodes]);
-
   const cpuPct =
     hostTelemetry && hostTelemetry.cpu.usagePercent >= 0
       ? Math.min(100, Math.max(0, hostTelemetry.cpu.usagePercent))
@@ -133,17 +123,12 @@ export function DashboardPage() {
       : null;
 
   const clientsTotal = overview?.clients.total ?? 0;
-  const clientsActivePct = clientsTotal > 0 ? ((overview?.clients.active ?? 0) / clientsTotal) * 100 : 0;
-  const clientsBannedPct = clientsTotal > 0 ? ((overview?.clients.banned ?? 0) / clientsTotal) * 100 : 0;
 
   const nodesTotal = overview?.nodes.total ?? 0;
-  const nodesOnlinePct = nodesTotal > 0 ? ((overview?.nodes.online ?? 0) / nodesTotal) * 100 : 0;
-  const nodesOfflinePct = nodesTotal > 0 ? ((overview?.nodes.offline ?? 0) / nodesTotal) * 100 : 0;
 
   const monthUl = overview?.traffic.month.upload ?? 0;
   const monthDl = overview?.traffic.month.download ?? 0;
   const monthTotal = monthUl + monthDl;
-  const monthDlPct = monthTotal > 0 ? Math.round((monthDl / monthTotal) * 100) : 50;
 
   const maxTopClientBytes = useMemo(() => {
     let max = 0;
@@ -221,150 +206,45 @@ export function DashboardPage() {
         }
       />
 
-      {/* Clickable 4-Card Tactical KPI Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Link to="/clients" className="group block">
-          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-all group-hover:border-primary/45">
-            <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400" aria-hidden="true" />
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{t('dashboard.totalClients')}</span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                <Users className="h-3.5 w-3.5" />
-              </span>
-            </div>
-            {overviewLoading ? (
-              <Skeleton className="mt-2 h-8 w-24" />
-            ) : (
-              <div className="mt-2 space-y-2.5">
-                <div className="flex items-baseline justify-between">
-                  <span className="font-mono text-2xl font-bold tabular-nums">{clientsTotal}</span>
-                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-                </div>
-                <SplitBar
-                  segments={[
-                    { pct: clientsActivePct, className: 'bg-emerald-400' },
-                    { pct: clientsBannedPct, className: 'bg-red-500' },
-                  ]}
-                />
-                <p className="text-[11px] text-muted-foreground tabular-nums">
-                  {t('dashboard.clientsSub', {
-                    active: overview?.clients.active ?? 0,
-                    banned: overview?.clients.banned ?? 0,
-                  })}
-                </p>
-              </div>
-            )}
-          </div>
-        </Link>
-
-        <Link to="/nodes" className="group block">
-          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-all group-hover:border-emerald-500/45">
-            <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400 shadow-[0_0_10px_hsl(162_84%_43%/0.6)]" aria-hidden="true" />
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{t('dashboard.onlineNodes')}</span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400">
-                <Server className="h-3.5 w-3.5" />
-              </span>
-            </div>
-            {overviewLoading ? (
-              <Skeleton className="mt-2 h-8 w-24" />
-            ) : (
-              <div className="mt-2 space-y-2.5">
-                <div className="flex items-baseline justify-between">
-                  <span className="font-mono text-2xl font-bold tabular-nums">
-                    {overview?.nodes.online ?? 0} / {nodesTotal}
-                  </span>
-                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-                </div>
-                <SplitBar
-                  segments={[
-                    { pct: nodesOnlinePct, className: 'bg-emerald-400' },
-                    { pct: nodesOfflinePct, className: 'bg-zinc-500' },
-                  ]}
-                />
-                <p className="text-[11px] text-muted-foreground tabular-nums">
-                  {t('dashboard.nodesSub', { offline: overview?.nodes.offline ?? 0 })}
-                </p>
-              </div>
-            )}
-          </div>
-        </Link>
-
-        <Link to="/inbounds" className="group block">
-          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-all group-hover:border-cyan-500/45">
-            <div className="absolute inset-y-0 left-0 w-1 bg-cyan-400" aria-hidden="true" />
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{t('dashboard.totalInbounds')}</span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-400">
-                <Network className="h-3.5 w-3.5" />
-              </span>
-            </div>
-            {overviewLoading ? (
-              <Skeleton className="mt-2 h-8 w-24" />
-            ) : (
-              <div className="mt-2 space-y-2">
-                <div className="flex items-baseline justify-between">
-                  <span className="font-mono text-2xl font-bold tabular-nums">{overview?.inbounds.total ?? 0}</span>
-                  <span className="text-[11px] text-muted-foreground tabular-nums">
-                    {t('dashboard.expiringToday')}: <strong className="text-foreground">{overview?.expiringToday ?? 0}</strong>
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-1 pt-0.5">
-                  {activeProtocols.length === 0 ? (
-                    <span className="text-[11px] text-muted-foreground">
-                      {isRu ? 'Нет активных протоколов' : 'No active protocols'}
-                    </span>
-                  ) : (
-                    activeProtocols.slice(0, 4).map((p) => (
-                      <Badge key={p} className={cn('border px-1.5 py-0 text-[10px]', PROTOCOL_COLORS[p])}>
-                        {p}
-                      </Badge>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </Link>
-
-        <Link to="/monitoring" className="group block">
-          <div className="node-blade relative h-full overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5 transition-all group-hover:border-teal-500/45">
-            <div className="absolute inset-y-0 left-0 w-1 bg-teal-400" aria-hidden="true" />
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{t('dashboard.trafficMonth')}</span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-500/15 text-teal-400">
-                <Activity className="h-3.5 w-3.5" />
-              </span>
-            </div>
-            {overviewLoading ? (
-              <Skeleton className="mt-2 h-8 w-28" />
-            ) : (
-              <div className="mt-2 space-y-2.5">
-                <div className="flex items-baseline justify-between">
-                  <span className="font-mono text-2xl font-bold tabular-nums">
-                    {formatBytes(monthTotal, { locale: language })}
-                  </span>
-                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-                </div>
-                <SplitBar
-                  segments={[
-                    { pct: monthDlPct, className: 'bg-emerald-400' },
-                    { pct: 100 - monthDlPct, className: 'bg-cyan-400' },
-                  ]}
-                />
-                <p className="text-[11px] text-muted-foreground tabular-nums">
-                  {t('dashboard.trafficToday')}:{' '}
-                  <strong className="text-foreground">
-                    {formatBytes(
-                      (overview?.traffic.today.upload ?? 0) + (overview?.traffic.today.download ?? 0),
-                      { locale: language },
-                    )}
-                  </strong>
-                </p>
-              </div>
-            )}
-          </div>
-        </Link>
+      {/* Compact KPI strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        {overviewLoading ? (
+          <Skeleton className="h-4 w-72" />
+        ) : (
+          <>
+            <Link to="/clients" className="group inline-flex items-center gap-1 font-mono tabular-nums">
+              <Users className="h-3 w-3 text-emerald-400" />
+              <span className="font-bold text-foreground">{clientsTotal}</span>
+              <span className="text-muted-foreground">{isRu ? 'клиентов' : 'clients'}</span>
+              <span className="text-emerald-500">· {overview?.clients.active ?? 0} {isRu ? 'акт.' : 'act.'}</span>
+              <span className="text-red-400">· {overview?.clients.banned ?? 0} {isRu ? 'блок.' : 'ban.'}</span>
+              <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            </Link>
+            <Link to="/nodes" className="group inline-flex items-center gap-1 font-mono tabular-nums">
+              <Server className="h-3 w-3 text-emerald-400" />
+              <span className="font-bold text-foreground">{overview?.nodes.online ?? 0}</span>
+              <span className="text-muted-foreground">/ {nodesTotal} {isRu ? 'нод онлайн' : 'nodes online'}</span>
+              {(overview?.nodes.offline ?? 0) > 0 && (
+                <span className="text-red-400">· {overview?.nodes.offline} {isRu ? 'офлайн' : 'off'}</span>
+              )}
+              <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            </Link>
+            <Link to="/inbounds" className="group inline-flex flex-wrap items-center gap-1 font-mono tabular-nums">
+              <Network className="h-3 w-3 text-cyan-400" />
+              <span className="font-bold text-foreground">{overview?.inbounds.total ?? 0}</span>
+              <span className="text-muted-foreground">{isRu ? 'инбаундов' : 'inbounds'}</span>
+              <span className="text-amber-500">· {isRu ? 'истекает сегодня' : 'expiring today'}: {overview?.expiringToday ?? 0}</span>
+              <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            </Link>
+            <Link to="/monitoring" className="group inline-flex items-center gap-1 font-mono tabular-nums">
+              <Activity className="h-3 w-3 text-teal-400" />
+              <span className="font-bold text-foreground">{formatBytes(monthTotal, { locale: language })}</span>
+              <span className="text-muted-foreground">{isRu ? 'за месяц' : 'this month'}</span>
+              <span className="text-emerald-400">· {isRu ? 'сегодня' : 'today'} {formatBytes((overview?.traffic.today.upload ?? 0) + (overview?.traffic.today.download ?? 0), { locale: language })}</span>
+              <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            </Link>
+          </>
+        )}
       </div>
 
       {/* Live Nodes Rack Overview */}
@@ -430,7 +310,7 @@ export function DashboardPage() {
                       )}
                       aria-hidden="true"
                     />
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
@@ -471,25 +351,17 @@ export function DashboardPage() {
                         </span>
                       </div>
 
-                      <div className="rack-inset grid grid-cols-2 gap-2.5 rounded-lg p-2 text-[11px]">
-                        <div className="space-y-1">
-                          <div className="flex justify-between font-mono tabular-nums">
-                            <span className="text-muted-foreground">CPU</span>
-                            <span className="font-semibold">
-                              {n.cpuUsage != null ? `${n.cpuUsage.toFixed(0)}%` : '—'}
-                            </span>
-                          </div>
-                          <MeterBar value={n.cpuUsage} tone="emerald" className="h-1" />
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex justify-between font-mono tabular-nums">
-                            <span className="text-muted-foreground">RAM</span>
-                            <span className="font-semibold">
-                              {n.memUsage != null ? `${n.memUsage.toFixed(0)}%` : '—'}
-                            </span>
-                          </div>
-                          <MeterBar value={n.memUsage} tone="cyan" className="h-1" />
-                        </div>
+                      <div className="flex items-center justify-between gap-2 font-mono text-[11px] tabular-nums">
+                        <span className="inline-flex min-w-0 items-center gap-1">
+                          <Cpu className="h-3 w-3 text-emerald-400" />
+                          <span className="font-semibold">{n.cpuUsage != null ? `${n.cpuUsage.toFixed(0)}%` : '—'}</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+                          <HardDrive className="h-3 w-3 text-cyan-400" />
+                          <span className="font-semibold">
+                            {n.memUsage != null ? `${n.memUsage.toFixed(0)}%` : '—'}
+                          </span>
+                        </span>
                       </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -513,12 +385,6 @@ export function DashboardPage() {
                             </span>
                           )}
                         </div>
-                        <Button size="sm" variant="secondary" asChild className="h-7 gap-1 px-2 text-xs">
-                          <Link to={`/nodes/${n.id}`}>
-                            <span>{t('common.open')}</span>
-                            <ArrowRight className="h-3 w-3" />
-                          </Link>
-                        </Button>
                       </div>
                     </div>
                   </div>
@@ -561,7 +427,7 @@ export function DashboardPage() {
               ))}
             </div>
           </CardHeader>
-          <CardContent className="h-64">
+          <CardContent className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData}>
                 <defs>
