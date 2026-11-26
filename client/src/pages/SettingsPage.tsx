@@ -63,6 +63,7 @@ import { useTranslation } from '@/lib/i18n';
 import { useAuthStore, usePublicConfigStore, useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 import type { Language, WebhookItem } from '@/types';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 const WEBHOOK_SCOPES = ['user', 'node', 'service'] as const;
 const WEBHOOK_EVENTS = [
@@ -427,7 +428,7 @@ export function SettingsPage() {
   const [newKeyPerms, setNewKeyPerms] = useState<string[]>(['read']);
   const [newKeyExpiry, setNewKeyExpiry] = useState('');
   const [createdKeyToken, setCreatedKeyToken] = useState<string | null>(null);
-  const [copiedToken, setCopiedToken] = useState(false);
+  const [copiedToken, copyToken] = useCopyFeedback();
 
   const createApiKeyMut = useMutation({
     mutationFn: () =>
@@ -1704,11 +1705,9 @@ export function SettingsPage() {
             <Input readOnly value={createdKeyToken ?? ''} className="font-mono text-xs" />
             <Button
               variant="outline"
-              onClick={async () => {
+              onClick={() => {
                 if (!createdKeyToken) return;
-                await navigator.clipboard.writeText(createdKeyToken);
-                setCopiedToken(true);
-                window.setTimeout(() => setCopiedToken(false), 1500);
+                copyToken(createdKeyToken).catch(() => {});
               }}
             >
               {copiedToken ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}

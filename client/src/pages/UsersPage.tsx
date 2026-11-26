@@ -35,6 +35,7 @@ import { formatDateTime, randomPassword } from '@/lib/core-utils';
 import { useAuthStore, useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 import type { Language, User, UserRole } from '@/types';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 const ROLE_RANK: Record<UserRole, number> = {
   SUPER_ADMIN: 4,
@@ -69,7 +70,7 @@ export function UsersPage() {
   const [revealedPassword, setRevealedPassword] = useState<{ username: string; password: string } | null>(
     null,
   );
-  const [copiedPass, setCopiedPass] = useState(false);
+  const [copiedPass, copyPass] = useCopyFeedback();
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -462,11 +463,9 @@ export function UsersPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={async () => {
+              onClick={() => {
                 if (!revealedPassword) return;
-                await navigator.clipboard.writeText(revealedPassword.password);
-                setCopiedPass(true);
-                window.setTimeout(() => setCopiedPass(false), 1500);
+                copyPass(revealedPassword.password).catch(() => {});
               }}
             >
               {copiedPass ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}

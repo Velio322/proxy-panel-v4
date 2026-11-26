@@ -20,6 +20,7 @@ import { PROTOCOL_COLORS, cn } from '@/lib/core-utils';
 import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 import type { Client, ClientLinkEntry } from '@/types';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 interface SubscriptionModalProps {
   open: boolean;
@@ -48,7 +49,7 @@ const OPENWRT_FORMATS: Array<{ id: 'uci' | 'passwall' | 'openclash' | 'singbox' 
 export function SubscriptionModal({ open, onOpenChange, client }: SubscriptionModalProps) {
   const isRu = useUiStore((s) => s.language) === 'ru';
   const [selectedFlag, setSelectedFlag] = useState<string | undefined>(undefined);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copiedKey, copyKey, resetCopiedKey] = useCopyFeedback();
   const [exportText, setExportText] = useState<string>('');
   const [loadingExport, setLoadingExport] = useState(false);
   const [selectedEntryIdx, setSelectedEntryIdx] = useState(0);
@@ -57,9 +58,9 @@ export function SubscriptionModal({ open, onOpenChange, client }: SubscriptionMo
   useEffect(() => {
     setSelectedEntryIdx(0);
     setQrMode('link');
-    setCopiedKey(null);
+    resetCopiedKey();
     setExportText('');
-  }, [open, client?.id]);
+  }, [open, client?.id, resetCopiedKey]);
 
   const {
     data: linksData,
@@ -92,9 +93,7 @@ export function SubscriptionModal({ open, onOpenChange, client }: SubscriptionMo
 
   const copyText = async (key: string, text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
-      setCopiedKey(key);
-      window.setTimeout(() => setCopiedKey(null), 1500);
+      await copyKey(text, key);
     } catch {
       toast({ title: isRu ? 'Не удалось скопировать' : 'Copy failed', variant: 'destructive' });
     }

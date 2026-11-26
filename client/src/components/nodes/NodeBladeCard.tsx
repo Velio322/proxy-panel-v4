@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
@@ -33,6 +32,7 @@ import {
 } from '@/components/nodes/NodeTelemetryPrimitives';
 import { cn } from '@/lib/core-utils';
 import type { Language, NodeItem, NodeStatus } from '@/types';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 interface NodeBladeCardProps {
   node: NodeItem;
@@ -91,7 +91,7 @@ export function NodeBladeCard({
   onEdit,
   onOpenInstall,
 }: Omit<NodeBladeCardProps, 'language'>) {
-  const [copiedHost, setCopiedHost] = useState(false);
+  const [copiedHost, copyHost] = useCopyFeedback(1400);
 
   const isOnline = node.status === 'ONLINE';
   const rawUptime = node.uptime ?? node.nodeMetrics?.[0]?.uptime ?? null;
@@ -100,15 +100,7 @@ export function NodeBladeCard({
 
   const theme = statusTheme(node.status);
 
-  const handleCopyEndpoint = async () => {
-    try {
-      await navigator.clipboard.writeText(`${node.host}:${node.port}`);
-      setCopiedHost(true);
-      window.setTimeout(() => setCopiedHost(false), 1400);
-    } catch {
-      // clipboard permission optional
-    }
-  };
+  const handleCopyEndpoint = () => copyHost(`${node.host}:${node.port}`);
 
   return (
     <div

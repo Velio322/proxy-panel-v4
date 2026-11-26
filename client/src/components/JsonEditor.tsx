@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import yaml from 'js-yaml';
 import { AlertCircle, Check, CheckCircle2, Code2, Copy, Minimize2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/core-utils';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 export type EditorLanguage = 'json' | 'yaml' | 'plaintext';
 export type JsonSchemaKind =
@@ -129,7 +130,7 @@ export function JsonEditor({
   className,
   ariaLabel = 'Code editor',
 }: JsonEditorProps) {
-  const [copied, setCopied] = useState(false);
+  const [copied, copyValue] = useCopyFeedback();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
   const highlightRef = useRef<HTMLPreElement>(null);
@@ -171,15 +172,7 @@ export function JsonEditor({
     }
   }, [language, value, onChange]);
 
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard unavailable
-    }
-  }, [value]);
+  const handleCopy = useCallback(() => copyValue(value), [copyValue, value]);
 
   const handleScroll = useCallback(() => {
     const ta = textareaRef.current;

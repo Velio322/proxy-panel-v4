@@ -32,6 +32,7 @@ import { getApiErrorMessage, nodesApi } from '@/lib/api';
 import { cn } from '@/lib/core-utils';
 import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 export interface NodeInstallInitialData {
   nodeId?: string;
@@ -76,14 +77,12 @@ function CopySnippetBox({
   multiline?: boolean;
   isRu: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, copyValue] = useCopyFeedback(1600);
 
   const handleCopy = async () => {
     if (!value) return;
     try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
+      await copyValue(value);
     } catch {
       toast({
         title: isRu ? 'Не удалось скопировать' : 'Copy failed',

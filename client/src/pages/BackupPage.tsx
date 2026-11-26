@@ -11,6 +11,7 @@ import { backupApi, getApiErrorMessage } from '@/lib/api';
 import { formatBytes, formatDateTime } from '@/lib/core-utils';
 import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 const BACKUP_TYPES = ['DATABASE', 'CONFIG', 'FULL'] as const;
 const BACKUP_DESTINATIONS = ['local'] as const;
@@ -25,7 +26,7 @@ export function BackupPage() {
 
   const [type, setType] = useState<string>('DATABASE');
   const [destination, setDestination] = useState<string>('local');
-  const [copiedCmd, setCopiedCmd] = useState(false);
+  const [copiedCmd, copyCmd] = useCopyFeedback();
 
   const {
     data: logs = [],
@@ -82,15 +83,7 @@ export function BackupPage() {
       }),
   });
 
-  const copyRestoreCmd = async () => {
-    try {
-      await navigator.clipboard.writeText(RESTORE_CMD);
-      setCopiedCmd(true);
-      window.setTimeout(() => setCopiedCmd(false), 1500);
-    } catch {
-      // clipboard unavailable
-    }
-  };
+  const copyRestoreCmd = () => copyCmd(RESTORE_CMD).catch(() => {});
 
   return (
     <div className="space-y-5">

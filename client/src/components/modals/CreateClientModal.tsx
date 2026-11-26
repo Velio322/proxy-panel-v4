@@ -21,6 +21,7 @@ import { buildSubUrl, generateRandomPassword } from '@/pages/clients/utils';
 import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 import type { Client, Plan, Protocol, TrafficResetStrategy } from '@/types';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 interface CreateClientModalProps {
   open: boolean;
@@ -60,7 +61,7 @@ export function CreateClientModal({ open, onOpenChange, plans, onCreated }: Crea
     password?: string;
     subUrl: string;
   } | null>(null);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copiedKey, copyKey] = useCopyFeedback();
 
   const { data: nodes = [] } = useQuery({
     queryKey: ['nodes'],
@@ -111,11 +112,7 @@ export function CreateClientModal({ open, onOpenChange, plans, onCreated }: Crea
     );
   };
 
-  const handleCopy = async (key: string, val: string) => {
-    await navigator.clipboard.writeText(val);
-    setCopiedKey(key);
-    window.setTimeout(() => setCopiedKey(null), 1500);
-  };
+  const handleCopy = (key: string, val: string) => copyKey(val, key);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

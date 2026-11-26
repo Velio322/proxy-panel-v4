@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Check,
@@ -24,6 +23,7 @@ import {
 import { PROTOCOL_COLORS, cn, getCoreForProtocol } from '@/lib/core-utils';
 import { useTranslation } from '@/lib/i18n';
 import type { Inbound } from '@/types';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 interface InboundBladeCardProps {
   inbound: Inbound;
@@ -49,7 +49,7 @@ export function InboundBladeCard({
   onDelete,
 }: InboundBladeCardProps) {
   const { t } = useTranslation();
-  const [copiedEndpoint, setCopiedEndpoint] = useState(false);
+  const [copiedEndpoint, copyEndpoint] = useCopyFeedback(1400);
 
   const core = getCoreForProtocol(inbound.protocol);
   const endpointHost = inbound.node?.host || inbound.listen || '0.0.0.0';
@@ -73,9 +73,7 @@ export function InboundBladeCard({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(endpointStr);
-      setCopiedEndpoint(true);
-      window.setTimeout(() => setCopiedEndpoint(false), 1400);
+      await copyEndpoint(endpointStr);
     } catch {
       // clipboard optional
     }

@@ -54,6 +54,7 @@ import { useTranslation } from '@/lib/i18n';
 import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 import type { Protocol } from '@/types';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 const VALID_TABS = new Set([
   'telemetry',
@@ -81,8 +82,8 @@ export function NodeDetailPage() {
   };
 
   const [activeControl, setActiveControl] = useState<'check' | 'push' | 'restart' | 'stop' | null>(null);
-  const [copiedHost, setCopiedHost] = useState(false);
-  const [copiedFp, setCopiedFp] = useState(false);
+  const [copiedHost, copyHost] = useCopyFeedback(1400);
+  const [copiedFp, copyFp] = useCopyFeedback(1400);
   const [installModalOpen, setInstallModalOpen] = useState(false);
 
   const [targetVersions, setTargetVersions] = useState<Record<string, string>>({});
@@ -362,15 +363,9 @@ export function NodeDetailPage() {
     setInstallModalOpen(true);
   };
 
-  const handleCopyEndpoint = async () => {
+  const handleCopyEndpoint = () => {
     if (!node) return;
-    try {
-      await navigator.clipboard.writeText(`${node.host}:${node.port}`);
-      setCopiedHost(true);
-      window.setTimeout(() => setCopiedHost(false), 1400);
-    } catch {
-      // ignore clipboard errors
-    }
+    copyHost(`${node.host}:${node.port}`).catch(() => {});
   };
 
   const cpuPct = metrics?.cpuUsage ?? ht?.cpu?.usagePercent ?? node?.cpuUsage ?? null;
@@ -882,9 +877,7 @@ export function NodeDetailPage() {
                       variant="ghost"
                       className="h-7 px-2 shrink-0"
                       onClick={async () => {
-                        await navigator.clipboard.writeText(mtlsCert.fingerprint || '');
-                        setCopiedFp(true);
-                        window.setTimeout(() => setCopiedFp(false), 1400);
+                        copyFp(mtlsCert.fingerprint || '').catch(() => {});
                       }}
                     >
                       {copiedFp ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}

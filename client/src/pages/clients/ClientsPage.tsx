@@ -43,6 +43,7 @@ import { useTranslation } from '@/lib/i18n';
 import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 import type { Client } from '@/types';
+import { useCopyFeedback } from '@/hooks/use-copy-feedback';
 
 export function ClientsPage() {
   const { t } = useTranslation();
@@ -58,7 +59,7 @@ export function ClientsPage() {
   const [nodeFilter, setNodeFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [copiedUuidId, setCopiedUuidId] = useState<string | null>(null);
+  const [copiedUuidId, copyUuidId] = useCopyFeedback();
   const [bulkPlanId, setBulkPlanId] = useState('none');
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -251,9 +252,7 @@ export function ClientsPage() {
 
   const handleCopyUuid = async (c: Client) => {
     try {
-      await navigator.clipboard.writeText(c.uuid);
-      setCopiedUuidId(c.id);
-      window.setTimeout(() => setCopiedUuidId(null), 1500);
+      await copyUuidId(c.uuid, c.id);
     } catch {
       toast({
         title: isRu ? 'Не удалось скопировать' : 'Copy failed',
