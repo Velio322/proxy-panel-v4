@@ -666,7 +666,6 @@ export function NodesPage() {
               key={n.id}
               node={n}
               isRu={isRu}
-              language={language}
               busyAction={busyAction?.id === n.id ? busyAction.action : null}
               onAction={(id, action) => actionMut.mutate({ id, action })}
               onEdit={openEdit}
