@@ -1,7 +1,9 @@
-//! Opens public ports for NaiveProxy / Mieru inbounds in UFW.
+//! Opens public ports for panel-managed inbounds in UFW.
 //!
 //! Only ever *adds* `allow` rules, only when `ufw` exists and is active, and can be disabled with
-//! `MANAGE_UFW=false`. Rules are idempotent (`ufw` skips existing ones).
+//! `MANAGE_UFW=false`. Rules are idempotent (`ufw` skips existing ones). Naive gets TCP (+UDP for
+//! QUIC), Mieru gets its transport bindings, every other protocol (VLESS, Trojan, ...) gets its
+//! TCP listen port — but only when the inbound actually binds a public address.
 
 use crate::cores::mieru::build_port_bindings;
 use mypanel_proto::{InboundConfig, Protocol};
@@ -35,9 +37,16 @@ fn safe_comment(tag: &str) -> String {
     format!("mypanel3-{cleaned}")
 }
 
-/// Public ports that an enabled Naive/Mieru inbound needs reachable.
+/// True when the inbound listens on every interface (the common case) and therefore needs a
+/// firewall hole. Loopback-only binds are reached through a local reverse proxy and must not
+/// be opened in UFW.
+fn binds_public(listen: &str) -> bool {
+    matches!(listen.trim(), "" | "0.0.0.0" | "::" | "[::]" | "::/0")
+}
+
+/// Public ports that an enabled inbound needs reachable.
 pub fn rules_for_inbound(ib: &InboundConfig) -> Vec<FirewallRule> {
-    if !ib.enable {
+    if !ib.enable || !binds_public(&ib.listen) {
         return Vec::new();
     }
     let comment = safe_comment(&ib.tag);
@@ -84,7 +93,14 @@ pub fn rules_for_inbound(ib: &InboundConfig) -> Vec<FirewallRule> {
                 })
             })
             .collect(),
-        _ => Vec::new(),
+        // VLESS / Trojan / Shadowsocks / ...: the TCP listen port is the inbound's only
+        // externally reachable surface (Reality handles TLS itself), so open it explicitly.
+        // Without this a freshly created inbound on a new port stays silently filtered.
+        _ => vec![FirewallRule {
+            port: ib.port.to_string(),
+            proto: "tcp",
+            comment,
+        }],
     }
 }
 
@@ -240,11 +256,20 @@ mod tests {
     }
 
     #[test]
-    fn disabled_and_other_protocols_yield_no_rules() {
+    fn disabled_yields_no_rules_and_vless_opens_tcp() {
         let mut ib = inbound("MIERU", 2053, json!({}));
         ib.enable = false;
         assert!(rules_for_inbound(&ib).is_empty());
-        assert!(rules_for_inbound(&inbound("VLESS", 443, json!({}))).is_empty());
+        let vless = rules_for_inbound(&inbound("VLESS", 993, json!({})));
+        assert_eq!(vless.len(), 1);
+        assert_eq!((vless[0].port.as_str(), vless[0].proto), ("993", "tcp"));
+    }
+
+    #[test]
+    fn loopback_bind_yields_no_rules() {
+        let mut ib = inbound("VLESS", 443, json!({}));
+        ib.listen = "127.0.0.1".to_string();
+        assert!(rules_for_inbound(&ib).is_empty());
     }
 
     #[test]

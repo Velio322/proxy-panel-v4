@@ -13,7 +13,7 @@ use crate::traffic::{
 use chrono::Utc;
 use mypanel_proto::{
     ActiveSession, DropSessionCmd, InboundConfig, LogEntry, Protocol, RoutingRuleConfig,
-    StatusReport, StatusTrafficSummary, TrafficCapability, TrafficCounter,
+    StatusReport, StatusTrafficSummary, TrafficCapability, TrafficCounter, TrafficKeyMeta,
 };
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
@@ -468,6 +468,14 @@ impl ProcessManager {
                                     xray_profile.as_ref(),
                                     self.config.xray_api_port,
                                 );
+                            }
+                            for warning in crate::firewall::sync_ports_for_inbounds(
+                                &self.config.config_dir,
+                                &inbounds,
+                            )
+                            .await
+                            {
+                                self.logs.push("firewall", "warn", warning).await;
                             }
                             self.current_inbounds = inbounds;
                             self.current_routing_rules = routing_rules;
@@ -1266,6 +1274,28 @@ impl ProcessManager {
         let refs: Vec<(&str, &HashMap<String, TrafficCounter>)> =
             per_core.iter().map(|(c, m)| (*c, m)).collect();
         merge_traffic_maps_refs(&refs)
+    }
+
+    /// Maps every user identifier the cores may report traffic under (uuid, email, username,
+    /// name, id) to its inbound's protocol + tag, so the panel can attribute `TrafficLog`
+    /// rows. First enabled inbound wins when the same user is bound to several.
+    pub fn traffic_user_meta(&self) -> HashMap<String, TrafficKeyMeta> {
+        let mut map: HashMap<String, TrafficKeyMeta> = HashMap::new();
+        for ib in self.current_inbounds.iter().filter(|i| i.enable) {
+            let meta = TrafficKeyMeta {
+                protocol: Some(ib.protocol.as_str().to_string()),
+                inbound_tag: Some(ib.tag.clone()),
+            };
+            for user in &ib.users {
+                for key in [&user.uuid, &user.email, &user.username, &user.name, &user.id] {
+                    let k = key.trim();
+                    if !k.is_empty() {
+                        map.entry(k.to_string()).or_insert_with(|| meta.clone());
+                    }
+                }
+            }
+        }
+        map
     }
 
     /// Collects cumulative per-user traffic counters per proxy core (`unmetered: false`),
