@@ -23,7 +23,7 @@ pub const DEFAULT_XRAY_API_PORT: u16 = 10085;
 /// Default local Sing-box Clash API address (`127.0.0.1:9091`).
 pub const DEFAULT_SINGBOX_API_ADDR: &str = "127.0.0.1:9091";
 /// Canonical worker agent version string.
-pub const AGENT_VERSION: &str = "3.0.0";
+pub const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Configuration for the ProxyPanel v4 node worker daemon (`mypanel-agent`).
 #[derive(Debug, Clone)]

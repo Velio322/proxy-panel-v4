@@ -75,6 +75,8 @@ fn apply_sub_headers(
             res.headers_mut().insert("x-hwid-count", v);
         }
     }
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     res
 }
 
@@ -1044,13 +1046,14 @@ pub(crate) async fn get_subscription(
             res.headers_mut().insert("x-hwid-count", v);
         }
     }
+    res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     res
 }
 
 async fn get_info(
     State(state): State<AppState>,
     Path(sub_token): Path<String>,
-) -> AppResult<Json<Value>> {
+) -> AppResult<Response> {
     valid_id(&sub_token)?;
     let r = sqlx::query(
         r#"SELECT username, uuid, "trafficLimit", "usedTraffic", "uploadTraffic", "downloadTraffic",
@@ -1079,7 +1082,7 @@ async fn get_info(
     let last_active: Option<NaiveDateTime> = r.try_get("lastActiveAt")?;
     let created_at: NaiveDateTime = r.try_get("createdAt")?;
 
-    Ok(Json(json!({
+    let mut res = Json(json!({
         "username": r.try_get::<String, _>("username")?,
         "uuid": r.try_get::<String, _>("uuid")?,
         "trafficLimit": limit,
@@ -1095,7 +1098,11 @@ async fn get_info(
         "subscriptionUrl": format!("{}/api/v1/client/{}/sub", state.cfg.sub_url, sub_token),
         "onlineNodes": online_nodes,
         "trafficPercent": pct
-    })))
+    }))
+    .into_response();
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(res)
 }
 
 /// Requires authenticated user (admin or owning reseller) to rotate `subToken`.
@@ -1146,11 +1153,11 @@ async fn get_happ_encrypted(
     State(state): State<AppState>,
     Path(sub_token): Path<String>,
     Query(q): Query<HappQuery>,
-) -> AppResult<Json<Value>> {
+) -> AppResult<Response> {
     valid_id(&sub_token)?;
     let sub_url = format!("{}/api/v1/client/{}/sub?flag=happ", state.cfg.sub_url, sub_token);
     let Some(pem) = q.rsa_pub_pem.as_deref().filter(|s| !s.is_empty()) else {
-        return Ok(Json(json!({ "url": sub_url })));
+        return Ok(Json(json!({ "url": sub_url })).into_response());
     };
     let ver = q.version.as_deref().unwrap_or("5");
     let encrypted = if ver == "4" {
@@ -1160,5 +1167,8 @@ async fn get_happ_encrypted(
     }
     .map_err(|e| AppError::bad_request(e.to_string()))?;
 
-    Ok(Json(json!({ "url": encrypted })))
+    let mut res = Json(json!({ "url": encrypted })).into_response();
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(res)
 }

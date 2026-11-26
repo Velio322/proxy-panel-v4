@@ -172,7 +172,7 @@ async fn health(State(st): State<AppState>) -> Response {
             Json(json!({
                 "status": "ok",
                 "timestamp": crate::db::ts::format_iso(&crate::db::now()),
-                "version": "4.0.0"
+                "version": env!("CARGO_PKG_VERSION")
             })),
         )
             .into_response(),

@@ -13,7 +13,7 @@ async fn public_config(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "apiUrl": state.cfg.api_url,
         "subUrl": state.cfg.sub_url,
-        "version": "4.0.0",
+        "version": env!("CARGO_PKG_VERSION"),
         "telegramBotUsername": state.cfg.telegram_bot_username,
         "branding": branding,
         "features": {

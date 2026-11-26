@@ -7,7 +7,7 @@ use utoipa_scalar::{Scalar, Servable};
 #[openapi(
     info(
         title = "Keeper API",
-        version = "4.0.0",
+        version = env!("CARGO_PKG_VERSION"),
         description = "Control plane HTTP API for Keeper"
     ),
     paths()
