@@ -15,6 +15,9 @@ use std::path::{Path, PathBuf};
 
 /// Loopback port of the telemt Prometheus endpoint (one TGWEB inbound per node).
 pub const TGWEB_METRICS_PORT: u16 = 19092;
+/// Loopback port of the telemt Control API. Upstream defaults to `0.0.0.0:9091`, which
+/// exposes user management to the WAN; the generated config always binds loopback instead.
+pub const TGWEB_API_PORT: u16 = 19091;
 
 const CARRIERS: [&str; 4] = ["https", "https-lanes", "websocket", "websocket-lanes"];
 
@@ -134,6 +137,10 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<String, String> {
     out.push_str(&format!(
         "[server]\nport = {}\nmetrics_listen = \"127.0.0.1:{TGWEB_METRICS_PORT}\"\nmetrics_whitelist = [\"127.0.0.1/32\"]\n\n",
         inbound.port
+    ));
+    // The upstream default API listener is 0.0.0.0:9091; keep the Control API on loopback only.
+    out.push_str(&format!(
+        "[server.api]\nenabled = true\nlisten = \"127.0.0.1:{TGWEB_API_PORT}\"\nwhitelist = [\"127.0.0.1/32\"]\n\n"
     ));
     out.push_str(&format!(
         "[[server.listeners]]\nip = {}\nport = {}\ntransport = \"web\"\nproxy_protocol = false\nweb_client_ip_source = \"x_forwarded_for\"\nweb_trusted_proxy_cidrs = [\"127.0.0.1/32\"]\n\n",
