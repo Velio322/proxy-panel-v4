@@ -216,6 +216,27 @@ pub async fn outbox_cycle(state: AppState) {
             return;
         }
     };
+    if rows.len() > 4 {
+        let stale = sqlx::query_scalar::<_, i64>(
+            r#"SELECT count(DISTINCT "nodeId") FROM "NodeCommand"
+               WHERE status = 'PENDING' AND kind = 'CONFIG_SYNC'
+                 AND "createdAt" < $1"#,
+        )
+        .bind(crate::db::now() - chrono::Duration::minutes(30))
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+        if stale > 0 {
+            crate::services::notification_service::push(
+                &state,
+                crate::db::enums::NotificationType::Warning,
+                "Config sync backlog",
+                &format!("{stale} node(s) have config updates pending for over 30 minutes."),
+                false,
+            )
+            .await;
+        }
+    }
     for r in rows {
         if let Ok(nid) = r.try_get::<String, _>("nodeId") {
             if let Err(e) = push_config(&state, &nid).await {

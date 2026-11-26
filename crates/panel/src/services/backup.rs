@@ -47,6 +47,14 @@ pub async fn trigger_background_backup(state: AppState) -> AppResult<String> {
             }
             Err(err) => {
                 tracing::error!(error = %err, "Database backup failed");
+                crate::services::notification_service::push(
+                    &state,
+                    crate::db::enums::NotificationType::Error,
+                    "Database backup failed",
+                    &format!("Scheduled database backup failed: {err}"),
+                    true,
+                )
+                .await;
                 let _ = sqlx::query(
                     r#"UPDATE "BackupLog" SET status = $2, error = $3 WHERE id = $1"#,
                 )

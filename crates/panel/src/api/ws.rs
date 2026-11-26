@@ -116,6 +116,8 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
         Arc::new(std::sync::Mutex::new(VecDeque::new()));
     let writer_ping_sent = Arc::clone(&ping_sent);
 
+    let prev_status =
+        crate::services::notification_service::peek_node_status(&state.db, &node_id).await;
     let _ = sqlx::query(
         r#"UPDATE "Node" SET status = 'ONLINE', "lastCheckAt" = $2, "lastOnlineAt" = $2, "updatedAt" = $2 WHERE id = $1"#,
     )
@@ -124,6 +126,15 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
     .execute(&state.db)
     .await
                     .map_err(|e| tracing::warn!(error = %e, "node db write failed"));
+    crate::services::notification_service::node_status_changed(
+        &state,
+        &node_id,
+        &node_name,
+        prev_status,
+        crate::db::enums::NodeStatus::Online,
+        "WebSocket connected.",
+    )
+    .await;
     state.metrics.set_node_status(&node_id, &node_name, true);
 
     // Cancelled by the writer when the socket breaks, so the reader never waits on a dead peer.
@@ -271,6 +282,7 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                     state.hub.set_status(&node_id, v);
                 }
 
+                let prev_status = crate::services::notification_service::peek_node_status(&state.db, &node_id).await;
                 let _ = sqlx::query(
                     r#"UPDATE "Node"
                        SET status = $2, version = $3, "cpuUsage" = $4, "memUsage" = $5,
@@ -298,6 +310,15 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 .execute(&state.db)
                 .await
                     .map_err(|e| tracing::warn!(error = %e, "node db write failed"));
+                crate::services::notification_service::node_status_changed(
+                    &state,
+                    &node_id,
+                    &node_name,
+                    prev_status,
+                    crate::db::enums::NodeStatus::Online,
+                    "Status report received.",
+                )
+                .await;
                 core_updates::store_telemt_version(&state, &node_id, &info).await;
 
                 if let (Some(c), Some(m)) = (sr.cpu_usage, sr.mem_usage) {
@@ -316,6 +337,8 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 }
             }
             Envelope::Heartbeat(_) => {
+                let prev_status =
+                    crate::services::notification_service::peek_node_status(&state.db, &node_id).await;
                 let _ = sqlx::query(
                     r#"UPDATE "Node" SET "lastCheckAt" = $2, "lastOnlineAt" = $2, status = 'ONLINE' WHERE id = $1"#,
                 )
@@ -324,6 +347,15 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 .execute(&state.db)
                 .await
                     .map_err(|e| tracing::warn!(error = %e, "node db write failed"));
+                crate::services::notification_service::node_status_changed(
+                    &state,
+                    &node_id,
+                    &node_name,
+                    prev_status,
+                    crate::db::enums::NodeStatus::Online,
+                    "Heartbeat received.",
+                )
+                .await;
             }
             Envelope::LogChunk(chunk) => {
                 state.hub.push_log_chunk(&node_id, chunk);

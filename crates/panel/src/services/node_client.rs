@@ -387,6 +387,7 @@ async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bo
             let uptime_secs = extract_uptime_seconds(&val, parsed.as_ref());
             crate::services::core_provision::spawn_if_needed(state, &node.id, val.get("cores"));
 
+            let prev_status = crate::services::notification_service::peek_node_status(&state.db, &node.id).await;
             let _ = sqlx::query(
                 r#"UPDATE "Node"
                    SET status = $2, "lastCheckAt" = $3, "lastOnlineAt" = $3, "lastPingMs" = COALESCE($4, "lastPingMs"),
@@ -417,6 +418,15 @@ async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bo
             .bind(uptime_secs)
             .execute(&state.db)
             .await;
+            crate::services::notification_service::node_status_changed(
+                state,
+                &node.id,
+                &node.name,
+                prev_status,
+                NodeStatus::Online,
+                "status check succeeded",
+            )
+            .await;
             crate::services::core_updates::store_telemt_version(state, &node.id, &info).await;
 
             record_telemetry_snapshot(state, &node.id, &val, cpu, mem, uptime_secs).await;
@@ -433,6 +443,7 @@ async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bo
         }
         Err(_) => {
             if state.hub.is_connected(&node.id) {
+                let prev_status = crate::services::notification_service::peek_node_status(&state.db, &node.id).await;
                 let _ = sqlx::query(
                     r#"UPDATE "Node" SET status = $2, "lastCheckAt" = $3, "lastOnlineAt" = $3, "updatedAt" = $3 WHERE id = $1"#,
                 )
@@ -440,6 +451,15 @@ async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bo
                 .bind(NodeStatus::Online)
                 .bind(now)
                 .execute(&state.db)
+                .await;
+                crate::services::notification_service::node_status_changed(
+                    state,
+                    &node.id,
+                    &node.name,
+                    prev_status,
+                    NodeStatus::Online,
+                    "WebSocket connection active",
+                )
                 .await;
                 state.metrics.set_node_status(&node.id, &node.name, true);
                 return Ok(json!({
@@ -456,6 +476,7 @@ async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bo
                     "reason": "offline decision deferred (panel just started or node seen recently)"
                 }));
             }
+            let prev_status = crate::services::notification_service::peek_node_status(&state.db, &node.id).await;
             let _ = sqlx::query(
                 r#"UPDATE "Node" SET status = $2, "lastCheckAt" = $3, uptime = NULL, "updatedAt" = $3 WHERE id = $1"#,
             )
@@ -463,6 +484,15 @@ async fn check_status_inner(state: &AppState, node: &NodeTarget, allow_grace: bo
             .bind(NodeStatus::Offline)
             .bind(now)
             .execute(&state.db)
+            .await;
+            crate::services::notification_service::node_status_changed(
+                state,
+                &node.id,
+                &node.name,
+                prev_status,
+                NodeStatus::Offline,
+                "Status check failed.",
+            )
             .await;
             state.metrics.set_node_status(&node.id, &node.name, false);
             Ok(json!({
@@ -753,7 +783,7 @@ mod tests {
         let report = StatusReport {
             status: "ONLINE".into(),
             uptime: 42,
-            version: "4.0.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             host_telemetry: Some(HostTelemetry {
                 sampled_at: String::new(),
                 scope: String::new(),
@@ -811,7 +841,7 @@ mod tests {
         let report_no_ht = StatusReport {
             status: "ONLINE".into(),
             uptime: 912,
-            version: "4.0.0".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             host_telemetry: None,
             ..StatusReport::default()
         };
