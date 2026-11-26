@@ -299,7 +299,65 @@ async fn login_2fa(
     .await
 }
 
-async fn me(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Value>> {
+/// Sliding-session renewal for active users: when a cookie session has consumed half of its
+/// TTL, `/auth/me` re-issues the session (new token + extended expiry) and returns a fresh
+/// cookie. Keeps users on long-lived dashboards from being logged out mid-edit. A lost response
+/// is safe: the old session stays valid until its own expiry, so the client can retry.
+async fn renew_session_if_due(
+    state: &AppState,
+    user: &AuthUser,
+    role: UserRole,
+    reseller_id: Option<String>,
+) -> AppResult<Option<HeaderValue>> {
+    if user.is_api_key || user.token.is_empty() {
+        return Ok(None);
+    }
+    let Some(row) = sqlx::query(
+        r#"SELECT "expiresAt" AS expires_at FROM "UserSession" WHERE token = $1 OR token = $2"#,
+    )
+    .bind(&user.token)
+    .bind(sha256_hex(&user.token))
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| AppError::service_unavailable("Unable to load session"))?
+    else {
+        return Ok(None);
+    };
+    let expires_at: NaiveDateTime = row.try_get("expires_at")?;
+    let now = crate::db::now();
+    let ttl = state.jwt.ttl_secs().max(1);
+    let half_left = (expires_at.and_utc().timestamp() - now.and_utc().timestamp())
+        < (ttl / 2).max(1);
+    if !half_left {
+        return Ok(None);
+    }
+
+    let (token, new_exp) = state.jwt.sign_with_ttl(
+        &user.id,
+        &user.username,
+        role,
+        reseller_id,
+        None,
+        ttl,
+    )?;
+    let token_hash = sha256_hex(&token);
+    let renewed = sqlx::query(
+        r#"UPDATE "UserSession" SET token = $2, "expiresAt" = $3, "updatedAt" = $3
+           WHERE token = $1 AND "expiresAt" <= $3"#,
+    )
+    .bind(sha256_hex(&user.token))
+    .bind(&token_hash)
+    .bind(new_exp)
+    .execute(&state.db)
+    .await
+    .map_err(|_| AppError::service_unavailable("Unable to renew session"))?;
+    if renewed.rows_affected() == 0 {
+        return Ok(None);
+    }
+    Ok(Some(auth_cookie(&token, ttl, state.cfg.production)?))
+}
+
+async fn me(State(state): State<AppState>, user: AuthUser) -> AppResult<Response> {
     let row = sqlx::query(
         r#"SELECT id, username, email, role, "resellerId", language, "totpEnabled", "telegramId", "createdAt"
            FROM "User" WHERE id = $1"#,
@@ -311,17 +369,28 @@ async fn me(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Val
     .ok_or_else(|| AppError::unauthorized("User not found"))?;
 
     let created_at: NaiveDateTime = row.try_get("createdAt")?;
-    Ok(Json(json!({
-        "id": row.try_get::<String, _>("id")?,
-        "username": row.try_get::<String, _>("username")?,
-        "email": row.try_get::<Option<String>, _>("email")?,
-        "role": row.try_get::<UserRole, _>("role")?,
-        "resellerId": row.try_get::<Option<String>, _>("resellerId")?,
-        "language": row.try_get::<String, _>("language")?,
-        "totpEnabled": row.try_get::<Option<bool>, _>("totpEnabled")?.unwrap_or(false),
-        "telegramId": row.try_get::<Option<i64>, _>("telegramId")?,
-        "createdAt": crate::db::ts::format_iso(&created_at)
-    })))
+    let role = row.try_get::<UserRole, _>("role")?;
+    let reseller_id: Option<String> = row.try_get("resellerId")?;
+    let cookie = renew_session_if_due(&state, &user, role, reseller_id.clone()).await?;
+    let mut res = (
+        StatusCode::OK,
+        Json(json!({
+            "id": row.try_get::<String, _>("id")?,
+            "username": row.try_get::<String, _>("username")?,
+            "email": row.try_get::<Option<String>, _>("email")?,
+            "role": role,
+            "resellerId": row.try_get::<Option<String>, _>("resellerId")?,
+            "language": row.try_get::<String, _>("language")?,
+            "totpEnabled": row.try_get::<Option<bool>, _>("totpEnabled")?.unwrap_or(false),
+            "telegramId": row.try_get::<Option<i64>, _>("telegramId")?,
+            "createdAt": crate::db::ts::format_iso(&created_at)
+        })),
+    )
+        .into_response();
+    if let Some(c) = cookie {
+        res.headers_mut().insert(header::SET_COOKIE, c);
+    }
+    Ok(res)
 }
 
 /// Clears `auth_token` cookie even if expired/missing; revokes session by Bearer or Cookie token.
