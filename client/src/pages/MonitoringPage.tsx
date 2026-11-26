@@ -92,11 +92,6 @@ export function MonitoringPage() {
 
   const hostCpu =
     host && host.cpu.usagePercent >= 0 ? Math.max(0, Math.min(100, host.cpu.usagePercent)) : null;
-  const hostMem =
-    host && host.memory.usagePercent >= 0
-      ? Math.max(0, Math.min(100, host.memory.usagePercent))
-      : null;
-
   const nodeCpu =
     m?.cpuUsage != null && Number.isFinite(m.cpuUsage)
       ? Math.max(0, Math.min(100, m.cpuUsage))
@@ -200,87 +195,40 @@ export function MonitoringPage() {
         }
       />
 
-      {/* Panel Host Telemetry Instrument Cluster */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="flex items-center gap-2">
-            <Cpu className="h-4 w-4 text-primary" />
-            <span>{isRu ? 'Телеметрия хоста панели' : 'Panel Host Telemetry'}</span>
-          </CardTitle>
-          <span className="font-mono text-xs text-muted-foreground">
-            {host?.cpu.count ? `${host.cpu.count} vCPU` : 'Control Plane'}
-          </span>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
-          <div className="node-blade relative flex items-center gap-2.5 overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5">
-            <div className="absolute inset-y-0 left-0 w-1 bg-emerald-400" aria-hidden="true" />
-            <RadialGauge value={hostCpu} tone="emerald" size={68} label="CPU" />
-            <div className="min-w-0 space-y-1">
-              <div className="text-muted-foreground">{isRu ? 'Загрузка CPU' : 'CPU Usage'}</div>
-              <div className="font-mono text-lg font-bold tabular-nums">
-                {hostCpu !== null ? `${hostCpu.toFixed(1)}%` : '—'}
-              </div>
-              <div className="font-mono text-[11px] text-muted-foreground break-words min-w-0">
-                Load:{' '}
-                {host?.cpu.loadAverage
-                  ? host.cpu.loadAverage.map((v) => v.toFixed(2)).join(' / ')
-                  : '—'}
-              </div>
-            </div>
-          </div>
-
-          <div className="node-blade relative flex items-center gap-2.5 overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5">
-            <div className="absolute inset-y-0 left-0 w-1 bg-cyan-400" aria-hidden="true" />
-            <RadialGauge value={hostMem} tone="cyan" size={68} label="RAM" />
-            <div className="min-w-0 space-y-1">
-              <div className="text-muted-foreground">{isRu ? 'Оперативная память' : 'Memory Usage'}</div>
-              <div className="font-mono text-lg font-bold tabular-nums">
-                {hostMem !== null ? `${hostMem.toFixed(1)}%` : '—'}
-              </div>
-              <div className="font-mono text-[11px] text-muted-foreground break-words min-w-0">
-                {host?.memory.usedBytes && host?.memory.totalBytes
-                  ? `${formatBytes(host.memory.usedBytes, { compact: true, locale: language })} / ${formatBytes(host.memory.totalBytes, { compact: true, locale: language })}`
-                  : host?.process?.memory?.rss
-                    ? `RSS ${formatBytes(host.process.memory.rss, { compact: true, locale: language })}`
-                    : '—'}
-              </div>
-            </div>
-          </div>
-
-          <div className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5">
-            <div className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>{isRu ? 'Сеть хоста (↑ / ↓)' : 'Network (Up / Down)'}</span>
-              <Network className="h-4 w-4 text-primary" />
-            </div>
-            <div className="my-1 space-y-1 font-mono text-sm font-bold tabular-nums">
-              <div className="text-emerald-400">↓ {formatBps(host?.network.downloadBps, language)}</div>
-              <div className="text-cyan-400">↑ {formatBps(host?.network.uploadBps, language)}</div>
-            </div>
-            <div className="font-mono text-[11px] text-muted-foreground tabular-nums">
-              RX {formatBytes(host?.network.receivedBytes ?? 0, { compact: true, locale: language })} · TX{' '}
-              {formatBytes(host?.network.transmittedBytes ?? 0, { compact: true, locale: language })}
-            </div>
-          </div>
-
-          <div className="node-blade relative flex flex-col justify-between overflow-hidden rounded-xl border border-border/80 p-2 pl-3.5">
-            <div className="absolute inset-y-0 left-0 w-1 bg-teal-400" aria-hidden="true" />
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>{isRu ? 'Сокеты и аптайм' : 'Sockets & Uptime'}</span>
-              <Activity className="h-4 w-4 text-teal-400" />
-            </div>
-            <div className="my-1 font-mono text-xl font-bold tabular-nums">
-              {host && host.connections.establishedTcp >= 0
-                ? `${host.connections.establishedTcp} TCP / ${host.connections.udpSockets} UDP`
+      {/* Panel host vitals chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+          <Cpu className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{hostCpu !== null ? `${hostCpu.toFixed(0)}%` : '—'}</span>
+          CPU
+          <span className="text-muted-foreground">· {host?.cpu.count ? `${host.cpu.count} vCPU` : 'Control Plane'}</span>
+          <span>load {host?.cpu.loadAverage ? host.cpu.loadAverage.map((v) => v.toFixed(2)).join('/') : '—'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <HardDrive className="h-3 w-3 text-cyan-400" />
+          <span className="font-semibold text-foreground">
+            {host?.memory.usedBytes && host?.memory.totalBytes
+              ? `${formatBytes(host.memory.usedBytes, { compact: true, locale: language })} / ${formatBytes(host.memory.totalBytes, { compact: true, locale: language })}`
+              : host?.process?.memory?.rss
+                ? `RSS ${formatBytes(host.process.memory.rss, { compact: true, locale: language })}`
                 : '—'}
-            </div>
-            <div className="font-mono text-[11px] text-muted-foreground">
-              {isRu ? 'Хост:' : 'Host:'} {formatUptime(host?.uptime.hostSeconds, isRu)} ·{' '}
-              {isRu ? 'Панель:' : 'Panel:'} {formatUptime(host?.uptime.processSeconds, isRu)}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Network className="h-3 w-3 text-primary" />
+          <span className="text-cyan-400 font-semibold">↓ {formatBps(host?.network.downloadBps, language)}</span>
+          <span className="text-emerald-400 font-semibold">↑ {formatBps(host?.network.uploadBps, language)}</span>
+          <span>RX {formatBytes(host?.network.receivedBytes ?? 0, { compact: true, locale: language })} · TX {formatBytes(host?.network.transmittedBytes ?? 0, { compact: true, locale: language })}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Activity className="h-3 w-3 text-teal-400" />
+          <span className="font-bold text-foreground">
+            {host && host.connections.establishedTcp >= 0 ? `${host.connections.establishedTcp} TCP / ${host.connections.udpSockets} UDP` : '—'}
+          </span>
+          <span>{isRu ? 'хост' : 'host'} {formatUptime(host?.uptime.hostSeconds, isRu)}</span>
+          <span>· {isRu ? 'панель' : 'panel'} {formatUptime(host?.uptime.processSeconds, isRu)}</span>
+        </span>
+      </div>
 
       {/* Per-Node Live Telemetry Console */}
       <Card>

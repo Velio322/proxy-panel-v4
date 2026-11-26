@@ -28,6 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PageHero, RackEmptyState } from '@/components/ui/PagePrimitives';
+import { cn } from '@/lib/core-utils';
 import { getApiErrorMessage, infraBillingApi, nodesApi } from '@/lib/api';
 import { formatDate } from '@/lib/core-utils';
 import { useUiStore } from '@/lib/store';
@@ -262,43 +263,28 @@ export function InfraBillingPage() {
         }
       />
 
-      {/* 4-Card KPI Summary Ribbon */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Расходы в месяц' : 'Monthly Spend (Normalized)'}</span>
-            <DollarSign className="h-4 w-4 text-primary" />
-          </div>
-          <div className="font-mono text-xl font-bold tabular-nums" data-testid="monthly-spend-summary">
-            {formattedMonthlySummary}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Продление ≤ 7 дней' : 'Upcoming Renewals (≤ 7d)'}</span>
-            <CalendarClock className="h-4 w-4 text-amber-400" />
-          </div>
-          <div className="font-mono text-xl font-bold tabular-nums" data-testid="upcoming-renewals-count">
-            {upcomingRenewals.length}
-          </div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Провайдеры' : 'Active Providers'}</span>
-            <Building2 className="h-4 w-4 text-sky-400" />
-          </div>
-          <div className="font-mono text-xl font-bold tabular-nums">{providers.length}</div>
-        </Card>
-
-        <Card className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{isRu ? 'Серверов на учёте' : 'Tracked Servers'}</span>
-            <Server className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div className="font-mono text-xl font-bold tabular-nums">{billings.length}</div>
-        </Card>
+      {/* Billing KPI chip strip */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-[11px]">
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums" data-testid="monthly-spend-summary">
+          <DollarSign className="h-3 w-3 text-primary" />
+          <span className="font-bold text-foreground">{formattedMonthlySummary}</span>
+          <span className="text-muted-foreground">{isRu ? 'в месяц' : 'monthly'}</span>
+        </span>
+        <span className={cn('inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground', upcomingRenewals.length > 0 && 'text-amber-400')} data-testid="upcoming-renewals-count">
+          <CalendarClock className="h-3 w-3 text-amber-400" />
+          <span className="font-bold text-foreground">{upcomingRenewals.length}</span>
+          {isRu ? 'продлений ≤ 7д' : 'renewals ≤ 7d'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Building2 className="h-3 w-3 text-sky-400" />
+          <span className="font-bold text-foreground">{providers.length}</span>
+          {isRu ? 'провайдеров' : 'providers'}
+        </span>
+        <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+          <Server className="h-3 w-3 text-emerald-400" />
+          <span className="font-bold text-foreground">{billings.length}</span>
+          {isRu ? 'серверов' : 'servers'}
+        </span>
       </div>
 
       {upcomingRenewals.length > 0 && (
