@@ -1542,7 +1542,7 @@ async fn bind_inbounds(
     valid_id(&id)?;
     let mut tx = state.db.begin().await?;
     let row = sqlx::query(
-        r#"SELECT uuid, "subToken", "accessRevision", "allNodes"
+        r#"SELECT uuid, "subToken", "accessRevision", "allNodes", protocols
            FROM "Client" WHERE id = $1 FOR UPDATE"#,
     )
     .bind(&id)
@@ -1554,6 +1554,7 @@ async fn bind_inbounds(
     let sub_token: String = row.try_get("subToken")?;
     let access_rev: i32 = row.try_get("accessRevision")?;
     let all_nodes: bool = row.try_get::<bool, _>("allNodes").unwrap_or(true);
+    let protocols_val: Value = row.try_get("protocols")?;
 
     let mut affected_set: HashSet<String> = collect_client_affected_nodes_tx(&mut tx, &id)
         .await?
@@ -1600,6 +1601,38 @@ async fn bind_inbounds(
         .bind(now)
         .execute(&mut *tx)
         .await?;
+    }
+
+    if !body.inbound_ids.is_empty() {
+        let bound_protos: Vec<String> = sqlx::query_scalar(
+            r#"SELECT DISTINCT protocol::text FROM "Inbound" WHERE id = ANY($1::text[])"#,
+        )
+        .bind(&body.inbound_ids)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut effective_protocols = extract_protocols_from_json(&protocols_val);
+        let mut changed = false;
+        for proto in bound_protos {
+            if !effective_protocols
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(&proto))
+            {
+                effective_protocols.push(proto);
+                changed = true;
+            }
+        }
+        if changed {
+            let updated_val = serde_json::to_value(&effective_protocols)
+                .map_err(|e| AppError::internal(format!("serialize protocols: {e}")))?;
+            sqlx::query(
+                r#"UPDATE "Client" SET protocols = $2, "updatedAt" = $3 WHERE id = $1"#,
+            )
+            .bind(&id)
+            .bind(&updated_val)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     for nid in collect_client_affected_nodes_tx(&mut tx, &id).await? {

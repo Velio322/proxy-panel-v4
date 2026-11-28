@@ -519,12 +519,18 @@ export function EditClientModal({
                           <Checkbox
                             checked={selectedInbounds.includes(ib.id)}
                             onCheckedChange={() => {
+                              const adding = !selectedInbounds.includes(ib.id);
                               setInboundsDirty(true);
                               setSelectedInbounds((prev) =>
                                 prev.includes(ib.id)
                                   ? prev.filter((id) => id !== ib.id)
                                   : [...prev, ib.id],
                               );
+                              if (adding) {
+                                setProtocols((prev) =>
+                                  prev.includes(ib.protocol) ? prev : [...prev, ib.protocol],
+                                );
+                              }
                             }}
                           />
                           <span className="font-medium">{ib.tag}</span>
