@@ -2,7 +2,7 @@ use crate::db::enums::{DbProtocol, Protocol};
 use crate::error::AppResult;
 use crate::services::enforcement::is_client_allowed;
 use crate::services::protocol_credentials::{
-    get_protocol_secret, get_protocol_secrets_bulk, normalize_ss_secret,
+    get_protocol_secret_raw, get_protocol_secrets_bulk, normalize_ss_secret,
 };
 use crate::state::AppState;
 use chrono::NaiveDateTime;
@@ -386,9 +386,9 @@ async fn resolve_user_secret(
         return Ok(Some(normalize_ss_secret(cached, protocol, ss_method)));
     }
     if state.encryption_key().is_some() {
-        let sec = get_protocol_secret(state, client_id, protocol, ss_method).await?;
-        cache.insert((client_id.to_string(), protocol), sec.clone());
-        return Ok(Some(sec));
+        let raw = get_protocol_secret_raw(state, client_id, protocol, ss_method).await?;
+        cache.insert((client_id.to_string(), protocol), raw.clone());
+        return Ok(Some(normalize_ss_secret(&raw, protocol, ss_method)));
     }
     tracing::warn!(
         client_id,

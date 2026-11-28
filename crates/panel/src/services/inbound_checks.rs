@@ -25,6 +25,7 @@ pub fn bindings(protocol: Protocol, port: u16, settings: &Value, stream: &Value)
     let udp = |p| (p, Net::Udp);
     match protocol {
         Protocol::Hysteria2 | Protocol::Tuic => vec![udp(port)],
+        Protocol::Shadowsocks => vec![tcp(port), udp(port)],
         Protocol::Naiveproxy => {
             let quic = matches!(
                 settings.get("proto").and_then(Value::as_str).map(str::to_ascii_lowercase).as_deref(),
@@ -310,6 +311,7 @@ mod tests {
     #[test]
     fn bindings_cover_transports() {
         assert_eq!(bindings(Protocol::Hysteria2, 443, &json!({}), &json!({})), vec![(443, Net::Udp)]);
+        assert_eq!(bindings(Protocol::Shadowsocks, 8388, &json!({}), &json!({})), vec![(8388, Net::Tcp), (8388, Net::Udp)]);
         assert_eq!(bindings(Protocol::Vless, 443, &json!({}), &json!({})), vec![(443, Net::Tcp)]);
         assert_eq!(
             bindings(Protocol::Vless, 443, &json!({}), &json!({"network":"kcp"})),

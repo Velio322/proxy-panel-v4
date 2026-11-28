@@ -49,6 +49,8 @@ pub async fn cleanup_old_records(pool: &PgPool) -> AppResult<()> {
     prune(pool, "NodeJoinToken", "expiresAt", "true", days(7)).await?;
     prune(pool, "NodeCommand", "createdAt", "status = 'ACKNOWLEDGED'", days(7)).await?;
     prune(pool, "NodeCommand", "createdAt", "status = 'PENDING'", days(30)).await?;
+    prune(pool, "Notification", "createdAt", "true", days(90)).await?;
+    prune(pool, "BackupLog", "createdAt", "status = 'FAILED'", days(90)).await?;
 
     Ok(())
 }

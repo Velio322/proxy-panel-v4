@@ -43,6 +43,9 @@ impl TrafficQueue {
     pub fn push_batch(&self, items: Vec<PendingTrafficItem>) {
         let mut q = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         for item in items {
+            if q.len() >= MAX_QUEUE_LEN {
+                break;
+            }
             q.push_back(item);
         }
     }

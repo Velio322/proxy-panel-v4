@@ -708,8 +708,24 @@ async fn issue_mtls_cert(
     })))
 }
 
-fn shell_single_quote(s: &str) -> String {
+pub(crate) fn shell_single_quote(s: &str) -> String {
     s.replace('\'', "'\\''")
+}
+
+fn is_valid_host_header(h: &str) -> bool {
+    !h.is_empty()
+        && h.len() <= 253
+        && h.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'))
+        && url::Url::parse(&format!("https://{h}"))
+            .is_ok_and(|u| {
+                u.host_str().is_some()
+                    && u.username().is_empty()
+                    && u.password().is_none()
+                    && u.query().is_none()
+                    && u.fragment().is_none()
+                    && matches!(u.path(), "" | "/")
+            })
 }
 
 fn is_domain_host(host: &str) -> bool {
@@ -718,30 +734,39 @@ fn is_domain_host(host: &str) -> bool {
 }
 
 pub(crate) fn resolve_panel_urls(state: &AppState, headers: &HeaderMap) -> (String, String) {
-    let req_host = headers
-        .get("x-forwarded-host")
-        .or_else(|| headers.get(axum::http::header::HOST))
+    let raw_host = if state.cfg.trust_proxy {
+        headers
+            .get("x-forwarded-host")
+            .or_else(|| headers.get(axum::http::header::HOST))
+    } else {
+        headers.get(axum::http::header::HOST)
+    };
+    let req_host = raw_host
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.split(',').next())
         .map(str::trim)
-        .filter(|s| !s.is_empty());
+        .filter(|s| is_valid_host_header(s));
 
     let panel_url = if let Some(host_hdr) = req_host {
-        let scheme = headers
-            .get("x-forwarded-proto")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.split(',').next())
-            .map(str::trim)
-            .filter(|&s| s == "http" || s == "https")
-            .unwrap_or_else(|| {
-                if state.cfg.api_url.starts_with("http://")
-                    && (host_hdr.starts_with("127.") || host_hdr.starts_with("localhost"))
-                {
-                    "http"
-                } else {
-                    "https"
-                }
-            });
+        let forwarded_scheme = if state.cfg.trust_proxy {
+            headers
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.split(',').next())
+                .map(str::trim)
+                .filter(|&s| s == "http" || s == "https")
+        } else {
+            None
+        };
+        let scheme = forwarded_scheme.unwrap_or_else(|| {
+            if state.cfg.api_url.starts_with("http://")
+                && (host_hdr.starts_with("127.") || host_hdr.starts_with("localhost"))
+            {
+                "http"
+            } else {
+                "https"
+            }
+        });
         format!("{scheme}://{host_hdr}")
     } else {
         state.cfg.api_url.trim_end_matches('/').to_string()

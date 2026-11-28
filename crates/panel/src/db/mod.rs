@@ -100,6 +100,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
         .bind(MIGRATION_LOCK_KEY)
         .execute(&mut *conn)
         .await?;
+    let _ = sqlx::query("SET statement_timeout = 0")
+        .execute(&mut *conn)
+        .await;
     let mut result = Ok(());
     for m in MIGRATOR.iter().filter(|m| !m.migration_type.is_down_migration()) {
         if let Err(e) = sqlx::raw_sql(&m.sql).execute(&mut *conn).await {
@@ -108,6 +111,9 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
             break;
         }
     }
+    let _ = sqlx::query("SET statement_timeout = '60s'")
+        .execute(&mut *conn)
+        .await;
     let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(MIGRATION_LOCK_KEY)
         .execute(&mut *conn)

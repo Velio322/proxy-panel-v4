@@ -1087,6 +1087,26 @@ fn singbox_transport(e: &SubEntry) -> Option<Value> {
     }
 }
 
+fn contiguous_singbox_port_ranges(ports: &[u16]) -> Vec<String> {
+    if ports.is_empty() {
+        return Vec::new();
+    }
+    let mut ranges = Vec::new();
+    let mut start = ports[0];
+    let mut prev = ports[0];
+    for &p in &ports[1..] {
+        if p == prev + 1 {
+            prev = p;
+        } else {
+            ranges.push(format!("{start}:{prev}"));
+            start = p;
+            prev = p;
+        }
+    }
+    ranges.push(format!("{start}:{prev}"));
+    ranges
+}
+
 pub(crate) fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value>, SubError> {
     let mut out = Map::new();
     let server = singbox_server(e);
@@ -1166,10 +1186,14 @@ pub(crate) fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value
             out.insert("server".into(), json!(server));
             if let Some(ref pr) = e.port_range {
                 let ports = parse_port_range(pr)?;
-                if let (Some(&first), Some(&last)) = (ports.first(), ports.last()) {
-                    out.insert("server_port".into(), json!(first));
-                    out.insert("server_ports".into(), json!([format!("{first}:{last}")]));
+                if ports.len() > 1 {
+                    out.insert(
+                        "server_ports".into(),
+                        json!(contiguous_singbox_port_ranges(&ports)),
+                    );
                     out.insert("hop_interval".into(), json!("30s"));
+                } else if ports.len() == 1 {
+                    out.insert("server_port".into(), json!(ports[0]));
                 } else {
                     out.insert("server_port".into(), json!(e.port));
                 }
@@ -1177,12 +1201,6 @@ pub(crate) fn singbox_outbound(e: &SubEntry, uname: &str) -> Result<Option<Value
                 out.insert("server_port".into(), json!(e.port));
             }
             out.insert("password".into(), json!(e.password));
-            if let Some(ref bbr) = e.bbr_profile {
-                out.insert("bbr_profile".into(), json!(bbr));
-            }
-            if e.disable_chrome_parrot {
-                out.insert("disable_chrome_parrot".into(), json!(true));
-            }
             if let Some(up) = e.upload_mbps {
                 out.insert("up_mbps".into(), json!(up));
             }
@@ -1936,6 +1954,21 @@ pub struct SubscriptionTemplate {
     pub content: String,
 }
 
+fn escape_template_scalar(val: &str, ty: TemplateType) -> String {
+    match ty {
+        TemplateType::XrayJson | TemplateType::Singbox => {
+            serde_json::to_string(val)
+                .map(|s| s.strip_prefix('"').and_then(|t| t.strip_suffix('"')).unwrap_or(&s).to_string())
+                .unwrap_or_else(|_| val.to_string())
+        }
+        TemplateType::Mihomo | TemplateType::Clash | TemplateType::Stash => val
+            .replace(['\r', '\n'], " ")
+            .replace('\\', "\\\\")
+            .replace('"', "\\\""),
+        TemplateType::XrayBase64 => val.replace(['\r', '\n'], " "),
+    }
+}
+
 /// Renders a [`SubscriptionTemplate`], substituting placeholders and validating structured JSON/YAML output.
 pub fn apply_template(
     tpl: &SubscriptionTemplate,
@@ -1950,20 +1983,26 @@ pub fn apply_template(
     let links_b64 = STANDARD.encode(links_joined.as_bytes());
 
     let mut clash_proxies = Vec::new();
+    let mut clash_names = Vec::new();
     let mut sb_outbounds = Vec::new();
-    let mut names = Vec::new();
+    let mut sb_names = Vec::new();
     let mut seen = HashMap::new();
     for e in entries {
         let uname = dedup_tag(&mut seen, &e.tag);
         if let Some(p) = clash_proxy(e, &uname)? {
             clash_proxies.push(p);
-            names.push(uname.clone());
+            clash_names.push(uname.clone());
         }
         if let Some(sb) = singbox_outbound(e, &uname)? {
             sb_outbounds.push(sb);
+            sb_names.push(uname.clone());
         }
     }
     let xray_outbounds = xray_outbounds_list(entries)?;
+    let xray_names: Vec<String> = xray_outbounds
+        .iter()
+        .filter_map(|o| o.get("tag").and_then(Value::as_str).map(ToString::to_string))
+        .collect();
 
     let proxies_str = match tpl.template_type {
         TemplateType::Mihomo | TemplateType::Clash | TemplateType::Stash => {
@@ -1977,12 +2016,19 @@ pub fn apply_template(
         TemplateType::XrayBase64 => links_joined.clone(),
     };
 
+    let names = match tpl.template_type {
+        TemplateType::Mihomo | TemplateType::Clash | TemplateType::Stash => &clash_names,
+        TemplateType::Singbox => &sb_names,
+        TemplateType::XrayJson => &xray_names,
+        TemplateType::XrayBase64 => &clash_names,
+    };
+
     let names_str = match tpl.template_type {
         TemplateType::Mihomo | TemplateType::Clash | TemplateType::Stash => {
-            serde_yaml::to_string(&names)
+            serde_yaml::to_string(names)
                 .map_err(|e| SubError::Invalid(format!("Template YAML names error: {e}")))?
         }
-        _ => serde_json::to_string(&names)
+        _ => serde_json::to_string(names)
             .map_err(|e| SubError::Invalid(format!("Template JSON names error: {e}")))?,
     };
 
@@ -1991,20 +2037,37 @@ pub fn apply_template(
     let xray_outbounds_str = serde_json::to_string(&xray_outbounds)
         .map_err(|e| SubError::Invalid(format!("Template Xray outbounds error: {e}")))?;
 
-    let rendered_body = tpl
-        .content
-        .replace("{{PROXIES}}", proxies_str.trim_end())
-        .replace("{{PROXY_NAMES}}", names_str.trim_end())
-        .replace("{{LINKS}}", &links_joined)
-        .replace("{{LINKS_BASE64}}", &links_b64)
-        .replace("{{SINGBOX_OUTBOUNDS}}", &sb_outbounds_str)
-        .replace("{{XRAY_OUTBOUNDS}}", &xray_outbounds_str)
-        .replace("{{USERNAME}}", &info.username)
-        .replace("{{UUID}}", &info.uuid)
-        .replace("{{UPLOAD}}", &info.upload.to_string())
-        .replace("{{DOWNLOAD}}", &info.download.to_string())
-        .replace("{{TOTAL}}", &info.total.to_string())
-        .replace("{{EXPIRE}}", &info.expire.to_string());
+    let escaped_username = escape_template_scalar(&info.username, tpl.template_type);
+    let escaped_uuid = escape_template_scalar(&info.uuid, tpl.template_type);
+    let upload_str = info.upload.to_string();
+    let download_str = info.download.to_string();
+    let total_str = info.total.to_string();
+    let expire_str = info.expire.to_string();
+
+    let placeholder_re = Regex::new(
+        r"\{\{(PROXIES|PROXY_NAMES|LINKS|LINKS_BASE64|SINGBOX_OUTBOUNDS|XRAY_OUTBOUNDS|USERNAME|UUID|UPLOAD|DOWNLOAD|TOTAL|EXPIRE)\}\}",
+    )
+    .map_err(|e| SubError::Invalid(format!("Template regex error: {e}")))?;
+
+    let rendered_body = placeholder_re
+        .replace_all(&tpl.content, |caps: &regex::Captures<'_>| {
+            match &caps[1] {
+                "PROXIES" => proxies_str.trim_end().to_string(),
+                "PROXY_NAMES" => names_str.trim_end().to_string(),
+                "LINKS" => links_joined.clone(),
+                "LINKS_BASE64" => links_b64.clone(),
+                "SINGBOX_OUTBOUNDS" => sb_outbounds_str.clone(),
+                "XRAY_OUTBOUNDS" => xray_outbounds_str.clone(),
+                "USERNAME" => escaped_username.clone(),
+                "UUID" => escaped_uuid.clone(),
+                "UPLOAD" => upload_str.clone(),
+                "DOWNLOAD" => download_str.clone(),
+                "TOTAL" => total_str.clone(),
+                "EXPIRE" => expire_str.clone(),
+                other => format!("{{{{{other}}}}}"),
+            }
+        })
+        .into_owned();
 
     // Validate structured outputs so broken templates fail cleanly
     match tpl.template_type {
@@ -2905,5 +2968,59 @@ mod tests {
         let decision = evaluate_srr(&ctx, &[rule]);
         assert!(decision.matched_rule_ids.is_empty());
         assert_eq!(decision.early_status, None);
+    }
+
+    #[test]
+    fn singbox_hy2_uses_contiguous_server_ports_without_server_port() {
+        let e = SubEntry {
+            protocol: Protocol::Hysteria2,
+            tag: "hy2-hop".into(),
+            host: "hy2.example.com".into(),
+            port: 443,
+            password: "pw".into(),
+            port_range: Some("443,8443-8445".into()),
+            bbr_profile: Some("standard".into()),
+            disable_chrome_parrot: true,
+            security: Some("tls".into()),
+            sni: Some("hy2.example.com".into()),
+            ..Default::default()
+        };
+        let ob = singbox_outbound(&e, "hy2-hop").unwrap().unwrap();
+        assert!(ob.get("server_port").is_none());
+        assert_eq!(ob["server_ports"], json!(["443:443", "8443:8445"]));
+        assert_eq!(ob["hop_interval"], json!("30s"));
+        assert!(ob.get("bbr_profile").is_none());
+        assert!(ob.get("disable_chrome_parrot").is_none());
+    }
+
+    #[test]
+    fn apply_template_is_single_pass_and_uses_format_specific_proxy_names() {
+        let st_entry = SubEntry {
+            protocol: Protocol::Shadowtls,
+            tag: "st-only".into(),
+            host: "st.example.com".into(),
+            port: 443,
+            password: "secret".into(),
+            shadowtls_password: Some("secret".into()),
+            shadowtls_version: Some(3),
+            security: Some("tls".into()),
+            sni: Some("st.example.com".into()),
+            ..Default::default()
+        };
+        let info = UserInfo {
+            username: "a\"b {{UUID}}".into(),
+            uuid: "550e8400-e29b-41d4-a716-446655440000".into(),
+            ..Default::default()
+        };
+        let tpl = SubscriptionTemplate {
+            id: "t1".into(),
+            name: "sb-tpl".into(),
+            template_type: TemplateType::Singbox,
+            content: r#"{"user":"{{USERNAME}}","names":{{PROXY_NAMES}},"outbounds":{{PROXIES}}}"#.into(),
+        };
+        let rendered = apply_template(&tpl, &[st_entry], &info).unwrap();
+        let val: Value = serde_json::from_str(&rendered.body).unwrap();
+        assert_eq!(val["user"], json!("a\"b {{UUID}}"));
+        assert_eq!(val["names"], json!(["st-only"]));
     }
 }

@@ -10,11 +10,8 @@ use base64::Engine as _;
 use sqlx::Row;
 use std::collections::HashMap;
 
-/// Retrieves or lazily provisions an encrypted per-client protocol credential.
-///
-/// For Shadowsocks-2022 (`2022-blake3-*`), generates 16-byte (AES-128) or 32-byte (AES-256 / ChaCha20)
-/// standard base64 keys when `ss_method` is provided.
-pub async fn get_protocol_secret(
+/// Retrieves or lazily provisions the raw encrypted per-client protocol credential without SS-2022 truncation.
+pub async fn get_protocol_secret_raw(
     state: &AppState,
     client_id: &str,
     protocol: Protocol,
@@ -35,7 +32,7 @@ pub async fn get_protocol_secret(
     {
         let enc: String = row.try_get("encryptedSecret")?;
         if let Ok(plain) = decrypt_str(Some(enc_key), &enc, AAD_PROTOCOL_CREDENTIAL) {
-            return Ok(normalize_ss_secret(&plain, protocol, ss_method));
+            return Ok(plain);
         }
     }
 
@@ -59,8 +56,21 @@ pub async fn get_protocol_secret(
     .await?;
 
     let winning_enc: String = row.try_get("encryptedSecret")?;
-    let plain = decrypt_str(Some(enc_key), &winning_enc, AAD_PROTOCOL_CREDENTIAL)?;
-    Ok(normalize_ss_secret(&plain, protocol, ss_method))
+    decrypt_str(Some(enc_key), &winning_enc, AAD_PROTOCOL_CREDENTIAL)
+}
+
+/// Retrieves or lazily provisions an encrypted per-client protocol credential.
+///
+/// For Shadowsocks-2022 (`2022-blake3-*`), generates 16-byte (AES-128) or 32-byte (AES-256 / ChaCha20)
+/// standard base64 keys when `ss_method` is provided.
+pub async fn get_protocol_secret(
+    state: &AppState,
+    client_id: &str,
+    protocol: Protocol,
+    ss_method: Option<&str>,
+) -> AppResult<String> {
+    let raw = get_protocol_secret_raw(state, client_id, protocol, ss_method).await?;
+    Ok(normalize_ss_secret(&raw, protocol, ss_method))
 }
 
 /// Bulk-loads decrypted protocol credentials for a set of client IDs.

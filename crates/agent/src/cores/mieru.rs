@@ -151,8 +151,7 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<Value, String> {
                         "::1/128",
                         "::/128",
                         "fc00::/7",
-                        "fe80::/10",
-                        "::ffff:0:0/96"
+                        "fe80::/10"
                     ],
                     "action": "REJECT"
                 },
@@ -280,9 +279,10 @@ mod runtime_tests {
             .flatten()
             .filter_map(Value::as_str)
             .collect();
-        for blocked in ["127.0.0.0/8", "10.0.0.0/8", "169.254.0.0/16", "::1/128", "::ffff:0:0/96"] {
+        for blocked in ["127.0.0.0/8", "10.0.0.0/8", "169.254.0.0/16", "::1/128"] {
             assert!(ips.contains(&blocked), "missing egress block for {blocked}");
         }
+        assert!(!ips.contains(&"::ffff:0:0/96"));
         assert!(rules.iter().all(|r| r["action"] == "REJECT"));
     }
 }

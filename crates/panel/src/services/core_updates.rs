@@ -238,6 +238,14 @@ async fn fetch_release_json(
 
     if let Some(ver) = req_ver {
         let clean = ver.trim_start_matches(['v', 'V']);
+        if clean.is_empty()
+            || clean.len() > 64
+            || !clean
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+        {
+            return Err(AppError::bad_request("Invalid version tag"));
+        }
         let with_v = format!("v{clean}");
         let url_with_v = format!("https://api.github.com/repos/{repo}/releases/tags/{with_v}");
         let (status, body) = github_get_json(state, &url_with_v).await?;
@@ -665,6 +673,9 @@ pub async fn trigger_core_update(
         let clean = v.trim_start_matches(['v', 'V']).to_string();
         write_node_core_version(state, node_id, core_norm, &clean).await;
         clean
+    } else if resolved_ver != "custom" {
+        write_node_core_version(state, node_id, core_norm, &resolved_ver).await;
+        resolved_ver
     } else if let Some(db_ver) = read_node_core_version(state, node_id, core_norm).await {
         db_ver
     } else {

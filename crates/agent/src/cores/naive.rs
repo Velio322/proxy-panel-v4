@@ -222,8 +222,10 @@ pub fn generate_caddyfile(
     if probe_resistance {
         out.push_str("    probe_resistance\n");
     }
+    // Go's net.ParseCIDR("::ffff:0:0/96") turns it into 0.0.0.0/0 (matching all IPv4), whereas
+    // IPNet.Contains already unmaps IPv4-mapped IPv6 addresses against the IPv4 private CIDRs.
     out.push_str("    acl {\n");
-    out.push_str("      deny 127.0.0.0/8 ::1/128 0.0.0.0/8 ::/128 ::ffff:0:0/96 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fc00::/7 fe80::/10 localhost\n");
+    out.push_str("      deny 127.0.0.0/8 ::1/128 0.0.0.0/8 ::/128 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fc00::/7 fe80::/10 localhost\n");
     out.push_str("      allow all\n");
     out.push_str("    }\n");
     if !warp_upstream.is_empty() {
@@ -281,7 +283,7 @@ mod tests {
         assert!(cf.contains(":8443, \"n.example.org:8443\""));
         assert!(!cf.contains("admin off"));
         assert!(cf.contains("0.0.0.0/8"));
-        assert!(cf.contains("::ffff:0:0/96"));
+        assert!(!cf.contains("::ffff:0:0/96"));
         assert!(cf.contains("100.64.0.0/10"));
     }
 

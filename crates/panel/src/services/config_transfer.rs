@@ -152,11 +152,7 @@ pub async fn import_v1(
         }));
     }
 
-    let mut tx = state.db.begin().await?;
-    let now = crate::db::now();
-    let mut created_nodes = 0usize;
-    let mut created_users = 0usize;
-
+    let mut prepared_nodes = Vec::with_capacity(doc.nodes.len());
     for n in &doc.nodes {
         let secret = credentials
             .get(&n.name)
@@ -167,6 +163,25 @@ pub async fn import_v1(
             return Err(AppError::bad_request("Invalid transfer document or credentials"));
         }
         let secret_hash = sha256_hex(&secret);
+        prepared_nodes.push((n, secret, secret_hash));
+    }
+
+    let mut prepared_users = Vec::with_capacity(doc.users.len());
+    for u in &doc.users {
+        let pw = credentials
+            .get(&u.username)
+            .cloned()
+            .unwrap_or_else(|| crate::auth::crypto::generate_user_password(16));
+        let pw_hash = hash_password(&pw, 12).await?;
+        prepared_users.push((u, pw_hash));
+    }
+
+    let mut tx = state.db.begin().await?;
+    let now = crate::db::now();
+    let mut created_nodes = 0usize;
+    let mut created_users = 0usize;
+
+    for (n, secret, secret_hash) in prepared_nodes {
         let res = sqlx::query(
             r#"INSERT INTO "Node" (id, name, host, port, "apiPort", secret, "secretHash", country, city, isp, tags, active, "createdAt", "updatedAt")
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
@@ -190,12 +205,7 @@ pub async fn import_v1(
         created_nodes += usize::try_from(res.rows_affected()).unwrap_or(0);
     }
 
-    for u in &doc.users {
-        let pw = credentials
-            .get(&u.username)
-            .cloned()
-            .unwrap_or_else(|| crate::auth::crypto::generate_user_password(16));
-        let pw_hash = hash_password(&pw, 12).await?;
+    for (u, pw_hash) in prepared_users {
         let res = sqlx::query(
             r#"INSERT INTO "User" (id, username, email, password, role, language, banned, "createdAt", "updatedAt")
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
@@ -232,27 +242,30 @@ pub async fn export_v2(state: &AppState, include_secrets: bool) -> AppResult<Val
     .fetch_all(&state.db)
     .await?;
 
+    let client_ids: Vec<String> = clients
+        .iter()
+        .filter_map(|c| c.try_get::<String, _>("id").ok())
+        .collect();
+    let bulk_creds = if include_secrets && state.encryption_key().is_some() {
+        crate::services::protocol_credentials::get_protocol_secrets_bulk(state, &client_ids).await?
+    } else {
+        HashMap::new()
+    };
+
+    let mut by_client: HashMap<String, Vec<(Protocol, String)>> = HashMap::new();
+    for ((cid, proto), plain) in bulk_creds {
+        by_client.entry(cid).or_default().push((proto, plain));
+    }
+
     let mut client_list = Vec::with_capacity(clients.len());
     for c in clients {
         let cid: String = c.try_get("id")?;
         let mut secrets_obj = serde_json::Map::new();
         if include_secrets {
-            if let Some(enc_key) = state.encryption_key() {
-                let creds = sqlx::query(
-                    r#"SELECT protocol, "encryptedSecret" FROM "ProtocolCredential" WHERE "clientId" = $1"#,
-                )
-                .bind(&cid)
-                .fetch_all(&state.db)
-                .await?;
-                for cr in creds {
-                    let proto: Protocol = cr.try_get::<DbProtocol, _>("protocol")?.into();
-                    let enc: String = cr.try_get("encryptedSecret")?;
-                    if let Ok(plain) = decrypt_str(Some(enc_key), &enc, AAD_CONFIG_TRANSFER_V2)
-                        .or_else(|_| decrypt_str(Some(enc_key), &enc, crate::auth::crypto::AAD_PROTOCOL_CREDENTIAL))
-                    {
-                        if let Ok(re_enc) = encrypt_str(Some(enc_key), &plain, AAD_CONFIG_TRANSFER_V2) {
-                            secrets_obj.insert(proto.as_str().to_string(), json!(re_enc));
-                        }
+            if let (Some(enc_key), Some(creds)) = (state.encryption_key(), by_client.get(&cid)) {
+                for (proto, plain) in creds {
+                    if let Ok(re_enc) = encrypt_str(Some(enc_key), plain, AAD_CONFIG_TRANSFER_V2) {
+                        secrets_obj.insert(proto.as_str().to_string(), json!(re_enc));
                     }
                 }
             }
@@ -292,28 +305,71 @@ pub async fn import_v2(
     if version != 2 {
         return Err(AppError::bad_request("Invalid transfer document or credentials"));
     }
-    let nodes_count = doc.get("nodes").and_then(Value::as_array).map_or(0, Vec::len);
-    let users_count = doc.get("users").and_then(Value::as_array).map_or(0, Vec::len);
+    let nodes: Vec<TransferNodeV1> = match doc.get("nodes") {
+        Some(v) if !v.is_null() => serde_json::from_value(v.clone())
+            .map_err(|_| AppError::bad_request("Invalid nodes section in transfer document"))?,
+        _ => Vec::new(),
+    };
+    let users: Vec<TransferUserV1> = match doc.get("users") {
+        Some(v) if !v.is_null() => serde_json::from_value(v.clone())
+            .map_err(|_| AppError::bad_request("Invalid users section in transfer document"))?,
+        _ => Vec::new(),
+    };
     let clients_arr = doc.get("clients").and_then(Value::as_array).cloned().unwrap_or_default();
-    if nodes_count + users_count + clients_arr.len() > MAX_TRANSFER_ITEMS {
+    if nodes.len() + users.len() + clients_arr.len() > MAX_TRANSFER_ITEMS {
         return Err(AppError::bad_request("Transfer document exceeds item limit"));
     }
+    for n in &nodes {
+        if n.name.is_empty()
+            || n.host.is_empty()
+            || !(1..=65535).contains(&n.port)
+            || !(1..=65535).contains(&n.api_port)
+        {
+            return Err(AppError::bad_request("Invalid transfer document or credentials"));
+        }
+        crate::net::validate_node_host(&n.host, state.cfg.allow_private_nodes)?;
+    }
+    for u in &users {
+        if u.username.len() < 3 || u.username.len() > 64 {
+            return Err(AppError::bad_request("Invalid transfer document or credentials"));
+        }
+    }
+
     if !apply {
         return Ok(json!({
             "applied": false,
             "mode": mode,
-            "nodes": nodes_count,
-            "users": users_count,
+            "nodes": nodes.len(),
+            "users": users.len(),
             "clients": clients_arr.len(),
             "dryRun": true
         }));
     }
 
-    let upsert = mode == "upsert";
-    let mut imported_clients = 0usize;
-    let now = crate::db::now();
-    let mut tx = state.db.begin().await?;
+    // Hash all passwords before starting the PostgreSQL transaction.
+    let mut prepared_users = Vec::with_capacity(users.len());
+    for u in users {
+        let pw_hash = hash_password(&crate::auth::crypto::generate_user_password(16), 12).await?;
+        prepared_users.push((u, pw_hash));
+    }
 
+    struct PreparedClient<'a> {
+        cid: String,
+        uuid: String,
+        username: &'a str,
+        email: Option<&'a str>,
+        pw_hash: String,
+        traffic_limit: i64,
+        expire_at: Option<chrono::NaiveDateTime>,
+        banned: bool,
+        protocols: Value,
+        sub_token: String,
+        device_limit: Option<i32>,
+        reset_strategy: &'a str,
+        secrets: Option<&'a serde_json::Map<String, Value>>,
+    }
+
+    let mut prepared_clients = Vec::with_capacity(clients_arr.len());
     for c in &clients_arr {
         let Some(username) = c.get("username").and_then(Value::as_str) else {
             continue;
@@ -328,6 +384,16 @@ pub async fn import_v2(
             .and_then(Value::as_str)
             .map(ToString::to_string)
             .unwrap_or_else(crate::db::new_id);
+        let email = c
+            .get("email")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let expire_at = c
+            .get("expireAt")
+            .and_then(Value::as_str)
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.naive_utc());
         let traffic_limit = c.get("trafficLimit").and_then(Value::as_i64).unwrap_or(0);
         let banned = c.get("banned").and_then(Value::as_bool).unwrap_or(false);
         let protocols = c
@@ -338,61 +404,192 @@ pub async fn import_v2(
             .get("resetStrategy")
             .and_then(Value::as_str)
             .unwrap_or("NO_RESET");
-        let device_limit = c.get("deviceLimit").and_then(Value::as_i64).and_then(|v| i32::try_from(v).ok());
+        let device_limit = c
+            .get("deviceLimit")
+            .and_then(Value::as_i64)
+            .and_then(|v| i32::try_from(v).ok());
         let cid = c
             .get("id")
             .and_then(Value::as_str)
             .map(ToString::to_string)
             .unwrap_or_else(crate::db::new_id);
         let pw_hash = hash_password(&crate::auth::crypto::random_hex(12), 10).await?;
+        let secrets = c.get("secrets").and_then(Value::as_object);
+        prepared_clients.push(PreparedClient {
+            cid,
+            uuid,
+            username,
+            email,
+            pw_hash,
+            traffic_limit,
+            expire_at,
+            banned,
+            protocols,
+            sub_token,
+            device_limit,
+            reset_strategy,
+            secrets,
+        });
+    }
 
-        let sql = if upsert {
-            r#"INSERT INTO "Client" (id, uuid, username, password, "trafficLimit", banned, protocols, "subToken", "deviceLimit", "resetStrategy", "createdAt", "updatedAt")
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
-               ON CONFLICT (uuid) DO UPDATE SET "trafficLimit" = EXCLUDED."trafficLimit", banned = EXCLUDED.banned, protocols = EXCLUDED.protocols, "updatedAt" = EXCLUDED."updatedAt""#
+    let upsert = mode == "upsert";
+    let mut created_nodes = 0usize;
+    let mut created_users = 0usize;
+    let mut imported_clients = 0usize;
+    let now = crate::db::now();
+    let mut tx = state.db.begin().await?;
+
+    for n in &nodes {
+        let existing_id: Option<String> = sqlx::query_scalar(
+            r#"SELECT id FROM "Node" WHERE host = $1 AND "apiPort" = $2 LIMIT 1"#,
+        )
+        .bind(&n.host)
+        .bind(n.api_port)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(eid) = existing_id {
+            if upsert {
+                sqlx::query(
+                    r#"UPDATE "Node"
+                       SET name = $2, port = $3, country = $4, city = $5, isp = $6,
+                           tags = $7, active = $8, "updatedAt" = $9
+                       WHERE id = $1"#,
+                )
+                .bind(&eid)
+                .bind(&n.name)
+                .bind(n.port)
+                .bind(&n.country)
+                .bind(&n.city)
+                .bind(&n.isp)
+                .bind(&n.tags)
+                .bind(n.active)
+                .bind(now)
+                .execute(&mut *tx)
+                .await?;
+                created_nodes += 1;
+            }
+            continue;
+        }
+        let secret = crate::auth::crypto::random_hex(24);
+        let secret_hash = sha256_hex(&secret);
+        let res = sqlx::query(
+            r#"INSERT INTO "Node" (id, name, host, port, "apiPort", secret, "secretHash", country, city, isp, tags, active, "createdAt", "updatedAt")
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+               ON CONFLICT DO NOTHING"#,
+        )
+        .bind(crate::db::new_id())
+        .bind(&n.name)
+        .bind(&n.host)
+        .bind(n.port)
+        .bind(n.api_port)
+        .bind(&secret)
+        .bind(&secret_hash)
+        .bind(&n.country)
+        .bind(&n.city)
+        .bind(&n.isp)
+        .bind(&n.tags)
+        .bind(n.active)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        created_nodes += usize::try_from(res.rows_affected()).unwrap_or(0);
+    }
+
+    for (u, pw_hash) in &prepared_users {
+        let user_sql = if upsert {
+            r#"INSERT INTO "User" (id, username, email, password, role, language, banned, "createdAt", "updatedAt")
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+               ON CONFLICT (username) DO UPDATE SET
+                 email = COALESCE(EXCLUDED.email, "User".email),
+                 role = EXCLUDED.role,
+                 language = EXCLUDED.language,
+                 banned = EXCLUDED.banned,
+                 "updatedAt" = EXCLUDED."updatedAt""#
         } else {
-            r#"INSERT INTO "Client" (id, uuid, username, password, "trafficLimit", banned, protocols, "subToken", "deviceLimit", "resetStrategy", "createdAt", "updatedAt")
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+            r#"INSERT INTO "User" (id, username, email, password, role, language, banned, "createdAt", "updatedAt")
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
                ON CONFLICT DO NOTHING"#
         };
-        let res = sqlx::query(sql)
-            .bind(&cid)
-            .bind(&uuid)
-            .bind(username)
-            .bind(&pw_hash)
-            .bind(traffic_limit)
-            .bind(banned)
-            .bind(&protocols)
-            .bind(&sub_token)
-            .bind(device_limit)
-            .bind(reset_strategy)
+        let res = sqlx::query(user_sql)
+            .bind(crate::db::new_id())
+            .bind(&u.username)
+            .bind(&u.email)
+            .bind(pw_hash)
+            .bind(u.role)
+            .bind(&u.language)
+            .bind(u.banned)
             .bind(now)
             .execute(&mut *tx)
             .await?;
-        if res.rows_affected() > 0 {
-            imported_clients += 1;
-        }
+        created_users += usize::try_from(res.rows_affected()).unwrap_or(0);
+    }
 
-        if let (Some(enc_key), Some(secrets)) = (
-            state.encryption_key(),
-            c.get("secrets").and_then(Value::as_object),
-        ) {
+    for pc in prepared_clients {
+        let sql = if upsert {
+            r#"INSERT INTO "Client" (id, uuid, username, email, password, "trafficLimit", "expireAt", banned, protocols, "subToken", "deviceLimit", "resetStrategy", "createdAt", "updatedAt")
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+               ON CONFLICT (uuid) DO UPDATE SET
+                 email = COALESCE(EXCLUDED.email, "Client".email),
+                 "trafficLimit" = EXCLUDED."trafficLimit",
+                 "expireAt" = COALESCE(EXCLUDED."expireAt", "Client"."expireAt"),
+                 banned = EXCLUDED.banned,
+                 protocols = EXCLUDED.protocols,
+                 "deviceLimit" = EXCLUDED."deviceLimit",
+                 "resetStrategy" = EXCLUDED."resetStrategy",
+                 "updatedAt" = EXCLUDED."updatedAt"
+               RETURNING id"#
+        } else {
+            r#"INSERT INTO "Client" (id, uuid, username, email, password, "trafficLimit", "expireAt", banned, protocols, "subToken", "deviceLimit", "resetStrategy", "createdAt", "updatedAt")
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+               ON CONFLICT DO NOTHING
+               RETURNING id"#
+        };
+        let persisted_cid: Option<String> = sqlx::query_scalar(sql)
+            .bind(&pc.cid)
+            .bind(&pc.uuid)
+            .bind(pc.username)
+            .bind(pc.email)
+            .bind(&pc.pw_hash)
+            .bind(pc.traffic_limit)
+            .bind(pc.expire_at)
+            .bind(pc.banned)
+            .bind(&pc.protocols)
+            .bind(&pc.sub_token)
+            .bind(pc.device_limit)
+            .bind(pc.reset_strategy)
+            .bind(now)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let Some(actual_cid) = persisted_cid else {
+            continue;
+        };
+        imported_clients += 1;
+
+        if let (Some(enc_key), Some(secrets)) = (state.encryption_key(), pc.secrets) {
+            let cred_sql = if upsert {
+                r#"INSERT INTO "ProtocolCredential" (id, "clientId", protocol, "encryptedSecret", "createdAt", "updatedAt")
+                   VALUES ($1, $2, $3, $4, $5, $5)
+                   ON CONFLICT ("clientId", protocol) DO UPDATE SET
+                     "encryptedSecret" = EXCLUDED."encryptedSecret",
+                     "updatedAt" = EXCLUDED."updatedAt""#
+            } else {
+                r#"INSERT INTO "ProtocolCredential" (id, "clientId", protocol, "encryptedSecret", "createdAt", "updatedAt")
+                   VALUES ($1, $2, $3, $4, $5, $5)
+                   ON CONFLICT ("clientId", protocol) DO NOTHING"#
+            };
             for (proto_str, enc_val) in secrets {
                 if let (Ok(proto), Some(enc_str)) = (Protocol::from_str(proto_str), enc_val.as_str()) {
                     if let Ok(plain) = decrypt_str(Some(enc_key), enc_str, AAD_CONFIG_TRANSFER_V2) {
                         if let Ok(re_enc) = encrypt_str(Some(enc_key), &plain, crate::auth::crypto::AAD_PROTOCOL_CREDENTIAL) {
-                            let _ = sqlx::query(
-                                r#"INSERT INTO "ProtocolCredential" (id, "clientId", protocol, "encryptedSecret", "createdAt", "updatedAt")
-                                   VALUES ($1, $2, $3, $4, $5, $5)
-                                   ON CONFLICT ("clientId", protocol) DO NOTHING"#,
-                            )
-                            .bind(crate::db::new_id())
-                            .bind(&cid)
-                            .bind(DbProtocol::from(proto))
-                            .bind(re_enc)
-                            .bind(now)
-                            .execute(&mut *tx)
-                            .await;
+                            sqlx::query(cred_sql)
+                                .bind(crate::db::new_id())
+                                .bind(&actual_cid)
+                                .bind(DbProtocol::from(proto))
+                                .bind(re_enc)
+                                .bind(now)
+                                .execute(&mut *tx)
+                                .await?;
                         }
                     }
                 }
@@ -405,6 +602,8 @@ pub async fn import_v2(
     Ok(json!({
         "applied": true,
         "mode": mode,
+        "createdNodes": created_nodes,
+        "createdUsers": created_users,
         "importedClients": imported_clients
     }))
 }

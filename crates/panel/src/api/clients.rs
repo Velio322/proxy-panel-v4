@@ -1151,6 +1151,7 @@ async fn update(
     }
 
     tx.commit().await?;
+    state.traffic_queue.invalidate_client(&id);
     state.cache.del_sub_token(&sub_token);
     state.invalidate_derived();
     let _ = enforcement::enforce_client_policies(&state, &id).await;
@@ -1209,6 +1210,7 @@ async fn remove(
     }
     tx.commit().await?;
 
+    state.traffic_queue.invalidate_client(&id);
     state.cache.del_sub_token(&tok);
     state.invalidate_derived();
     if node_ids.is_empty() {
@@ -1609,6 +1611,7 @@ async fn bind_inbounds(
     }
 
     tx.commit().await?;
+    state.traffic_queue.invalidate_client(&id);
     state.cache.del_sub_token(&sub_token);
     state.invalidate_derived();
     if affected_nodes.is_empty() {
@@ -1632,6 +1635,9 @@ async fn bulk_delete(
         .bind(&body.ids)
         .execute(&state.db)
         .await?;
+    for cid in &body.ids {
+        state.traffic_queue.invalidate_client(cid);
+    }
     state.invalidate_derived();
     outbox::broadcast_config_update(&state).await;
     Ok(Json(json!({ "deleted": res.rows_affected() })))
@@ -1933,11 +1939,15 @@ async fn bulk_action(
 
     let count = match body.action.as_str() {
         "delete" => {
-            sqlx::query(r#"DELETE FROM "Client" WHERE id = ANY($1::text[])"#)
+            let deleted = sqlx::query(r#"DELETE FROM "Client" WHERE id = ANY($1::text[])"#)
                 .bind(&body.ids)
                 .execute(&state.db)
                 .await?
-                .rows_affected()
+                .rows_affected();
+            for cid in &body.ids {
+                state.traffic_queue.invalidate_client(cid);
+            }
+            deleted
         }
         "ban" => {
             sqlx::query(r#"UPDATE "Client" SET banned = true, "updatedAt" = $2 WHERE id = ANY($1::text[])"#)

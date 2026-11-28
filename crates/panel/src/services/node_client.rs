@@ -83,12 +83,12 @@ pub fn base_url(
     } else {
         "http"
     };
-    let clean_host = host
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .split(':')
-        .next()
-        .unwrap_or(host);
+    let stripped = host.trim_start_matches('[').trim_end_matches(']');
+    let clean_host = if stripped.parse::<std::net::IpAddr>().is_ok() {
+        stripped
+    } else {
+        stripped.split(':').next().unwrap_or(stripped)
+    };
     let formatted_host = if host.contains(':') && !host.starts_with('[') {
         format!("[{host}]")
     } else {
@@ -188,6 +188,9 @@ async fn node_post_with_timeout<T: serde::Serialize>(
         .bytes()
         .await
         .map_err(|e| AppError::service_unavailable(format!("Node response read failed: {e}")))?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err(AppError::payload_too_large("Node response exceeded 8 MiB"));
+    }
 
     if !status.is_success() {
         let parsed_err = serde_json::from_slice::<Value>(&bytes)

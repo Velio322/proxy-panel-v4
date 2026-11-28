@@ -71,7 +71,9 @@ pub async fn create_join_token(
     .await?;
 
     let (panel_url, _) = crate::api::nodes::resolve_panel_urls(&state, &headers);
-    let command = format!("curl -fsSL '{panel_url}/install-node.sh' | sudo bash -s -- --join '{token}'");
+    let q_panel = crate::api::nodes::shell_single_quote(&panel_url);
+    let q_token = crate::api::nodes::shell_single_quote(&token);
+    let command = format!("curl -fsSL '{q_panel}/install-node.sh' | sudo bash -s -- --join '{q_token}'");
 
     audit::spawn(
         &state.db,

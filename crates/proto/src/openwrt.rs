@@ -1,4 +1,4 @@
-use crate::links::{encode_uri_component, form_urlencode, js_hash_code as links_hash_code, SubError};
+use crate::links::{bracket_host, encode_uri_component, form_urlencode, js_hash_code as links_hash_code, SubError};
 use crate::wire::Protocol;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{SecondsFormat, Utc};
@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 const STANDARD: general_purpose::GeneralPurpose = general_purpose::STANDARD;
+const URL_SAFE_NO_PAD: general_purpose::GeneralPurpose = general_purpose::URL_SAFE_NO_PAD;
 
 /// Computes the exact 32-bit UTF-16 JS `String.prototype.hashCode` unsigned magnitude.
 pub fn js_hash_code(s: &str) -> u32 {
@@ -302,11 +303,20 @@ fn to_openclash_proxy(inbound: &InboundExport) -> Option<Value> {
                 json!(js_or(st, &["fingerprint"], "chrome")),
             );
             if sec == Some("reality") {
+                let pub_key = js_str(st, &["realitySettings", "publicKey"])
+                    .or_else(|| js_str(st, &["publicKey"]))
+                    .unwrap_or("");
+                let short_id = js_str(st, &["realitySettings", "shortId"])
+                    .or_else(|| st.pointer("/realitySettings/shortIds/0").and_then(Value::as_str))
+                    .or_else(|| js_str(st, &["shortId"]))
+                    .unwrap_or("");
                 obj.insert(
-                    "reality-public-key".into(),
-                    json!(js_or(st, &["publicKey"], "")),
+                    "reality-opts".into(),
+                    json!({
+                        "public-key": pub_key,
+                        "short-id": short_id,
+                    }),
                 );
-                obj.insert("reality-short-id".into(), json!(js_or(st, &["shortId"], "")));
             }
             obj.insert("network".into(), json!(network));
             if network == "ws" {
@@ -378,7 +388,6 @@ fn object_to_yaml(val: &Value, indent: usize) -> String {
                 Value::Object(_) => {
                     yaml.push_str(&format!("{pad}{key}:\n"));
                     yaml.push_str(&object_to_yaml(value, indent + 2));
-                    yaml.push('\n');
                 }
                 Value::Array(arr) => {
                     yaml.push_str(&format!("{pad}{key}:\n"));
@@ -420,8 +429,10 @@ pub fn generate_openclash_yaml_with_ts(
     generated_iso: &str,
 ) -> Result<String, SubError> {
     let mut proxies_yaml = String::new();
+    let mut emitted_names: Vec<String> = Vec::new();
     for inbound in inbounds {
         if let Some(node) = to_openclash_proxy(inbound) {
+            emitted_names.push(inbound.tag.clone());
             let block = object_to_yaml(&node, 4);
             let stripped = block.strip_prefix("    ").unwrap_or(&block);
             proxies_yaml.push_str("  - ");
@@ -430,12 +441,12 @@ pub fn generate_openclash_yaml_with_ts(
         }
     }
 
-    let group_lines = if inbounds.is_empty() {
+    let group_lines = if emitted_names.is_empty() {
         "      - DIRECT".to_string()
     } else {
-        inbounds
+        emitted_names
             .iter()
-            .map(|i| format!("      - {}", i.tag.replace(['\r', '\n'], " ")))
+            .map(|name| format!("      - \"{}\"", sanitize_yaml_str(name)))
             .collect::<Vec<_>>()
             .join("\n")
     };
@@ -568,8 +579,8 @@ fn to_openwrt_uri(inbound: &InboundExport) -> Option<String> {
             }
             Some(format!(
                 "vless://{}@{}:{}?{}#{}",
-                js_or(s, &["id"], ""),
-                inbound.host,
+                encode_uri_component(js_or(s, &["id"], "")),
+                bracket_host(&inbound.host),
                 inbound.port,
                 form_urlencode(&params),
                 encode_uri_component(&inbound.tag)
@@ -590,8 +601,8 @@ fn to_openwrt_uri(inbound: &InboundExport) -> Option<String> {
             }
             Some(format!(
                 "hy2://{}@{}:{}?{}#{}",
-                js_or(s, &["password"], ""),
-                inbound.host,
+                encode_uri_component(js_or(s, &["password"], "")),
+                bracket_host(&inbound.host),
                 inbound.port,
                 form_urlencode(&params),
                 encode_uri_component(&inbound.tag)
@@ -607,8 +618,8 @@ fn to_openwrt_uri(inbound: &InboundExport) -> Option<String> {
             }
             Some(format!(
                 "trojan://{}@{}:{}?{}#{}",
-                js_or(s, &["password"], ""),
-                inbound.host,
+                encode_uri_component(js_or(s, &["password"], "")),
+                bracket_host(&inbound.host),
                 inbound.port,
                 form_urlencode(&params),
                 encode_uri_component(&inbound.tag)
@@ -617,10 +628,10 @@ fn to_openwrt_uri(inbound: &InboundExport) -> Option<String> {
         Protocol::Shadowsocks => {
             let method = js_or(s, &["method"], "aes-256-gcm");
             let pw = js_or(s, &["password"], "");
-            let auth = STANDARD.encode(format!("{method}:{pw}").as_bytes());
+            let auth = URL_SAFE_NO_PAD.encode(format!("{method}:{pw}").as_bytes());
             Some(format!(
                 "ss://{auth}@{}:{}#{}",
-                inbound.host,
+                bracket_host(&inbound.host),
                 inbound.port,
                 encode_uri_component(&inbound.tag)
             ))
@@ -644,8 +655,14 @@ pub fn generate_ssr_subscription(inbounds: &[InboundExport]) -> Result<String, S
             let method = js_or(&i.settings, &["method"], "aes-256-gcm");
             let pw = js_or(&i.settings, &["password"], "");
             let proto = js_or(&i.settings, &["proto"], "origin");
-            let raw = format!("{}:{}:{method}:{pw}:{proto}", i.host, i.port);
-            format!("ssr://{}", STANDARD.encode(raw.as_bytes()))
+            let obfs = js_or(&i.settings, &["obfs"], "plain");
+            let pw_b64 = URL_SAFE_NO_PAD.encode(pw.as_bytes());
+            let rem_b64 = URL_SAFE_NO_PAD.encode(i.tag.as_bytes());
+            let raw = format!(
+                "{}:{}:{proto}:{method}:{obfs}:{pw_b64}/?remarks={rem_b64}",
+                i.host, i.port
+            );
+            format!("ssr://{}", URL_SAFE_NO_PAD.encode(raw.as_bytes()))
         })
         .collect();
     Ok(STANDARD.encode(lines.join("\n").as_bytes()))
@@ -699,5 +716,75 @@ mod tests {
         assert_eq!(ob["transport"]["host"], json!("www.twitch.tv"));
         assert!(ob.get("flow").is_none());
         assert!(ob.get("packet_encoding").is_none());
+    }
+
+    #[test]
+    fn openclash_reality_opts_and_supported_groups() {
+        let vless = InboundExport {
+            protocol: Protocol::Vless,
+            tag: "v1".into(),
+            host: "2001:db8::1".into(),
+            port: 443,
+            settings: json!({ "id": "550e8400-e29b-41d4-a716-446655440000" }),
+            stream: json!({
+                "security": "reality",
+                "sni": "www.microsoft.com",
+                "realitySettings": {
+                    "publicKey": "pub-k",
+                    "shortIds": ["abcd"]
+                }
+            }),
+            resolved_ip: None,
+        };
+        let unsupported = InboundExport {
+            protocol: Protocol::Mieru,
+            tag: "m1-skip".into(),
+            host: "example.com".into(),
+            port: 2053,
+            settings: json!({}),
+            stream: json!({}),
+            resolved_ip: None,
+        };
+        let yaml = generate_openclash_yaml_with_ts(&[vless.clone(), unsupported], "2026-01-01T00:00:00Z").unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(doc["proxies"][0]["reality-opts"]["public-key"].as_str(), Some("pub-k"));
+        assert_eq!(doc["proxies"][0]["reality-opts"]["short-id"].as_str(), Some("abcd"));
+        let grp = doc["proxy-groups"][0]["proxies"].as_sequence().unwrap();
+        assert_eq!(grp.len(), 1);
+        assert_eq!(grp[0].as_str(), Some("v1"));
+
+        let tr = InboundExport {
+            protocol: Protocol::Trojan,
+            tag: "tr".into(),
+            host: "2001:db8::2".into(),
+            port: 443,
+            settings: json!({ "password": "a/b+c=d" }),
+            stream: json!({ "sni": "tr.example.com" }),
+            resolved_ip: None,
+        };
+        let b64 = generate_base64_subscription(&[vless, tr]).unwrap();
+        let decoded = String::from_utf8(STANDARD.decode(b64).unwrap()).unwrap();
+        assert!(decoded.contains("@[2001:db8::1]:443"));
+        assert!(decoded.contains("trojan://a%2Fb%2Bc%3Dd@[2001:db8::2]:443"));
+
+        let ss = InboundExport {
+            protocol: Protocol::Shadowsocks,
+            tag: "ss-1".into(),
+            host: "1.1.1.1".into(),
+            port: 8388,
+            settings: json!({ "method": "aes-256-gcm", "password": "secret" }),
+            stream: json!({}),
+            resolved_ip: None,
+        };
+        let ssr_outer = generate_ssr_subscription(&[ss]).unwrap();
+        let ssr_line = String::from_utf8(STANDARD.decode(ssr_outer).unwrap()).unwrap();
+        let inner = String::from_utf8(
+            URL_SAFE_NO_PAD
+                .decode(ssr_line.strip_prefix("ssr://").unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(inner.contains("1.1.1.1:8388:origin:aes-256-gcm:plain:"));
+        assert!(inner.contains("/?remarks="));
     }
 }

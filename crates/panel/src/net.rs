@@ -30,20 +30,21 @@ pub fn extract_ip(
     trust_proxy: bool,
 ) -> String {
     if trust_proxy {
-        // The rightmost X-Forwarded-For hop is the one our own reverse proxy appended (or set),
-        // so a client cannot forge it; earlier entries are client-controlled and ignored.
-        // X-Real-IP is only a fallback: it is trustworthy solely if the proxy overwrites it.
-        if let Some(xff) = headers
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-        {
-            if let Some(last) = xff.rsplit(',').next().map(str::trim).filter(|s| !s.is_empty()) {
-                return last.to_string();
+        // Walk X-Forwarded-For headers from rightmost header and rightmost comma entry so
+        // only the hop appended by our reverse proxy is trusted.
+        let xff_headers: Vec<_> = headers.get_all("x-forwarded-for").iter().collect();
+        for hv in xff_headers.into_iter().rev() {
+            if let Ok(xff) = hv.to_str() {
+                for cand in xff.rsplit(',').map(str::trim) {
+                    if !cand.is_empty() && cand.parse::<IpAddr>().is_ok() {
+                        return cand.to_string();
+                    }
+                }
             }
         }
         if let Some(real_ip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
             let trimmed = real_ip.trim();
-            if !trimmed.is_empty() {
+            if !trimmed.is_empty() && trimmed.parse::<IpAddr>().is_ok() {
                 return trimmed.to_string();
             }
         }
@@ -327,6 +328,12 @@ mod client_ip_tests {
         assert_eq!(extract_ip(&h, None, true), "198.51.100.4");
         let h = headers(&[("x-real-ip", "203.0.113.9")]);
         assert_eq!(extract_ip(&h, None, true), "203.0.113.9");
+
+        // Multiple X-Forwarded-For headers and invalid trailing garbage
+        let mut multi = HeaderMap::new();
+        multi.append("x-forwarded-for", HeaderValue::from_static("1.1.1.1"));
+        multi.append("x-forwarded-for", HeaderValue::from_static("198.51.100.8, not-an-ip"));
+        assert_eq!(extract_ip(&multi, None, true), "198.51.100.8");
     }
 
     #[test]

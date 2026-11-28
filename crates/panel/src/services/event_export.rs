@@ -13,25 +13,26 @@ pub fn emit_event(state: &AppState, event_type: &str, payload: Value) {
         let ts = crate::db::ts::format_iso(&crate::db::now());
         let data_str = payload.to_string();
 
-        if let Some(ref redis_url) = st.cfg.redis_url {
-            if let Ok(client) = redis::Client::open(redis_url.as_str()) {
-                if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
-                    let _: Result<String, _> = redis::cmd("XADD")
-                        .arg(&st.cfg.redis_stream_key)
-                        .arg("MAXLEN")
-                        .arg("~")
-                        .arg(100_000)
-                        .arg("*")
-                        .arg("event")
-                        .arg(&et)
-                        .arg("timestamp")
-                        .arg(&ts)
-                        .arg("payload")
-                        .arg(&data_str)
-                        .query_async(&mut conn)
-                        .await;
-                }
-            }
+        if let Some(ref client) = st.redis_client {
+            let fut = async {
+                let mut conn = client.get_multiplexed_async_connection().await?;
+                let _: String = redis::cmd("XADD")
+                    .arg(&st.cfg.redis_stream_key)
+                    .arg("MAXLEN")
+                    .arg("~")
+                    .arg(100_000)
+                    .arg("*")
+                    .arg("event")
+                    .arg(&et)
+                    .arg("timestamp")
+                    .arg(&ts)
+                    .arg("payload")
+                    .arg(&data_str)
+                    .query_async(&mut conn)
+                    .await?;
+                Ok::<(), redis::RedisError>(())
+            };
+            let _ = tokio::time::timeout(Duration::from_secs(5), fut).await;
         }
 
         if let Some(ref ch_url) = st.cfg.clickhouse_url {

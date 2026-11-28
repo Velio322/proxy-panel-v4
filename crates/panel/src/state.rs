@@ -48,6 +48,7 @@ pub struct AppState {
     pub webhook_http_client: reqwest::Client,
     /// mTLS client for pull-mode nodes (panel -> node HTTPS with a CA-signed identity).
     pub node_mtls_client: reqwest::Client,
+    pub redis_client: Option<redis::Client>,
     pub passkey_reg_states: Arc<DashMap<String, (Instant, PasskeyRegistration)>>,
     pub passkey_auth_states: Arc<DashMap<String, (Instant, PasskeyAuthState)>>,
 }
@@ -108,6 +109,11 @@ impl AppState {
             reqwest::Client::new()
         });
 
+        let redis_client = cfg
+            .redis_url
+            .as_deref()
+            .and_then(|u| redis::Client::open(u).ok());
+
         Self {
             db,
             cfg: Arc::new(cfg),
@@ -129,6 +135,7 @@ impl AppState {
             node_http_client,
             webhook_http_client,
             node_mtls_client,
+            redis_client,
             passkey_reg_states: Arc::new(DashMap::new()),
             passkey_auth_states: Arc::new(DashMap::new()),
         }

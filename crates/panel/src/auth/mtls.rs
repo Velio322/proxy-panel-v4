@@ -1,6 +1,6 @@
 use crate::auth::crypto::sha256_bytes_hex;
 use crate::error::{AppError, AppResult};
-use chrono::{Duration as ChronoDuration, NaiveDateTime};
+use chrono::{Datelike, Duration as ChronoDuration, NaiveDateTime, Utc};
 use rcgen::{
     BasicConstraints, CertificateParams, CertificateSigningRequestParams, DistinguishedName, DnType,
     ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair, KeyUsagePurpose, SanType,
@@ -39,6 +39,35 @@ impl std::fmt::Debug for MtlsCa {
     }
 }
 
+fn write_secret_file(path: &Path, content: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        f.write_all(content.as_bytes())?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, content)
+    }
+}
+
+fn set_validity(params: &mut CertificateParams, days: i64) {
+    let today = Utc::now().date_naive();
+    let start = today - ChronoDuration::days(1);
+    let end = today + ChronoDuration::days(days);
+    params.not_before = rcgen::date_time_ymd(start.year(), start.month() as u8, start.day() as u8);
+    params.not_after = rcgen::date_time_ymd(end.year(), end.month() as u8, end.day() as u8);
+}
+
 impl MtlsCa {
     /// Generates a new internal Root CA in memory (or loads/persists to `data_dir/mtls-ca.{crt,key}` when possible).
     pub fn load_or_generate(data_dir: Option<&Path>) -> AppResult<Self> {
@@ -49,6 +78,14 @@ impl MtlsCa {
                 std::fs::read_to_string(&cert_path),
                 std::fs::read_to_string(&key_path),
             ) {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(
+                        &key_path,
+                        std::fs::Permissions::from_mode(0o600),
+                    );
+                }
                 if let Ok(loaded) = Self::from_pem(&cert_pem, &key_pem) {
                     return Ok(loaded);
                 }
@@ -59,7 +96,7 @@ impl MtlsCa {
         if let Some(dir) = data_dir {
             if std::fs::create_dir_all(dir).is_ok() {
                 let _ = std::fs::write(dir.join("mtls-ca.crt"), &generated.ca_cert_pem);
-                let _ = std::fs::write(dir.join("mtls-ca.key"), &generated.ca_key_pem);
+                let _ = write_secret_file(&dir.join("mtls-ca.key"), &generated.ca_key_pem);
             }
         }
         Ok(generated)
@@ -69,6 +106,7 @@ impl MtlsCa {
         let key_pair = KeyPair::generate()
             .map_err(|e| AppError::internal(format!("mTLS CA keygen failed: {e}")))?;
         let mut params = CertificateParams::default();
+        set_validity(&mut params, 3650);
         let mut dn = DistinguishedName::new();
         dn.push(DnType::OrganizationName, "ProxyPanel v4 Internal CA");
         dn.push(DnType::CommonName, "mypanel3-internal-root-ca");
@@ -124,6 +162,7 @@ impl MtlsCa {
         let leaf_key = KeyPair::generate()
             .map_err(|e| AppError::internal(format!("leaf keygen failed: {e}")))?;
         let mut params = CertificateParams::default();
+        set_validity(&mut params, 365);
         let subject_cn = format!("node:{node_id}");
         let mut dn = DistinguishedName::new();
         dn.push(DnType::OrganizationName, "ProxyPanel v4 Node");
@@ -190,6 +229,7 @@ impl MtlsCa {
         let mut csr = CertificateSigningRequestParams::from_pem(csr_pem)
             .map_err(|e| AppError::bad_request(format!("invalid CSR: {e}")))?;
 
+        set_validity(&mut csr.params, 365);
         let subject_cn = format!("node:{node_id}");
         let mut dn = DistinguishedName::new();
         dn.push(DnType::OrganizationName, "ProxyPanel v4 Node");
@@ -226,6 +266,7 @@ impl MtlsCa {
         let key = KeyPair::generate()
             .map_err(|e| AppError::internal(format!("panel client keygen failed: {e}")))?;
         let mut params = CertificateParams::default();
+        set_validity(&mut params, 365);
         let mut dn = DistinguishedName::new();
         dn.push(DnType::OrganizationName, "ProxyPanel v4 Panel");
         dn.push(DnType::CommonName, "panel-client");
@@ -288,7 +329,18 @@ impl MtlsCa {
         let Ok((_, parsed)) = X509Certificate::from_der(&der) else {
             return false;
         };
-        parsed.validity().is_valid()
+        if !parsed.validity().is_valid() {
+            return false;
+        }
+        let Ok(ca_der) = pem_to_der(&self.ca_cert_pem) else {
+            return false;
+        };
+        let Ok((_, ca_x509)) = X509Certificate::from_der(&ca_der) else {
+            return false;
+        };
+        parsed
+            .verify_signature(Some(ca_x509.public_key()))
+            .is_ok()
     }
 }
 
@@ -384,5 +436,19 @@ mod pull_tests {
         let eku = x.extended_key_usage().unwrap().unwrap().value;
         assert!(eku.client_auth && !eku.server_auth);
         assert!(!x.is_ca());
+    }
+
+    #[test]
+    fn cert_from_other_ca_is_rejected_and_validity_is_bounded() {
+        let ca1 = MtlsCa::generate_ephemeral().unwrap();
+        let ca2 = MtlsCa::generate_ephemeral().unwrap();
+        let issued = ca1.issue_node_cert("node-1", "1.1.1.1").unwrap();
+        assert!(ca1.verify_presented_cert(&issued.cert_pem, Some(&issued.fingerprint)));
+        assert!(!ca2.verify_presented_cert(&issued.cert_pem, None));
+
+        let der = pem_to_der(&issued.cert_pem).unwrap();
+        let (_, x) = X509Certificate::from_der(&der).unwrap();
+        let not_after = x.validity().not_after.to_datetime();
+        assert!(not_after.year() <= Utc::now().year() + 2);
     }
 }
