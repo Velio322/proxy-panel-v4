@@ -164,34 +164,17 @@ export function InboundBladeCard({
         <button
           type="button"
           onClick={() => onEdit(inbound)}
-          className="min-w-0 truncate text-left text-sm font-bold tracking-tight transition-colors hover:text-primary"
+          className="min-w-0 flex-1 break-words text-left text-sm font-bold leading-snug tracking-tight transition-colors hover:text-primary"
           title={inbound.remark?.trim() ? `${inbound.tag} — ${inbound.remark.trim()}` : inbound.tag}
         >
           {inbound.tag}
         </button>
-
-        <span
-          className="hidden shrink-0 truncate font-mono text-[10px] text-muted-foreground sm:inline max-w-[11rem]"
-          title={meta.subtitle}
-        >
-          {meta.subtitle}
-        </span>
-
-        <span className="flex-1" />
 
         <Badge variant={inbound.enable ? 'success' : 'secondary'} className="shrink-0 text-[10px]">
           {inbound.enable ? t('common.enabled') : t('common.disabled')}
         </Badge>
 
         <div className="flex shrink-0 items-center gap-1">
-          <Badge
-            variant="outline"
-            className="hidden gap-1 font-mono text-[10px] sm:inline-flex"
-            title={meta.coreLabel}
-          >
-            <Cpu className="h-3 w-3 text-primary" />
-            {meta.coreLabel}
-          </Badge>
           <Button
             type="button"
             size="icon"
@@ -301,6 +284,15 @@ export function InboundBladeCard({
         ))}
 
         <span className="flex-1" />
+
+        <Badge
+          variant="outline"
+          className="hidden shrink-0 gap-1 px-1.5 py-0 font-mono text-[10px] sm:inline-flex"
+          title={meta.coreLabel}
+        >
+          <Cpu className="h-3 w-3 text-primary" />
+          {meta.coreLabel}
+        </Badge>
 
         {typeof inbound._count?.clients === 'number' && (
           <Badge
