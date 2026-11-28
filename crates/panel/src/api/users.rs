@@ -604,6 +604,9 @@ async fn reset_password(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     valid_id(&id)?;
+    if id == user.id {
+        return Err(AppError::bad_request("Cannot reset your own password"));
+    }
 
     let target_role: UserRole =
         sqlx::query_scalar(r#"SELECT role FROM "User" WHERE id = $1"#)
@@ -615,6 +618,7 @@ async fn reset_password(
     if target_role == UserRole::SuperAdmin && !user.is_super_admin() {
         return Err(AppError::forbidden("Cannot reset SUPER_ADMIN password"));
     }
+    check_manage(user.role, target_role, "reset password for")?;
 
     let plain = generate_user_password(16);
     let hash = hash_password(&plain, 12).await?;
@@ -756,6 +760,9 @@ async fn create_api_key(
     OptionalJson(body): OptionalJson<Value>,
 ) -> AppResult<Response> {
     user.require_admin()?;
+    if user.is_api_key {
+        return Err(AppError::forbidden("API keys cannot manage API keys"));
+    }
     valid_id(&id)?;
     ensure_api_key_target_access(&state, &user, &id, "create API keys for").await?;
 
@@ -821,6 +828,9 @@ async fn delete_api_key(
     headers: HeaderMap,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
+    if user.is_api_key {
+        return Err(AppError::forbidden("API keys cannot manage API keys"));
+    }
     valid_id(&user_id)?;
     valid_id(&key_id)?;
     ensure_api_key_target_access(&state, &user, &user_id, "revoke API keys for").await?;

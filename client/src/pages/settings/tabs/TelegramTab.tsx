@@ -6,13 +6,23 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { TabsContent } from '@/components/ui/tabs';
-import { useSettingsForm } from '../use-settings-form';
 
-export function SettingsTelegramTab() {
+interface TelegramTabProps {
+  formSettings: Record<string, string>;
+  setSetting: (key: string, val: string) => void;
+  onSave: () => void;
+  saving: boolean;
+}
+
+export function SettingsTelegramTab({
+  formSettings,
+  setSetting,
+  onSave,
+  saving,
+}: TelegramTabProps) {
   const { language } = useTranslation();
   const isRu = language === 'ru';
   const isSuperAdmin = useAuthStore((s) => s.user?.role === 'SUPER_ADMIN');
-  const { formSettings, setSetting, saveSettingsMut } = useSettingsForm(isSuperAdmin, isRu);
 
   return (
         <TabsContent value="telegram">
@@ -60,7 +70,7 @@ export function SettingsTelegramTab() {
               </div>
               {isSuperAdmin && (
                 <div className="flex justify-end">
-                  <Button onClick={() => saveSettingsMut.mutate()} loading={saveSettingsMut.isPending}>
+                  <Button onClick={onSave} loading={saving}>
                     {isRu ? 'Сохранить настройки Telegram' : 'Save Telegram Settings'}
                   </Button>
                 </div>

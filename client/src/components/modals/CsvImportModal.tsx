@@ -42,7 +42,7 @@ export function CsvImportModal({ open, onOpenChange, onImported }: CsvImportModa
     if (parsed.rows.length === 0) return;
     setSubmitting(true);
     try {
-      const res = await clientsApi.importCsv({ csv, rows: parsed.rows });
+      const res = await clientsApi.importCsv({ rows: parsed.rows });
       toast({
         title: `Imported ${res.created} clients (${res.skipped} skipped)`,
         variant: 'success',

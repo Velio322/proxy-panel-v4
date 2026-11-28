@@ -7,12 +7,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { TabsContent } from '@/components/ui/tabs';
 import { coresApi, getApiErrorMessage, nodesApi } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n';
+import { useAuthStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 
 export function SettingsCoresTab() {
   const qc = useQueryClient();
   const { language } = useTranslation();
   const isRu = language === 'ru';
+  const role = useAuthStore((s) => s.user?.role);
+  const isAdmin = role === 'SUPER_ADMIN' || role === 'ADMIN';
 
   const [updatingCoreKey, setUpdatingCoreKey] = useState<string | null>(null);
   const [refreshingCores, setRefreshingCores] = useState(false);
@@ -20,11 +23,13 @@ export function SettingsCoresTab() {
   const { data: nodes = [] } = useQuery({
     queryKey: ['nodes'],
     queryFn: () => nodesApi.list(),
+    enabled: isAdmin,
   });
 
   const { data: coreCatalog = [] } = useQuery({
     queryKey: ['cores-versions'],
     queryFn: () => coresApi.versions(),
+    enabled: isAdmin,
   });
 
   const handleRefreshCores = async () => {

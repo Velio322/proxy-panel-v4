@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   Braces,
@@ -190,7 +190,7 @@ const STUDIO_SNIPPETS: StudioSnippet[] = [
                 tproxy: 'off',
                 tcpFastOpen: true,
                 tcpMptcp: true,
-                tcpCongestion: 'bbr',
+                tcpcongestion: 'bbr',
               },
             },
           }))
@@ -218,20 +218,26 @@ export function XrayConfigStudioPanel({
   const [selectedSnippet, setSelectedSnippet] = useState('choose');
   const [validation, setValidation] = useState<XrayValidationResult | null>(null);
 
+  const loadSeqRef = useRef(0);
+  const validateSeqRef = useRef(0);
+
   const loadProfile = useCallback(async () => {
     if (!nodeId) return;
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
       const res = await inboundsApi.getXrayProfile(nodeId);
+      if (seq !== loadSeqRef.current) return;
       setProfileName(res.profileName || `${res.nodeName} Profile`);
       const formatted = JSON.stringify(res.config, null, 2);
       setJsonText(formatted);
-      const v = await inboundsApi.validate(res.config).catch(() => null);
-      if (v) setValidation(v);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       toast({ title: 'Failed to load Xray profile', description: getApiErrorMessage(err), variant: 'destructive' });
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) {
+        setLoading(false);
+      }
     }
   }, [nodeId]);
 
@@ -240,22 +246,29 @@ export function XrayConfigStudioPanel({
   }, [loadProfile]);
 
   const runValidate = useCallback(async (raw: string) => {
+    const seq = ++validateSeqRef.current;
     try {
       const parsed = JSON.parse(raw);
       setValidating(true);
       const res = await inboundsApi.validate(parsed);
-      setValidation(res);
+      if (seq === validateSeqRef.current) {
+        setValidation(res);
+      }
     } catch (err) {
-      setValidation({
-        valid: false,
-        timestamp: new Date().toTimeString().slice(0, 8),
-        message: err instanceof Error ? err.message : 'Invalid JSON syntax',
-        errors: [err instanceof Error ? err.message : 'Invalid JSON syntax'],
-        warnings: [],
-        engine: 'schema-validator',
-      });
+      if (seq === validateSeqRef.current) {
+        setValidation({
+          valid: false,
+          timestamp: new Date().toTimeString().slice(0, 8),
+          message: err instanceof Error ? err.message : 'Invalid JSON syntax',
+          errors: [err instanceof Error ? err.message : 'Invalid JSON syntax'],
+          warnings: [],
+          engine: 'schema-validator',
+        });
+      }
     } finally {
-      setValidating(false);
+      if (seq === validateSeqRef.current) {
+        setValidating(false);
+      }
     }
   }, []);
 
@@ -498,6 +511,7 @@ export function XrayConfigStudioModal({
 
         {selectedNodeId ? (
           <XrayConfigStudioPanel
+            key={selectedNodeId}
             nodeId={selectedNodeId}
             nodeName={activeNode?.name}
             onSaved={onSaved}

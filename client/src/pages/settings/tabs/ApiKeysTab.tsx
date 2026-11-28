@@ -35,6 +35,7 @@ export function SettingsApiKeysTab() {
   const user = useAuthStore((s) => s.user);
   const timezone = useUiStore((s) => s.timezone);
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
 
   // Real API Keys CRUD
   const [selectedKeyUserId, setSelectedKeyUserId] = useState<string>('');
@@ -49,7 +50,7 @@ export function SettingsApiKeysTab() {
   const { data: apiKeys = [], error: apiKeysError } = useQuery({
     queryKey: ['api-keys', effectiveKeyUserId],
     queryFn: () => usersApi.listApiKeys(effectiveKeyUserId),
-    enabled: Boolean(effectiveKeyUserId),
+    enabled: isAdmin && Boolean(effectiveKeyUserId),
     retry: false,
   });
 

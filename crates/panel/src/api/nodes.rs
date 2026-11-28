@@ -7,7 +7,7 @@ use crate::auth::crypto::sha256_hex;
 use crate::auth::extract::AuthUser;
 use crate::db::enums::{DbProtocol, NodeStatus, Protocol};
 use crate::error::{AppError, AppResult};
-use crate::net::{is_loopback_host, user_agent, validate_node_host, ClientIp};
+use crate::net::{is_loopback_host, user_agent, validate_node_host_async, ClientIp};
 use crate::services::{core_updates, node_client};
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
@@ -319,7 +319,7 @@ async fn create(
     if body.name.trim().is_empty() {
         return Err(AppError::validation("name", "Node name is required"));
     }
-    validate_node_host(&body.host, state.cfg.allow_private_nodes)?;
+    validate_node_host_async(&body.host, state.cfg.allow_private_nodes).await?;
     let secret = check_secret(&body.secret)?;
     let port = body.port.unwrap_or(443);
     let api_port = body.api_port.unwrap_or(2222);
@@ -420,7 +420,7 @@ async fn update(
 
     let host = match body.host {
         Some(ref h) => {
-            validate_node_host(h, state.cfg.allow_private_nodes)?;
+            validate_node_host_async(h, state.cfg.allow_private_nodes).await?;
             h.trim().to_string()
         }
         None => ex.try_get("host")?,

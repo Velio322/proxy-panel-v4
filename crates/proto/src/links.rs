@@ -1004,7 +1004,9 @@ pub fn build_entry(
                 raw_server_pw.clone().unwrap_or_default()
             };
             if is_ss2022(&method) {
-                e.server_ipsk = raw_server_pw.map(|p| derive_ss2022_psk(&p, &method));
+                let effective_server_pw = raw_server_pw
+                    .unwrap_or_else(|| format!("ss2022-ipsk:{tag}"));
+                e.server_ipsk = Some(derive_ss2022_psk(&effective_server_pw, &method));
                 e.password = derive_ss2022_psk(&raw_user_pw, &method);
             } else {
                 e.server_ipsk = raw_server_pw;
@@ -1224,14 +1226,17 @@ fn build_xhttp_extra(stream: &Value) -> Option<Value> {
 
 /// Builds a [`SubEntry`] for a [`PortShareInput`] layered on top of its parent inbound.
 ///
-/// Returns `Ok(None)` for protocols unsupported on SNI port-sharing (`TUIC`, `MIERU`).
+/// Returns `Ok(None)` for protocols unsupported on SNI port-sharing (`TUIC`, `MIERU`, `HYSTERIA2`, `TGWEB`).
 pub fn build_port_share_entry(
     inbound_settings: &Value,
     inbound_stream: &Value,
     ps: &PortShareInput<'_>,
     ctx: &EntryContext,
 ) -> Result<Option<SubEntry>, SubError> {
-    if matches!(ps.protocol, Protocol::Tuic | Protocol::Mieru) {
+    if matches!(
+        ps.protocol,
+        Protocol::Tuic | Protocol::Mieru | Protocol::Hysteria2 | Protocol::Tgweb
+    ) {
         return Ok(None);
     }
 
@@ -1458,7 +1463,7 @@ pub fn expand_with_hosts(
             .filter(|h| match (&h.inbound_id, &entry.inbound_id) {
                 (Some(hid), Some(eid)) => hid == eid,
                 (None, _) => true,
-                (Some(_), None) => true,
+                (Some(_), None) => false,
             })
             .collect();
         if matching.is_empty() {
@@ -1697,12 +1702,15 @@ pub fn vmess_uri(e: &SubEntry) -> String {
         .as_deref()
         .filter(|c| matches!(*c, "auto" | "aes-128-gcm" | "chacha20-poly1305" | "none" | "zero"))
         .unwrap_or("auto");
+    let net_norm = e.normalized_net();
+    let is_tcp_http = net_norm == "tcp" && e.tcp_header_type.as_deref() == Some("http");
     let host = e
         .ws_host
         .clone()
         .or_else(|| e.httpupgrade_host.clone())
         .or_else(|| e.h2_host.clone())
         .or_else(|| e.xhttp_host.clone())
+        .or_else(|| if is_tcp_http { e.tcp_header_host.clone() } else { None })
         .unwrap_or_default();
     let path = e
         .ws_path
@@ -1711,22 +1719,25 @@ pub fn vmess_uri(e: &SubEntry) -> String {
         .or_else(|| e.h2_path.clone())
         .or_else(|| e.xhttp_path.clone())
         .or_else(|| e.grpc_service_name.clone())
+        .or_else(|| if is_tcp_http { e.tcp_header_path.clone() } else { None })
         .or_else(|| e.stream_path.clone())
         .unwrap_or_default();
+    let header_type = match net_norm {
+        "kcp" => e.kcp_header_type.as_deref().unwrap_or("none"),
+        "tcp" => e.tcp_header_type.as_deref().unwrap_or("none"),
+        _ => "none",
+    };
 
     let mut obj = Map::new();
     obj.insert("v".into(), json!("2"));
     obj.insert("ps".into(), json!(e.tag));
-    obj.insert("add".into(), json!(bracket_host(&e.host)));
+    obj.insert("add".into(), json!(strip_brackets(&e.host)));
     obj.insert("port".into(), json!(e.port.to_string()));
     obj.insert("id".into(), json!(e.uuid));
     obj.insert("aid".into(), json!(e.alter_id.to_string()));
     obj.insert("scy".into(), json!(scy));
     obj.insert("net".into(), json!(e.net()));
-    obj.insert(
-        "type".into(),
-        json!(e.kcp_header_type.clone().unwrap_or_else(|| "none".into())),
-    );
+    obj.insert("type".into(), json!(header_type));
     obj.insert("host".into(), json!(host));
     obj.insert("path".into(), json!(path));
     obj.insert("tls".into(), json!(if e.is_tls() { "tls" } else { "" }));
@@ -1810,22 +1821,35 @@ pub fn trojan_uri(e: &SubEntry) -> Result<String, SubError> {
     ))
 }
 
-/// Formats a `ss://` SIP002 URI (``: SS-2022 `<iPSK>:<uPSK>` + standard base64).
+fn escape_sip003_opt(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            ';' => out.push_str("\\;"),
+            '=' => out.push_str("\\="),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// Formats a `ss://` SIP002 URI (SS-2022 `<iPSK>:<uPSK>` + URL-safe base64 without padding).
 pub fn ss_uri(e: &SubEntry) -> String {
     let method = e.method.as_deref().unwrap_or("aes-256-gcm");
     let effective_pw = format_ss2022_key(e);
-    let userinfo = STANDARD.encode(format!("{method}:{effective_pw}").as_bytes());
+    let userinfo = URL_SAFE_NO_PAD.encode(format!("{method}:{effective_pw}").as_bytes());
     let mut query = String::new();
     if let Some(ref st_pw) = e.shadowtls_password {
         let ver = e.shadowtls_version.unwrap_or(3);
         let mut plugin_parts = vec![
             "shadow-tls".to_string(),
-            format!("host={}", e.sni.as_deref().unwrap_or(&e.host)),
-            format!("passwd={st_pw}"),
+            format!("host={}", escape_sip003_opt(e.sni.as_deref().unwrap_or(&e.host))),
+            format!("passwd={}", escape_sip003_opt(st_pw)),
             format!("version={ver}"),
         ];
         if let Some(ref fp) = e.fingerprint {
-            plugin_parts.push(format!("fp={fp}"));
+            plugin_parts.push(format!("fp={}", escape_sip003_opt(fp)));
         }
         let plugin_val = plugin_parts.join(";");
         query = format!("?{}", form_urlencode(&[("plugin", plugin_val)]));
@@ -1838,7 +1862,7 @@ pub fn ss_uri(e: &SubEntry) -> String {
     )
 }
 
-/// Formats a `hy2://` URI with optional multi-port hopping authority (`host:start-end`), `ech`, and `obfs`.
+/// Formats a `hy2://` URI with single numeric authority port and optional `?mport=` hopping range.
 pub fn hysteria2_uri(e: &SubEntry) -> Result<String, SubError> {
     let mut params: Vec<(&'static str, String)> = Vec::new();
     if let Some(ref sni) = e.sni {
@@ -1861,14 +1885,10 @@ pub fn hysteria2_uri(e: &SubEntry) -> Result<String, SubError> {
     if let Some(ref ech) = e.ech_config {
         params.push(("ech", ech.clone()));
     }
-    let authority_port = if let Some(ref pr) = e.port_range {
+    if let Some(ref pr) = e.port_range {
         parse_port_range(pr)?;
-        let normalized_pr = pr.trim().to_string();
-        params.push(("mport", normalized_pr.clone()));
-        normalized_pr
-    } else {
-        e.port.to_string()
-    };
+        params.push(("mport", pr.trim().to_string()));
+    }
 
     let qs = if params.is_empty() {
         String::new()
@@ -1877,9 +1897,10 @@ pub fn hysteria2_uri(e: &SubEntry) -> Result<String, SubError> {
     };
 
     Ok(format!(
-        "hy2://{}@{}:{authority_port}{qs}#{}",
+        "hy2://{}@{}:{}{qs}#{}",
         encode_uri_component(&e.password),
         bracket_host(&e.host),
+        e.port,
         encode_uri_component(&e.tag)
     ))
 }
@@ -1975,6 +1996,11 @@ pub fn tgweb_link(e: &SubEntry) -> Result<String, SubError> {
     if e.host.trim().is_empty() || is_ip_literal(e.host.trim()) {
         return Err(SubError::Invalid(
             "Telegram WEB proxy needs a DNS hostname (settings.domain), not an IP address".into(),
+        ));
+    }
+    if e.password.trim().is_empty() {
+        return Err(SubError::Invalid(
+            "Telegram WEB proxy requires a non-empty per-user secret".into(),
         ));
     }
     let hex = tgweb_user_secret_hex(&e.password);
@@ -2176,7 +2202,7 @@ pub fn shadowtls_uri(e: &SubEntry) -> String {
     }
     let ver = e.shadowtls_version.unwrap_or(3);
     let pw = e.shadowtls_password.as_deref().unwrap_or(&e.password);
-    let userinfo = STANDARD.encode(format!("{ver}:{pw}").as_bytes());
+    let userinfo = URL_SAFE_NO_PAD.encode(format!("{ver}:{pw}").as_bytes());
     let mut params: Vec<(&'static str, String)> = Vec::new();
     if let Some(ref sni) = e.sni {
         params.push(("sni", sni.clone()));
@@ -2270,5 +2296,106 @@ mod tgweb_tests {
         assert_eq!(tgweb_secret_mode(&json!({})), "dd");
         assert_eq!(tgweb_secret_mode(&json!({"secretMode": "PLAIN"})), "plain");
         assert_eq!(tgweb_secret_mode(&json!({"secretMode": "ee"})), "dd");
+    }
+
+    #[test]
+    fn links_edge_cases_are_fixed() {
+        // Empty password rejected for tgweb_link
+        let mut empty_tg = entry(None, "dd");
+        empty_tg.password.clear();
+        assert!(tgweb_link(&empty_tg).is_err());
+
+        // expand_with_hosts does not match inbound-scoped override onto entry with inbound_id == None
+        let unscoped_entry = SubEntry {
+            protocol: Protocol::Vless,
+            inbound_id: None,
+            tag: "v1".into(),
+            host: "1.1.1.1".into(),
+            port: 443,
+            uuid: "550e8400-e29b-41d4-a716-446655440000".into(),
+            ..Default::default()
+        };
+        let scoped_host = HostOverrideConfig {
+            id: Some("h1".into()),
+            enable: true,
+            inbound_id: Some("ib-1".into()),
+            address: Some("2.2.2.2".into()),
+            ..Default::default()
+        };
+        let expanded = expand_with_hosts(&[unscoped_entry], &[scoped_host]).unwrap();
+        assert_eq!(expanded.len(), 1);
+        assert_eq!(expanded[0].host, "1.1.1.1");
+
+        // vmess_uri uses unbracketed IPv6 and TCP HTTP header fields
+        let vm = SubEntry {
+            protocol: Protocol::Vmess,
+            tag: "vm".into(),
+            host: "[2001:db8::1]".into(),
+            port: 80,
+            uuid: "550e8400-e29b-41d4-a716-446655440000".into(),
+            network: Some("tcp".into()),
+            tcp_header_type: Some("http".into()),
+            tcp_header_host: Some("cdn.example.com".into()),
+            tcp_header_path: Some("/fake".into()),
+            ..Default::default()
+        };
+        let vm_b64 = vmess_uri(&vm).strip_prefix("vmess://").unwrap().to_string();
+        let vm_json: Value = serde_json::from_slice(&STANDARD.decode(vm_b64).unwrap()).unwrap();
+        assert_eq!(vm_json["add"], "2001:db8::1");
+        assert_eq!(vm_json["type"], "http");
+        assert_eq!(vm_json["host"], "cdn.example.com");
+        assert_eq!(vm_json["path"], "/fake");
+
+        // ss_uri uses URL-safe base64 without '=' and escapes SIP003 plugin options
+        let ss = SubEntry {
+            protocol: Protocol::Shadowsocks,
+            tag: "ss".into(),
+            host: "example.com".into(),
+            port: 8388,
+            method: Some("aes-256-gcm".into()),
+            password: "p?".into(),
+            shadowtls_password: Some("a;b=c\\d".into()),
+            shadowtls_version: Some(3),
+            sni: Some("sni.example.com".into()),
+            ..Default::default()
+        };
+        let ss_link = ss_uri(&ss);
+        let auth_part = ss_link
+            .strip_prefix("ss://")
+            .unwrap()
+            .split('@')
+            .next()
+            .unwrap();
+        assert!(!auth_part.contains('=') && !auth_part.contains('+') && !auth_part.contains('/'));
+        assert!(ss_link.contains("passwd%3Da%5C%3Bb%5C%3Dc%5C%5Cd"));
+
+        // hy2_uri uses single numeric authority port and passes hopping via mport
+        let hy2 = SubEntry {
+            protocol: Protocol::Hysteria2,
+            tag: "hy".into(),
+            host: "example.com".into(),
+            port: 443,
+            password: "pw".into(),
+            port_range: Some("20000-20010".into()),
+            ..Default::default()
+        };
+        let hy2_link = hysteria2_uri(&hy2).unwrap();
+        assert!(hy2_link.starts_with("hy2://pw@example.com:443?"));
+        assert!(hy2_link.contains("mport=20000-20010"));
+
+        // build_port_share_entry skips Hysteria2 and Tgweb
+        for proto in [Protocol::Hysteria2, Protocol::Tgweb] {
+            let ps = PortShareInput {
+                protocol: proto,
+                tag: "ps",
+                host: None,
+                path: None,
+                settings: &json!({}),
+                stream: &json!({}),
+            };
+            assert!(build_port_share_entry(&json!({}), &json!({}), &ps, &EntryContext::default())
+                .unwrap()
+                .is_none());
+        }
     }
 }

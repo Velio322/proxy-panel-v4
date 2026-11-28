@@ -165,10 +165,9 @@ pub async fn resolve(
                       u.id AS user_id, u.username, u.role AS "role",
                       u."resellerId" AS reseller_id, u.banned
                FROM "ApiKey" k JOIN "User" u ON u.id = k."userId"
-               WHERE k.key = $1 OR k.key = $2"#,
+               WHERE k.key = $1"#,
         )
         .bind(&hash)
-        .bind(&token)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| {
@@ -287,15 +286,96 @@ impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let full_path = parts
+            .extensions
+            .get::<axum::extract::OriginalUri>()
+            .map(|u| u.0.path())
+            .unwrap_or_else(|| parts.uri.path());
         if let Some(tok) = bearer_from_headers(&parts.headers) {
-            return resolve(state, tok, false, &parts.method, parts.uri.path()).await;
+            return resolve(state, tok, false, &parts.method, full_path).await;
         }
         if let Some(tok) = api_key_from_headers(&parts.headers) {
-            return resolve(state, tok, false, &parts.method, parts.uri.path()).await;
+            return resolve(state, tok, false, &parts.method, full_path).await;
         }
         if let Some(tok) = cookie_token_from_headers(&parts.headers) {
-            return resolve(state, tok, true, &parts.method, parts.uri.path()).await;
+            return resolve(state, tok, true, &parts.method, full_path).await;
         }
         Err(AppError::unauthorized("Unauthorized"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_api_key_permissions;
+    use axum::extract::OriginalUri;
+    use axum::http::Method;
+    use axum::routing::get;
+    use axum::Router;
+    use tower::ServiceExt;
+
+    #[test]
+    fn resource_scoped_api_key_permissions_match_full_paths() {
+        let read_clients = vec!["clients:read".to_string()];
+        assert!(check_api_key_permissions(&read_clients, &Method::GET, "/api/v1/clients").is_ok());
+        assert!(check_api_key_permissions(&read_clients, &Method::GET, "/api/v1/clients/123").is_ok());
+        assert!(check_api_key_permissions(&read_clients, &Method::POST, "/api/v1/clients").is_err());
+        assert!(check_api_key_permissions(&read_clients, &Method::GET, "/api/v1/nodes").is_err());
+
+        // Stripped nested URI ("/" or "/123") must not pass if OriginalUri were lost
+        assert!(check_api_key_permissions(&read_clients, &Method::GET, "/").is_err());
+        assert!(check_api_key_permissions(&read_clients, &Method::GET, "/123").is_err());
+
+        let write_clients = vec!["clients:write".to_string()];
+        assert!(check_api_key_permissions(&write_clients, &Method::POST, "/api/v1/clients").is_ok());
+        assert!(check_api_key_permissions(&write_clients, &Method::GET, "/api/v1/clients").is_ok());
+        assert!(check_api_key_permissions(&write_clients, &Method::DELETE, "/api/v1/nodes/1").is_err());
+
+        let wild_nodes = vec!["nodes:*".to_string()];
+        assert!(check_api_key_permissions(&wild_nodes, &Method::POST, "/api/v1/nodes/n1/restart").is_ok());
+        assert!(check_api_key_permissions(&wild_nodes, &Method::GET, "/api/v1/clients").is_err());
+    }
+
+    #[tokio::test]
+    async fn nested_router_preserves_original_uri_for_api_key_scope() {
+        async fn probe(req: axum::extract::Request) -> axum::http::StatusCode {
+            let full_path = req
+                .extensions()
+                .get::<OriginalUri>()
+                .map(|u| u.0.path())
+                .unwrap_or_else(|| req.uri().path());
+            let perms = vec!["clients:read".to_string()];
+            if check_api_key_permissions(&perms, req.method(), full_path).is_ok() {
+                axum::http::StatusCode::OK
+            } else {
+                axum::http::StatusCode::FORBIDDEN
+            }
+        }
+
+        let clients_router = Router::new().route("/", get(probe)).route("/{id}", get(probe));
+        let v1 = Router::new().nest("/clients", clients_router);
+        let app = Router::new().nest("/api/v1", v1);
+
+        let res_list = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/clients")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res_list.status(), axum::http::StatusCode::OK);
+
+        let res_one = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/api/v1/clients/abc")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res_one.status(), axum::http::StatusCode::OK);
     }
 }

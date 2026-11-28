@@ -124,7 +124,7 @@ export interface AuthState {
   verify2fa: (code: string) => Promise<void>;
   clearPending2fa: () => void;
   loginWithPasskey: (username?: string) => Promise<void>;
-  loginWithTelegram: (payload: TelegramOAuthPayload) => Promise<void>;
+  loginWithTelegram: (payload: TelegramOAuthPayload) => Promise<{ requires2fa: boolean }>;
   logout: () => Promise<void>;
   clearAuth: () => void;
 }
@@ -204,7 +204,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   loginWithTelegram: async (payload: TelegramOAuthPayload) => {
     const res = await authApi.telegramLogin(payload);
-    set({ user: res.user, isAuthenticated: true, pending2faToken: null, isLoading: false });
+    if (res.requires2fa || res.totpRequired) {
+      set({
+        pending2faToken: res.challengeToken || res.tempToken || 'pending',
+        isAuthenticated: false,
+      });
+      return { requires2fa: true };
+    }
+    if (res.user) {
+      set({ user: res.user, isAuthenticated: true, pending2faToken: null, isLoading: false });
+    } else {
+      await get().loadUser();
+    }
+    return { requires2fa: false };
   },
 
   logout: async () => {

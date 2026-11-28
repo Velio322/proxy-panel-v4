@@ -114,6 +114,7 @@ pub struct ProcessManager {
     port_share: PortShareRuntime,
     telemetry: TelemetryCollector,
     singbox_tracker: SingboxConnectionTracker,
+    singbox_api_secret: String,
     naive_log_reader: NaiveAccessLogReader,
     pub logs: LogBuffer,
     restart_counts: HashMap<String, u32>,
@@ -136,6 +137,9 @@ impl ProcessManager {
         let xray_tonic = TonicXrayClient::new(config.xray_api_port, &config.xray_bin);
         let xray_handler: Arc<dyn XrayHandlerClient> = Arc::new(xray_tonic.clone());
         let naive_log_reader = NaiveAccessLogReader::with_state_file(config.naive_reader_state_path());
+        let mut secret_bytes = [0u8; 16];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut secret_bytes);
+        let singbox_api_secret = hex::encode(secret_bytes);
         Self {
             config,
             http_client,
@@ -152,6 +156,7 @@ impl ProcessManager {
             port_share: PortShareRuntime::new(),
             telemetry: TelemetryCollector::new(),
             singbox_tracker: SingboxConnectionTracker::new(),
+            singbox_api_secret,
             naive_log_reader,
             logs: LogBuffer::new(),
             restart_counts: HashMap::new(),
@@ -314,10 +319,11 @@ impl ProcessManager {
             .cloned()
             .collect();
         if !singbox_inbounds.is_empty() {
-            let cfg_val = singbox::generate_config_with_routing(
+            let cfg_val = singbox::generate_config_with_routing_and_secret(
                 &singbox_inbounds,
                 routing_rules,
                 &self.config.singbox_api_addr,
+                Some(self.singbox_api_secret.as_str()),
             )?;
             let tmp_sb = tmp_dir_path.join("singbox.json");
             let bytes = serde_json::to_vec_pretty(&cfg_val)
@@ -554,10 +560,11 @@ impl ProcessManager {
             self.stop_singbox().await;
         } else if !(unchanged("singbox") && self.singbox_running()) {
             self.stop_singbox().await;
-            let cfg_val = singbox::generate_config_with_routing(
+            let cfg_val = singbox::generate_config_with_routing_and_secret(
                 &singbox_inbounds,
                 &routing_rules,
                 &self.config.singbox_api_addr,
+                Some(self.singbox_api_secret.as_str()),
             )?;
             let bytes = serde_json::to_vec_pretty(&cfg_val)
                 .map_err(|e| format!("Failed to serialize singbox.json: {e}"))?;
@@ -695,6 +702,8 @@ impl ProcessManager {
             if let Some(mut mc) = self.mieru_procs.remove(&ib.id) {
                 terminate_child(&mut mc.child).await;
             }
+            let sock_path = Path::new("/var/run/mita/mita.sock");
+            let _ = tokio::fs::remove_file(sock_path).await;
             let cfg_val = mieru::generate_config(ib)?;
             let path = mieru::mieru_config_path(&self.config.config_dir, &ib.id)?;
             let bytes = serde_json::to_vec_pretty(&cfg_val)
@@ -731,14 +740,24 @@ impl ProcessManager {
                 .await?;
             self.mieru_procs.insert(ib.id.clone(), child);
 
-            // Wait briefly for /var/run/mita/mita.sock, then `mita replace config` + `mita reload`
-            // so Mieru hashes user passwords into `hashedPassword` and drops deleted users.
-            let sock_path = Path::new("/var/run/mita/mita.sock");
-            for _ in 0..40 {
-                if tokio::fs::metadata(sock_path).await.is_ok() {
+            // Wait for /var/run/mita/mita.sock to accept connections, then `mita replace config`
+            // + `mita reload` so Mieru hashes user passwords and drops deleted users.
+            let mut sock_ready = false;
+            for _ in 0..100 {
+                if tokio::net::UnixStream::connect(sock_path).await.is_ok() {
+                    sock_ready = true;
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            if !sock_ready {
+                let msg = format!(
+                    "mita socket {} did not become ready within 5s for '{}'",
+                    sock_path.display(),
+                    ib.tag
+                );
+                tracing::warn!("{msg}");
+                self.logs.push("mieru", "warn", msg).await;
             }
             let mut replace_cmd = Command::new(&self.config.mieru_bin);
             replace_cmd
@@ -749,7 +768,15 @@ impl ProcessManager {
             match tokio::time::timeout(Duration::from_secs(5), replace_cmd.output()).await {
                 Ok(Ok(out)) if out.status.success() => {}
                 Ok(Ok(out)) => {
-                    let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    // `mita` writes CLI errors to stdout; capture stderr with stdout fallback.
+                    let stderr_s = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    let stdout_s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    let err_msg = match (stderr_s.is_empty(), stdout_s.is_empty()) {
+                        (false, false) => format!("{stderr_s} ({stdout_s})"),
+                        (false, true) => stderr_s,
+                        (true, false) => stdout_s,
+                        (true, true) => "no output".to_string(),
+                    };
                     let msg = format!(
                         "mita replace config for '{}' exited with {}: {}",
                         ib.tag, out.status, err_msg
@@ -764,9 +791,29 @@ impl ProcessManager {
             reload_cmd
                 .args(["reload"])
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            let _ = tokio::time::timeout(Duration::from_secs(5), reload_cmd.output()).await;
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            match tokio::time::timeout(Duration::from_secs(5), reload_cmd.output()).await {
+                Ok(Ok(out)) if out.status.success() => {}
+                Ok(Ok(out)) => {
+                    let stderr_s = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    let stdout_s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    let err_msg = if !stderr_s.is_empty() { stderr_s } else { stdout_s };
+                    self.logs
+                        .push("mieru", "warn", format!("mita reload exited with {}: {}", out.status, err_msg))
+                        .await;
+                }
+                Ok(Err(e)) => {
+                    self.logs
+                        .push("mieru", "warn", format!("mita reload failed: {e}"))
+                        .await;
+                }
+                Err(_) => {
+                    self.logs
+                        .push("mieru", "warn", "mita reload timed out".to_string())
+                        .await;
+                }
+            }
 
             if let Some((port, tcp)) = mieru_probe_target(ib) {
                 let ok = if tcp {
@@ -960,6 +1007,7 @@ impl ProcessManager {
         }
         let mieru_missing = enabled()
             .filter(|i| i.protocol == Protocol::Mieru)
+            .take(1)
             .any(|i| !self.mieru_procs.contains_key(&i.id));
         if mieru_missing && binary_exists(&self.config.mieru_bin).await {
             dead.push("mieru".to_string());
@@ -967,6 +1015,7 @@ impl ProcessManager {
         prune_dead_children(&mut self.tgweb_procs);
         let tgweb_missing = enabled()
             .filter(|i| i.protocol == Protocol::Tgweb)
+            .take(1)
             .any(|i| !self.tgweb_procs.contains_key(&i.id));
         if tgweb_missing && binary_exists(&self.config.telemt_bin).await {
             dead.push("telemt".to_string());
@@ -1171,7 +1220,16 @@ impl ProcessManager {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .kill_on_drop(true)
             .env_clear();
+
+        #[cfg(unix)]
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                Ok(())
+            });
+        }
 
         if let Ok(path) = std::env::var("PATH") {
             cmd.env("PATH", path);
@@ -1252,6 +1310,7 @@ impl ProcessManager {
             || self.singbox_running()
             || self.naive_running()
             || self.mieru_running()
+            || self.tgweb_running()
     }
 
     /// Polls sing-box `/connections` so short-lived connections (hysteria2, tuic, anytls) are
@@ -1261,8 +1320,12 @@ impl ProcessManager {
         if !self.singbox_running() {
             return;
         }
-        if let Ok(body) =
-            fetch_singbox_connections_json(&self.http_client, &self.config.singbox_api_addr).await
+        if let Ok(body) = fetch_singbox_connections_json(
+            &self.http_client,
+            &self.config.singbox_api_addr,
+            Some(self.singbox_api_secret.as_str()),
+        )
+        .await
         {
             let _ = self.singbox_tracker.ingest_connections_json(&body);
         }
@@ -1280,8 +1343,47 @@ impl ProcessManager {
     /// name, id) to its inbound's protocol + tag, so the panel can attribute `TrafficLog`
     /// rows. First enabled inbound wins when the same user is bound to several.
     pub fn traffic_user_meta(&self) -> HashMap<String, TrafficKeyMeta> {
+        self.collect_user_meta(|_| true)
+    }
+
+    /// Maps every user identifier reported by `core` (`"xray"`, `"singbox"`, `"mieru"`,
+    /// `"telemt"`, `"naive"`) to that core's inbound `(protocol, inboundTag)`.
+    pub fn traffic_user_meta_for_core(&self, core: &str) -> HashMap<String, TrafficKeyMeta> {
+        let mut map = self.collect_user_meta(|ib| match core {
+            "xray" => xray::is_xray_protocol(ib.protocol),
+            "singbox" | "sing-box" => singbox::is_singbox_protocol(ib.protocol),
+            "mieru" => ib.protocol == Protocol::Mieru,
+            "telemt" => ib.protocol == Protocol::Tgweb,
+            "naive" => ib.protocol == Protocol::Naiveproxy,
+            _ => true,
+        });
+        if map.is_empty() {
+            map = self.traffic_user_meta();
+        }
+        map
+    }
+
+    /// Precomputes per-core user metadata maps alongside the global fallback map.
+    pub fn traffic_user_meta_by_core(
+        &self,
+    ) -> (
+        HashMap<String, TrafficKeyMeta>,
+        HashMap<&'static str, HashMap<String, TrafficKeyMeta>>,
+    ) {
+        let fallback = self.traffic_user_meta();
+        let mut by_core = HashMap::new();
+        for core in ["xray", "singbox", "mieru", "telemt", "naive"] {
+            by_core.insert(core, self.traffic_user_meta_for_core(core));
+        }
+        (fallback, by_core)
+    }
+
+    fn collect_user_meta<F>(&self, mut pred: F) -> HashMap<String, TrafficKeyMeta>
+    where
+        F: FnMut(&InboundConfig) -> bool,
+    {
         let mut map: HashMap<String, TrafficKeyMeta> = HashMap::new();
-        for ib in self.current_inbounds.iter().filter(|i| i.enable) {
+        for ib in self.current_inbounds.iter().filter(|i| i.enable && pred(i)) {
             let meta = TrafficKeyMeta {
                 protocol: Some(ib.protocol.as_str().to_string()),
                 inbound_tag: Some(ib.tag.clone()),
@@ -1314,9 +1416,12 @@ impl ProcessManager {
         }
 
         if self.singbox_running() {
-            let map = if let Ok(body) =
-                fetch_singbox_connections_json(&self.http_client, &self.config.singbox_api_addr)
-                    .await
+            let map = if let Ok(body) = fetch_singbox_connections_json(
+                &self.http_client,
+                &self.config.singbox_api_addr,
+                Some(self.singbox_api_secret.as_str()),
+            )
+            .await
             {
                 match self.singbox_tracker.ingest_connections_json(&body) {
                     Ok((totals, _)) => totals,
@@ -1430,9 +1535,12 @@ impl ProcessManager {
         let mut sessions = Vec::new();
 
         if self.singbox_running() {
-            if let Ok(body) =
-                fetch_singbox_connections_json(&self.http_client, &self.config.singbox_api_addr)
-                    .await
+            if let Ok(body) = fetch_singbox_connections_json(
+                &self.http_client,
+                &self.config.singbox_api_addr,
+                Some(self.singbox_api_secret.as_str()),
+            )
+            .await
             {
                 if let Ok((_, sb_sessions)) = self.singbox_tracker.ingest_connections_json(&body) {
                     sessions.extend(sb_sessions);
@@ -1470,7 +1578,13 @@ impl ProcessManager {
         }
 
         if let Some(ref sid) = cmd.session_id.as_ref().filter(|s| !s.trim().is_empty()) {
-            drop_singbox_connection(&self.http_client, &self.config.singbox_api_addr, sid).await?;
+            drop_singbox_connection(
+                &self.http_client,
+                &self.config.singbox_api_addr,
+                Some(self.singbox_api_secret.as_str()),
+                sid,
+            )
+            .await?;
             return Ok(1);
         }
 
@@ -1488,9 +1602,14 @@ impl ProcessManager {
                 .as_deref()
                 .is_some_and(|ip| s.source_ip == ip);
             if match_client || match_ip {
-                if drop_singbox_connection(&self.http_client, &self.config.singbox_api_addr, &s.id)
-                    .await
-                    .is_ok()
+                if drop_singbox_connection(
+                    &self.http_client,
+                    &self.config.singbox_api_addr,
+                    Some(self.singbox_api_secret.as_str()),
+                    &s.id,
+                )
+                .await
+                .is_ok()
                 {
                     dropped += 1;
                 }

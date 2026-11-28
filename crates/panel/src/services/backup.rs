@@ -6,6 +6,14 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use tokio::process::Command;
 
+struct BackupRunningGuard(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for BackupRunningGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Triggers a database backup in the background (`` async `tokio::fs`, no blocking `std::fs`).
 pub async fn trigger_background_backup(state: AppState) -> AppResult<String> {
     if state
@@ -15,6 +23,7 @@ pub async fn trigger_background_backup(state: AppState) -> AppResult<String> {
     {
         return Err(AppError::conflict("Backup already running"));
     }
+    let running_guard = BackupRunningGuard(state.backup_running.clone());
 
     let log_id = crate::db::new_id();
     let now = crate::db::now();
@@ -31,6 +40,7 @@ pub async fn trigger_background_backup(state: AppState) -> AppResult<String> {
 
     let lid = log_id.clone();
     tokio::spawn(async move {
+        let _guard = running_guard;
         let res = run_pg_dump(&state).await;
         match res {
             Ok((path, size)) => {
@@ -65,7 +75,6 @@ pub async fn trigger_background_backup(state: AppState) -> AppResult<String> {
                 .await;
             }
         }
-        state.backup_running.store(false, Ordering::SeqCst);
     });
 
     Ok(log_id)
@@ -86,7 +95,8 @@ async fn run_pg_dump(state: &AppState) -> AppResult<(PathBuf, u64)> {
         .map_err(|e| AppError::internal(format!("Invalid DATABASE_URL: {e}")))?;
 
     let mut cmd = Command::new(&state.cfg.pg_dump_bin);
-    cmd.arg("--no-password")
+    cmd.kill_on_drop(true)
+        .arg("--no-password")
         .arg("--file")
         .arg(&file_path);
 
@@ -111,12 +121,21 @@ async fn run_pg_dump(state: &AppState) -> AppResult<(PathBuf, u64)> {
         cmd.env("PGDATABASE", db_name);
     }
 
-    let output = tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output())
-        .await
-        .map_err(|_| AppError::internal("pg_dump timed out"))?
-        .map_err(|e| AppError::internal(format!("pg_dump spawn failed: {e}")))?;
+    let output = match tokio::time::timeout(std::time::Duration::from_secs(300), cmd.output()).await
+    {
+        Ok(res) => res.map_err(|e| AppError::internal(format!("pg_dump spawn failed: {e}")))?,
+        Err(_) => {
+            let _ = tokio::fs::remove_file(&file_path).await;
+            return Err(AppError::internal("pg_dump timed out"));
+        }
+    };
 
     if !output.status.success() {
+        let stderr_raw = String::from_utf8_lossy(&output.stderr);
+        let stderr_snip: String = stderr_raw.trim().chars().take(512).collect();
+        if !stderr_snip.is_empty() {
+            tracing::error!(stderr = %stderr_snip, "pg_dump failed");
+        }
         let _ = tokio::fs::remove_file(&file_path).await;
         return Err(AppError::internal("pg_dump exited with non-zero status"));
     }

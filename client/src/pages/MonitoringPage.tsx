@@ -50,7 +50,11 @@ export function MonitoringPage() {
   });
 
   useEffect(() => {
-    if (!selectedNodeId && nodes.length > 0) {
+    if (nodes.length === 0) {
+      if (selectedNodeId) setSelectedNodeId('');
+      return;
+    }
+    if (!selectedNodeId || !nodes.some((n) => n.id === selectedNodeId)) {
       setSelectedNodeId(nodes[0].id);
     }
   }, [nodes, selectedNodeId]);
@@ -97,9 +101,10 @@ export function MonitoringPage() {
       : activeNode?.memUsage ?? null;
 
   const coreEngineCards = useMemo(() => {
-    const resolveRunning = (key: 'xray' | 'singbox' | 'naive' | 'mieru'): boolean => {
+    type CoreKey = 'xray' | 'singbox' | 'naive' | 'mieru' | 'telemt';
+    const resolveRunning = (key: CoreKey): boolean => {
       if (!m) return false;
-      const boolField = m[`${key}Running` as const];
+      const boolField = m[`${key}Running` as keyof typeof m];
       if (typeof boolField === 'boolean') return boolField;
       const coreObj = m.cores?.[key];
       if (coreObj && typeof coreObj.running === 'boolean') return coreObj.running;
@@ -108,14 +113,15 @@ export function MonitoringPage() {
       return false;
     };
 
-    const resolveVersion = (key: 'xray' | 'singbox' | 'naive' | 'mieru'): string | null => {
+    const resolveVersion = (key: CoreKey): string | null => {
       const fromMetrics = m?.cores?.[key]?.version;
       if (fromMetrics) return fromMetrics;
       if (!activeNode) return null;
       if (key === 'xray') return activeNode.xrayVersion ?? null;
       if (key === 'singbox') return activeNode.singboxVersion ?? null;
       if (key === 'naive') return activeNode.naiveVersion ?? null;
-      return activeNode.mieruVersion ?? null;
+      if (key === 'mieru') return activeNode.mieruVersion ?? null;
+      return activeNode.telemtVersion ?? null;
     };
 
     return [
@@ -146,6 +152,13 @@ export function MonitoringPage() {
         running: resolveRunning('mieru'),
         pid: m?.mieruPid ?? null,
         version: resolveVersion('mieru'),
+      },
+      {
+        key: 'telemt' as const,
+        label: 'telemt (TGWEB)',
+        running: resolveRunning('telemt'),
+        pid: null,
+        version: resolveVersion('telemt'),
       },
     ];
   }, [m, activeNode]);

@@ -35,6 +35,15 @@ pub fn generate_config_with_routing(
     global_rules: &[RoutingRuleConfig],
     clash_api_addr: &str,
 ) -> Result<Value, String> {
+    generate_config_with_routing_and_secret(inbounds, global_rules, clash_api_addr, None)
+}
+
+pub fn generate_config_with_routing_and_secret(
+    inbounds: &[InboundConfig],
+    global_rules: &[RoutingRuleConfig],
+    clash_api_addr: &str,
+    clash_api_secret: Option<&str>,
+) -> Result<Value, String> {
     let mut built_inbounds = Vec::new();
     let mut rule_sets: BTreeSet<String> = BTreeSet::new();
     let mut route_rules = vec![
@@ -64,6 +73,12 @@ pub fn generate_config_with_routing(
     } else {
         clash_api_addr.trim()
     };
+
+    let mut clash_api = Map::new();
+    clash_api.insert("external_controller".into(), json!(api_addr));
+    if let Some(secret) = clash_api_secret.map(str::trim).filter(|s| !s.is_empty()) {
+        clash_api.insert("secret".into(), json!(secret));
+    }
 
     Ok(json!({
         "log": {
@@ -111,9 +126,7 @@ pub fn generate_config_with_routing(
             "default_domain_resolver": "dns-direct"
         },
         "experimental": {
-            "clash_api": {
-                "external_controller": api_addr
-            }
+            "clash_api": Value::Object(clash_api)
         }
     }))
 }

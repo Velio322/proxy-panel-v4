@@ -81,7 +81,6 @@ export function LoginPage() {
       setSubmitting(true);
       try {
         await loginWithTelegram(tgUser);
-        navigate(returnTo(), { replace: true });
       } catch (err) {
         setError(getApiErrorMessage(err, 'Telegram login failed'));
       } finally {
@@ -103,17 +102,14 @@ export function LoginPage() {
       delete window.onTelegramAuth;
       if (container) container.innerHTML = '';
     };
-  }, [publicConfig?.telegramBotUsername, pending2faToken, loginWithTelegram, navigate]);
+  }, [publicConfig?.telegramBotUsername, pending2faToken, loginWithTelegram]);
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      const res = await login(username.trim(), password);
-      if (!res.requires2fa) {
-        navigate(returnTo(), { replace: true });
-      }
+      await login(username.trim(), password);
     } catch (err) {
       setError(getApiErrorMessage(err, t('auth.invalidCredentials')));
     } finally {
@@ -127,7 +123,6 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await verify2fa(totpCode.trim());
-      navigate(returnTo(), { replace: true });
     } catch (err) {
       setError(getApiErrorMessage(err, 'Invalid 2FA code'));
     } finally {
@@ -140,7 +135,6 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await loginWithPasskey(username.trim() || undefined);
-      navigate(returnTo(), { replace: true });
     } catch (err) {
       setError(getApiErrorMessage(err, 'Passkey authentication failed'));
     } finally {

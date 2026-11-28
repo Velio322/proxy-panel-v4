@@ -88,14 +88,8 @@ pub fn generate_caddyfile(
         .get("probeResistance")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let fallback_root = {
-        let r = str_or_empty(s, "fallbackRoot");
-        if r.is_empty() {
-            "/var/www/html"
-        } else {
-            r
-        }
-    };
+    let fallback_root_buf = crate::cores::validate_fallback_root(&str_or_empty(s, "fallbackRoot"))?;
+    let fallback_root = fallback_root_buf.to_string_lossy();
     let warp_upstream = str_or_empty(s, "warpUpstream");
     let tls_mode = {
         let m = str_or_empty(s, "tlsMode");
@@ -144,7 +138,7 @@ pub fn generate_caddyfile(
     };
     let q_listen = caddy_token(listen)?;
     let q_log_path = caddy_token(&access_log_path.to_string_lossy())?;
-    let q_fallback_root = caddy_token(fallback_root)?;
+    let q_fallback_root = caddy_token(&fallback_root)?;
 
     let tls_line = if use_custom_tls {
         format!(
@@ -229,7 +223,7 @@ pub fn generate_caddyfile(
         out.push_str("    probe_resistance\n");
     }
     out.push_str("    acl {\n");
-    out.push_str("      deny 127.0.0.0/8 ::1/128 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 localhost\n");
+    out.push_str("      deny 127.0.0.0/8 ::1/128 0.0.0.0/8 ::/128 ::ffff:0:0/96 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 fc00::/7 fe80::/10 localhost\n");
     out.push_str("      allow all\n");
     out.push_str("    }\n");
     if !warp_upstream.is_empty() {
@@ -244,12 +238,13 @@ pub fn generate_caddyfile(
     Ok(out)
 }
 
-/// Ensures `fallback_root` exists and contains a default `index.html` if none is present.
+/// Ensures `fallback_root` (confined to `/var/www/*`) exists and contains a default `index.html`.
 pub async fn ensure_fallback_index(fallback_root: &Path) -> Result<(), String> {
-    tokio::fs::create_dir_all(fallback_root)
+    let safe_root = crate::cores::validate_fallback_root(&fallback_root.to_string_lossy())?;
+    tokio::fs::create_dir_all(&safe_root)
         .await
-        .map_err(|e| format!("Failed to create fallback root {}: {e}", fallback_root.display()))?;
-    let index_path = fallback_root.join("index.html");
+        .map_err(|e| format!("Failed to create fallback root {}: {e}", safe_root.display()))?;
+    let index_path = safe_root.join("index.html");
     if tokio::fs::metadata(&index_path).await.is_err() {
         tokio::fs::write(&index_path, DEFAULT_INDEX_HTML)
             .await
@@ -285,6 +280,9 @@ mod tests {
         assert!(cf.contains("request>headers delete"));
         assert!(cf.contains(":8443, \"n.example.org:8443\""));
         assert!(!cf.contains("admin off"));
+        assert!(cf.contains("0.0.0.0/8"));
+        assert!(cf.contains("::ffff:0:0/96"));
+        assert!(cf.contains("100.64.0.0/10"));
     }
 
     #[test]

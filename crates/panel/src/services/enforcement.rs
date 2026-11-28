@@ -73,13 +73,14 @@ pub fn restriction_reason(
 
 pub fn is_client_allowed(
     banned: bool,
+    on_hold: bool,
     expire_at: Option<NaiveDateTime>,
     traffic_limit: i64,
     used_traffic: i64,
     db_restriction_reason: Option<&str>,
     now: NaiveDateTime,
 ) -> bool {
-    if banned || db_restriction_reason.is_some() {
+    if banned || on_hold || db_restriction_reason.is_some() {
         return false;
     }
     restriction_reason(expire_at, traffic_limit, used_traffic, now).is_none()
@@ -124,12 +125,28 @@ pub async fn activate_on_hold_if_needed(state: &AppState, client_id: &str) -> Ap
     .execute(&mut *tx)
     .await?;
 
+    let node_ids: Vec<String> = sqlx::query_scalar(
+        r#"SELECT DISTINCT i."nodeId"
+           FROM "ClientInbound" ci
+           JOIN "Inbound" i ON i.id = ci."inboundId"
+           WHERE ci."clientId" = $1"#,
+    )
+    .bind(client_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
     tx.commit().await?;
+    state.invalidate_derived();
+    if !node_ids.is_empty() {
+        outbox::push_config_many(state, &node_ids).await;
+    }
     Ok(true)
 }
 
-/// Enforces traffic resets and expiry/quota restrictions for a single client.
-pub async fn enforce_client_policies(state: &AppState, client_id: &str) -> AppResult<bool> {
+async fn enforce_client_policies_tx(
+    state: &AppState,
+    client_id: &str,
+) -> AppResult<(bool, bool, Vec<String>)> {
     let now = crate::db::now();
     let mut tx = state.db.begin().await?;
 
@@ -147,7 +164,7 @@ pub async fn enforce_client_policies(state: &AppState, client_id: &str) -> AppRe
 
     let Some(row) = row else {
         tx.commit().await?;
-        return Ok(false);
+        return Ok((false, false, Vec::new()));
     };
 
     let mut used_traffic: i64 = row.try_get("usedTraffic")?;
@@ -207,6 +224,7 @@ pub async fn enforce_client_policies(state: &AppState, client_id: &str) -> AppRe
 
     let new_reason = restriction_reason(expire_at, traffic_limit, used_traffic, now);
     let changed = current_reason.as_deref() != new_reason;
+    let mut affected_nodes: Vec<String> = Vec::new();
 
     if changed {
         let new_rev = access_rev.saturating_add(1);
@@ -224,7 +242,7 @@ pub async fn enforce_client_policies(state: &AppState, client_id: &str) -> AppRe
         .execute(&mut *tx)
         .await?;
 
-        let node_ids: Vec<String> = sqlx::query_scalar(
+        affected_nodes = sqlx::query_scalar(
             r#"SELECT DISTINCT i."nodeId"
                FROM "ClientInbound" ci
                JOIN "Inbound" i ON i.id = ci."inboundId"
@@ -240,19 +258,50 @@ pub async fn enforce_client_policies(state: &AppState, client_id: &str) -> AppRe
             "reason": new_reason,
             "sessionTermination": "UNSUPPORTED: per-client termination not verified for deployed cores"
         });
-        for nid in node_ids {
-            outbox::enqueue_config_sync_tx(&mut tx, &nid, payload.clone(), new_rev).await?;
+        for nid in &affected_nodes {
+            outbox::enqueue_config_sync_tx(&mut tx, nid, payload.clone(), new_rev).await?;
         }
     }
 
     tx.commit().await?;
+    Ok((changed, reset_performed, affected_nodes))
+}
 
+/// Enforces traffic resets and expiry/quota restrictions for a single client.
+pub async fn enforce_client_policies(state: &AppState, client_id: &str) -> AppResult<bool> {
+    let (changed, reset_performed, node_ids) = enforce_client_policies_tx(state, client_id).await?;
     if changed || reset_performed {
         state.invalidate_derived();
-        outbox::broadcast_config_update(state).await;
     }
-
+    if changed && !node_ids.is_empty() {
+        outbox::push_config_many(state, &node_ids).await;
+    }
     Ok(changed)
+}
+
+/// Enforces policies across a batch of client IDs with a single coalesced config push.
+pub async fn enforce_clients_batch(state: &AppState, client_ids: &[String]) -> usize {
+    let mut changed_count = 0usize;
+    let mut any_dirty = false;
+    let mut affected_nodes = Vec::new();
+    for cid in client_ids {
+        if let Ok((changed, reset_performed, nodes)) = enforce_client_policies_tx(state, cid).await {
+            if changed {
+                changed_count += 1;
+                affected_nodes.extend(nodes);
+            }
+            if changed || reset_performed {
+                any_dirty = true;
+            }
+        }
+    }
+    if any_dirty {
+        state.invalidate_derived();
+    }
+    if !affected_nodes.is_empty() {
+        outbox::push_config_many(state, &affected_nodes).await;
+    }
+    changed_count
 }
 
 /// Periodic enforcement pass across all clients that may need reset or restriction updates.
@@ -261,6 +310,7 @@ pub async fn enforce_all_clients(state: &AppState) -> AppResult<usize> {
     let ids: Vec<String> = sqlx::query_scalar(
         r#"SELECT id FROM "Client"
            WHERE ("nextTrafficResetAt" IS NOT NULL AND "nextTrafficResetAt" <= $1)
+              OR ("resetStrategy" NOT IN ('NO_RESET', 'ON_HOLD') AND COALESCE("onHold", false) = false AND "nextTrafficResetAt" IS NULL)
               OR ("expireAt" IS NOT NULL AND "expireAt" <= $1 AND "restrictionReason" IS DISTINCT FROM 'EXPIRED')
               OR ("trafficLimit" > 0 AND "usedTraffic" >= "trafficLimit" AND "restrictionReason" IS NULL)
               OR ("restrictionReason" IS NOT NULL AND ("expireAt" IS NULL OR "expireAt" > $1) AND ("trafficLimit" = 0 OR "usedTraffic" < "trafficLimit"))"#,
@@ -269,11 +319,5 @@ pub async fn enforce_all_clients(state: &AppState) -> AppResult<usize> {
     .fetch_all(&state.db)
     .await?;
 
-    let mut changed_count = 0usize;
-    for id in ids {
-        if enforce_client_policies(state, &id).await.unwrap_or(false) {
-            changed_count += 1;
-        }
-    }
-    Ok(changed_count)
+    Ok(enforce_clients_batch(state, &ids).await)
 }

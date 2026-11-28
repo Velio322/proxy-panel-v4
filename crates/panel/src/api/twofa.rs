@@ -34,6 +34,20 @@ async fn status(State(state): State<AppState>, user: AuthUser) -> AppResult<Json
 }
 
 async fn setup(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Value>> {
+    if user.is_api_key {
+        return Err(AppError::forbidden("API keys cannot manage 2FA"));
+    }
+    let already_enabled: bool =
+        sqlx::query_scalar(r#"SELECT "totpEnabled" FROM "User" WHERE id = $1"#)
+            .bind(&user.id)
+            .fetch_one(&state.db)
+            .await?;
+    if already_enabled {
+        return Err(AppError::conflict(
+            "2FA is already enabled; disable it before setting up a new secret",
+        ));
+    }
+
     let mut raw = [0u8; 20];
     rand::rngs::OsRng.fill_bytes(&mut raw);
     let secret = Secret::Raw(raw.to_vec());
@@ -75,6 +89,9 @@ async fn enable(
     user: AuthUser,
     AppJson(body): AppJson<CodeReq>,
 ) -> AppResult<Json<Value>> {
+    if user.is_api_key {
+        return Err(AppError::forbidden("API keys cannot manage 2FA"));
+    }
     let sec: Option<String> =
         sqlx::query_scalar(r#"SELECT "totpSecret" FROM "User" WHERE id = $1"#)
             .bind(&user.id)
@@ -100,6 +117,9 @@ async fn disable(
     user: AuthUser,
     AppJson(body): AppJson<CodeReq>,
 ) -> AppResult<Json<Value>> {
+    if user.is_api_key {
+        return Err(AppError::forbidden("API keys cannot manage 2FA"));
+    }
     let row = sqlx::query(r#"SELECT "totpEnabled", "totpSecret" FROM "User" WHERE id = $1"#)
         .bind(&user.id)
         .fetch_one(&state.db)

@@ -56,7 +56,13 @@ pub fn router(state: AppState) -> Router {
 
     let v1 = Router::new()
         .nest("/auth", auth_router)
-        .nest("/auth/2fa", twofa::router())
+        .nest(
+            "/auth/2fa",
+            twofa::router().layer(mw::from_fn_with_state(
+                state.clone(),
+                middleware::auth_rate_limit,
+            )),
+        )
         .nest(
             "/auth/passkeys",
             passkeys::router().layer(mw::from_fn_with_state(

@@ -34,9 +34,15 @@ export function validateEditorContent(
   if (!trimmed) {
     return language === 'plaintext' ? [] : ['Content cannot be empty'];
   }
+  const normalized =
+    schemaKind === 'subscription-template'
+      ? trimmed.replace(/"([^"\\]|\\.)*"|\{\{[^}]+\}\}/g, (m) =>
+          m.startsWith('"') ? m.replace(/\{\{[^}]+\}\}/g, '__TPL__') : '"__TPL__"',
+        )
+      : trimmed;
   if (language === 'json') {
     try {
-      const parsed = JSON.parse(trimmed) as unknown;
+      const parsed = JSON.parse(normalized) as unknown;
       if (schemaKind === 'xray-inbound' || schemaKind === 'singbox-inbound') {
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           return ['Inbound configuration must be a JSON object'];
@@ -54,7 +60,7 @@ export function validateEditorContent(
   }
   if (language === 'yaml') {
     try {
-      yaml.load(trimmed);
+      yaml.load(normalized);
       return [];
     } catch (err) {
       return [err instanceof Error ? err.message : 'Invalid YAML syntax'];

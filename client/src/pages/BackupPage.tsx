@@ -188,7 +188,11 @@ export function BackupPage() {
                 <span className="font-semibold text-foreground">
                   {isRu ? 'Расписание:' : 'Configured Schedule:'}
                 </span>{' '}
-                {String(config.schedule || config.cron || (isRu ? 'Вручную / По умолчанию' : 'Manual / Default'))}
+                {config.enabled
+                  ? String(config.interval || config.schedule || config.cron || '0 3 * * *')
+                  : isRu
+                    ? 'Вручную (автобэкап выключен)'
+                    : 'Manual (cron disabled)'}
               </div>
             )}
           </CardContent>
@@ -203,9 +207,12 @@ export function BackupPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-xs text-muted-foreground">
             <div className="rack-inset flex items-center justify-between rounded-md px-2 py-1.5">
-              <span>{isRu ? 'Хранение / Папка' : 'Retention / Dir'}</span>
+              <span>{isRu ? 'Назначение / Хранение' : 'Destination / Retention'}</span>
               <span className="font-mono text-foreground">
-                {String(config.retentionDays ?? 7)}d · {String(config.dir || 'local')}
+                {config.destinations?.local !== false ? 'local' : 'disabled'}
+                {config.destinations?.telegram ? ' + telegram' : ''}
+                {config.destinations?.s3 ? ' + s3' : ''}
+                {config.retentionDays ? ` · ${config.retentionDays}d` : ''}
               </span>
             </div>
             <p>

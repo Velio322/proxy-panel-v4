@@ -38,12 +38,14 @@ export function useSettingsForm(isSuperAdmin: boolean, isRu: boolean) {
         if (v === '********') continue;
         payload[k] = v ?? '';
       }
-      if (Object.keys(payload).length === 0) return;
+      if (Object.keys(payload).length === 0) return false;
       await settingsApi.update(payload);
       if (payload.timezone) setTimezone(payload.timezone);
       if (payload.company_name) setCompanyName(payload.company_name);
+      return true;
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
+      if (!saved) return;
       qc.invalidateQueries({ queryKey: ['settings'] });
       setDirtyKeys(new Set());
       toast({ title: isRu ? 'Настройки сохранены' : 'Settings saved', variant: 'success' });

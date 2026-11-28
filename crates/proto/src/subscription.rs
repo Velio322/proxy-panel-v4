@@ -2158,6 +2158,9 @@ pub fn evaluate_srr(ctx: &SrrContext, rules: &[SrrRule]) -> SrrDecision {
 
     let mut decision = SrrDecision::default();
     for rule in ordered {
+        if rule.conditions.is_empty() {
+            continue;
+        }
         let all_match = rule.conditions.iter().all(|c| eval_condition(ctx, c));
         if !all_match {
             continue;
@@ -2880,5 +2883,27 @@ mod tests {
             orig["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"],
             json!("pisos.fenrir322.pro")
         );
+    }
+
+    #[test]
+    fn empty_srr_conditions_do_not_match_globally() {
+        let ctx = SrrContext {
+            user_agent: "Clash/1.0".into(),
+            headers: BTreeMap::new(),
+            client_ip: Some("198.51.100.10".into()),
+            hwid: None,
+        };
+        let rule = SrrRule {
+            id: "r1".into(),
+            name: "empty".into(),
+            priority: 1,
+            enabled: true,
+            conditions: Vec::new(),
+            action: SrrAction::RejectStatus(451),
+            age_config: None,
+        };
+        let decision = evaluate_srr(&ctx, &[rule]);
+        assert!(decision.matched_rule_ids.is_empty());
+        assert_eq!(decision.early_status, None);
     }
 }

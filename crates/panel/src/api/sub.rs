@@ -282,11 +282,13 @@ async fn load_srr_rules(state: &AppState) -> Vec<SrrRule> {
         let override_fmt: Option<String> = r.try_get("overrideFormat").ok().flatten();
         let custom_remarks: Option<String> = r.try_get("customRemarks").ok().flatten();
         let age_pub: Option<String> = r.try_get("agePublicKey").ok().flatten();
+        let age_cfg_val: Option<Value> = r.try_get("ageConfig").ok().flatten();
         let conds_val: Value = r.try_get("conditions").unwrap_or_else(|_| json!([]));
 
         let op = match match_op_str.to_ascii_uppercase().as_str() {
             "EQUALS" => SrrOperator::Equals,
             "REGEX" => SrrOperator::Regex,
+            "EXISTS" => SrrOperator::Exists,
             _ => SrrOperator::Contains,
         };
         let mut conditions: Vec<SrrCondition> = serde_json::from_value(conds_val).unwrap_or_default();
@@ -324,9 +326,14 @@ async fn load_srr_rules(state: &AppState) -> Vec<SrrRule> {
             _ => continue,
         };
 
-        let age_config = age_pub.filter(|s| !s.is_empty()).map(|pk| {
-            AgeEncryptionConfig::Recipients(vec![pk])
-        });
+        let age_config = age_cfg_val
+            .filter(|v| !v.is_null())
+            .and_then(|v| serde_json::from_value::<AgeEncryptionConfig>(v).ok())
+            .or_else(|| {
+                age_pub
+                    .filter(|s| !s.is_empty())
+                    .map(|pk| AgeEncryptionConfig::Recipients(vec![pk]))
+            });
 
         out.push(SrrRule {
             id,
@@ -451,7 +458,8 @@ pub(crate) async fn load_client_entries(
            JOIN "Inbound" i ON i.id = ci."inboundId"
            JOIN "Node" n ON n.id = i."nodeId"
            WHERE ci."clientId" = $1 AND ci.enable = true AND i.enable = true
-             AND n.active = true AND n.status = 'ONLINE'
+             AND n.active = true
+             AND (n.status = 'ONLINE' OR (n.status <> 'MAINTENANCE' AND n."lastOnlineAt" >= $2))
              AND (
                c."allNodes" = true
                OR EXISTS (
@@ -858,6 +866,41 @@ pub(crate) async fn get_subscription(
         state.cfg.sub_url.clone(),
     );
 
+    let srr_rules = load_srr_rules(&state).await;
+    let mut hdr_map = BTreeMap::new();
+    for (k, v) in &headers {
+        if let Ok(vs) = v.to_str() {
+            hdr_map.insert(k.as_str().to_ascii_lowercase(), vs.to_string());
+        }
+    }
+    let srr_ctx = SrrContext {
+        user_agent: ua_str.to_string(),
+        headers: hdr_map,
+        client_ip: Some(ip.0.clone()),
+        hwid: hwid_str.clone(),
+    };
+
+    let decision = subscription::evaluate_srr(&srr_ctx, &srr_rules);
+    if decision.socket_drop || decision.early_status.is_some() {
+        let code_u16 = decision.early_status.unwrap_or(444);
+        record_srh(
+            &state,
+            Some(client_id),
+            Some(username),
+            ip.0,
+            ua_str.to_string(),
+            profile,
+            format,
+            i32::from(code_u16),
+            hwid_str,
+        );
+        let status = decision
+            .early_status
+            .and_then(|c| StatusCode::from_u16(c).ok())
+            .unwrap_or(StatusCode::FORBIDDEN);
+        return (status, [(header::CACHE_CONTROL, "no-store")], "").into_response();
+    }
+
     if raw_flag.is_none() && is_browser_request(&headers, ua_str, profile) {
         let entries = match load_client_entries(&state, &client_id, &uuid, &protocols_val).await {
             Ok(e) => e,
@@ -875,62 +918,68 @@ pub(crate) async fn get_subscription(
         );
         return (
             StatusCode::OK,
-            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
             html,
         )
             .into_response();
     }
 
+    let cacheable = decision.matched_rule_ids.is_empty();
     let cache_key = format!("sub:{sub_token}:{format:?}:{profile:?}");
-    if let Some(cached) = state.cache.get_sub(&cache_key) {
-        let body = if format == SubFormat::Json {
-            if let Ok(mut parsed) = serde_json::from_str::<Value>(&cached.body) {
-                if let Some(obj) = parsed.as_object_mut() {
-                    obj.insert(
-                        "client".into(),
-                        json!({
-                            "username": info.username,
-                            "uuid": info.uuid,
-                            "upload": info.upload,
-                            "download": info.download,
-                            "total": info.total,
-                            "expire": info.expire
-                        }),
-                    );
+    if cacheable {
+        if let Some(cached) = state.cache.get_sub(&cache_key) {
+            let body = if format == SubFormat::Json {
+                if let Ok(mut parsed) = serde_json::from_str::<Value>(&cached.body) {
+                    if let Some(obj) = parsed.as_object_mut() {
+                        obj.insert(
+                            "client".into(),
+                            json!({
+                                "username": info.username,
+                                "uuid": info.uuid,
+                                "upload": info.upload,
+                                "download": info.download,
+                                "total": info.total,
+                                "expire": info.expire
+                            }),
+                        );
+                    }
+                    serde_json::to_string_pretty(&parsed).unwrap_or(cached.body)
+                } else {
+                    cached.body
                 }
-                serde_json::to_string_pretty(&parsed).unwrap_or(cached.body)
             } else {
                 cached.body
-            }
-        } else {
-            cached.body
-        };
+            };
 
-        // Preserve cached content_type + headers AND apply fresh Userinfo/HWID headers
-        let mut res = (StatusCode::OK, body).into_response();
-        if let Ok(ct) = HeaderValue::from_str(&cached.content_type) {
-            res.headers_mut().insert(header::CONTENT_TYPE, ct);
-        }
-        for (k, v) in &cached.headers {
-            if let (Ok(name), Ok(val)) = (
-                HeaderName::from_bytes(k.as_bytes()),
-                HeaderValue::from_str(v),
-            ) {
-                res.headers_mut().insert(name, val);
+            // Preserve cached content_type + headers AND apply fresh Userinfo/HWID headers
+            let mut res = (StatusCode::OK, body).into_response();
+            if let Ok(ct) = HeaderValue::from_str(&cached.content_type) {
+                res.headers_mut().insert(header::CONTENT_TYPE, ct);
             }
+            for (k, v) in &cached.headers {
+                if let (Ok(name), Ok(val)) = (
+                    HeaderName::from_bytes(k.as_bytes()),
+                    HeaderValue::from_str(v),
+                ) {
+                    res.headers_mut().insert(name, val);
+                }
+            }
+            record_srh(
+                &state,
+                Some(client_id),
+                Some(username),
+                ip.0,
+                ua_str.to_string(),
+                profile,
+                format,
+                200,
+                hwid_str,
+            );
+            return apply_sub_headers(res, &info, format, profile, hwid_headers);
         }
-        record_srh(
-            &state,
-            Some(client_id),
-            Some(username),
-            ip.0,
-            ua_str.to_string(),
-            profile,
-            format,
-            200,
-            hwid_str,
-        );
-        return apply_sub_headers(res, &info, format, profile, hwid_headers);
     }
 
     let entries = match load_client_entries(&state, &client_id, &uuid, &protocols_val).await {
@@ -954,21 +1003,6 @@ pub(crate) async fn get_subscription(
         return apply_sub_headers(res, &info, format, profile, hwid_headers);
     }
 
-    let srr_rules = load_srr_rules(&state).await;
-    let mut hdr_map = BTreeMap::new();
-    for (k, v) in &headers {
-        if let Ok(vs) = v.to_str() {
-            hdr_map.insert(k.as_str().to_ascii_lowercase(), vs.to_string());
-        }
-    }
-    let srr_ctx = SrrContext {
-        user_agent: ua_str.to_string(),
-        headers: hdr_map,
-        client_ip: Some(ip.0.clone()),
-        hwid: hwid_str.clone(),
-    };
-
-    let decision = subscription::evaluate_srr(&srr_ctx, &srr_rules);
     let effective_fmt = decision.override_format.unwrap_or(format);
     let tpl_opt: Option<SubscriptionTemplate> = if let Some(ref tid) = decision.template_id.as_deref().filter(|s| !s.trim().is_empty()) {
         load_subscription_template_by_id(&state, tid).await
@@ -994,15 +1028,17 @@ pub(crate) async fn get_subscription(
         return (code, "").into_response();
     }
 
-    state.cache.set_sub(
-        cache_key,
-        CachedSubscription {
-            body: rendered.body.clone(),
-            content_type: rendered.content_type.to_string(),
-            headers: rendered.headers.clone(),
-        },
-        Duration::from_secs(300),
-    );
+    if cacheable {
+        state.cache.set_sub(
+            cache_key,
+            CachedSubscription {
+                body: rendered.body.clone(),
+                content_type: rendered.content_type.to_string(),
+                headers: rendered.headers.clone(),
+            },
+            Duration::from_secs(300),
+        );
+    }
 
     let db = state.db.clone();
     let cid = client_id.clone();
@@ -1067,30 +1103,40 @@ async fn get_info(
 
     let limit: i64 = r.try_get("trafficLimit")?;
     let used: i64 = r.try_get("usedTraffic")?;
+    let banned: bool = r.try_get("banned")?;
     let pct = if limit > 0 {
         ((used as f64 / limit as f64) * 10000.0).round() / 100.0
     } else {
         0.0
     };
-    let online_nodes: i64 = sqlx::query_scalar(
-        r#"SELECT COUNT(*) FROM "Node" WHERE status = 'ONLINE' AND active = true"#,
-    )
-    .fetch_one(&state.db)
-    .await?;
+    let online_nodes: i64 = if banned {
+        0
+    } else {
+        sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM "Node" WHERE status = 'ONLINE' AND active = true"#,
+        )
+        .fetch_one(&state.db)
+        .await?
+    };
 
     let expire_at: Option<NaiveDateTime> = r.try_get("expireAt")?;
     let last_active: Option<NaiveDateTime> = r.try_get("lastActiveAt")?;
     let created_at: NaiveDateTime = r.try_get("createdAt")?;
+    let uuid_val = if banned {
+        Value::Null
+    } else {
+        Value::String(r.try_get::<String, _>("uuid")?)
+    };
 
     let mut res = Json(json!({
         "username": r.try_get::<String, _>("username")?,
-        "uuid": r.try_get::<String, _>("uuid")?,
+        "uuid": uuid_val,
         "trafficLimit": limit,
         "usedTraffic": used,
         "uploadTraffic": r.try_get::<i64, _>("uploadTraffic")?,
         "downloadTraffic": r.try_get::<i64, _>("downloadTraffic")?,
         "expireAt": expire_at.map(|d| crate::db::ts::format_iso(&d)),
-        "banned": r.try_get::<bool, _>("banned")?,
+        "banned": banned,
         "lastActiveAt": last_active.map(|d| crate::db::ts::format_iso(&d)),
         "createdAt": crate::db::ts::format_iso(&created_at),
         "protocols": r.try_get::<Value, _>("protocols")?,
@@ -1155,16 +1201,50 @@ async fn get_happ_encrypted(
     Query(q): Query<HappQuery>,
 ) -> AppResult<Response> {
     valid_id(&sub_token)?;
+    let row = sqlx::query(
+        r#"SELECT banned, "expireAt", "trafficLimit", "usedTraffic", "restrictionReason"
+           FROM "Client" WHERE "subToken" = $1"#,
+    )
+    .bind(&sub_token)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::not_found("Client not found"))?;
+
+    let banned: bool = row.try_get::<Option<bool>, _>("banned")?.unwrap_or(false);
+    let restriction_reason: Option<String> = row.try_get("restrictionReason")?;
+    let expire_at: Option<NaiveDateTime> = row.try_get("expireAt")?;
+    let traffic_limit: i64 = row.try_get("trafficLimit")?;
+    let used_traffic: i64 = row.try_get("usedTraffic")?;
+    let now = crate::db::now();
+    if banned {
+        return Err(AppError::forbidden("Client is banned"));
+    }
+    if restriction_reason.is_some() {
+        return Err(AppError::forbidden("Subscription restricted"));
+    }
+    if expire_at.is_some_and(|e| e <= now) {
+        return Err(AppError::forbidden("Subscription expired"));
+    }
+    if traffic_limit > 0 && used_traffic >= traffic_limit {
+        return Err(AppError::forbidden("Traffic limit exceeded"));
+    }
+
     let sub_url = format!("{}/api/v1/client/{}/sub?flag=happ", state.cfg.sub_url, sub_token);
     let Some(pem) = q.rsa_pub_pem.as_deref().filter(|s| !s.is_empty()) else {
         return Ok(Json(json!({ "url": sub_url })).into_response());
     };
-    let ver = q.version.as_deref().unwrap_or("5");
-    let encrypted = if ver == "4" {
-        build_happ_crypt4(&sub_url, pem)
-    } else {
-        build_happ_crypt5(&sub_url, pem)
-    }
+    let ver = q.version.as_deref().unwrap_or("5").to_string();
+    let pem_owned = pem.to_string();
+    let sub_url_owned = sub_url;
+    let encrypted = tokio::task::spawn_blocking(move || {
+        if ver == "4" {
+            build_happ_crypt4(&sub_url_owned, &pem_owned)
+        } else {
+            build_happ_crypt5(&sub_url_owned, &pem_owned)
+        }
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("Happ encryption task failed: {e}")))?
     .map_err(|e| AppError::bad_request(e.to_string()))?;
 
     let mut res = Json(json!({ "url": encrypted })).into_response();

@@ -7,28 +7,48 @@ export function useCopyFeedback(
 ): [string | null, CopyFn, () => void] {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   const reset = useCallback(() => {
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    setCopiedKey(null);
+    if (mountedRef.current) setCopiedKey(null);
   }, []);
 
   const copy = useCallback(
     async (text: string, key = '') => {
-      await navigator.clipboard.writeText(text);
-      setCopiedKey(key);
-      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => setCopiedKey(null), resetMs);
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        if (!mountedRef.current) return;
+        setCopiedKey(key);
+        if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+        timerRef.current = window.setTimeout(() => {
+          if (mountedRef.current) setCopiedKey(null);
+        }, resetMs);
+      } catch {
+        // Clipboard permission denied or insecure context — do not crash caller.
+      }
     },
     [resetMs],
   );

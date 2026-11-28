@@ -351,7 +351,17 @@ export function CreateClientModal({ open, onOpenChange, plans, onCreated }: Crea
                   </SelectContent>
                 </Select>
               </div>
-              {resetStrategy === 'MONTH' ? (
+              <div className="space-y-1.5">
+                <Label>{isRu ? 'Лимит устройств HWID' : 'HWID Device Limit (blank = plan, 0 = unlimited)'}</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder={isRu ? 'Из тарифа / без лимита' : 'Inherit from plan'}
+                  value={deviceLimit}
+                  onChange={(e) => setDeviceLimit(e.target.value)}
+                />
+              </div>
+              {resetStrategy === 'MONTH' && (
                 <div className="space-y-1.5">
                   <Label>{isRu ? 'День сброса (1–28)' : 'Reset Day (1–28)'}</Label>
                   <Input
@@ -360,17 +370,6 @@ export function CreateClientModal({ open, onOpenChange, plans, onCreated }: Crea
                     max={28}
                     value={trafficResetDay}
                     onChange={(e) => setTrafficResetDay(e.target.value)}
-                  />
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <Label>{isRu ? 'Лимит устройств HWID' : 'HWID Device Limit (blank = plan, 0 = unlimited)'}</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder={isRu ? 'Из тарифа / без лимита' : 'Inherit from plan'}
-                    value={deviceLimit}
-                    onChange={(e) => setDeviceLimit(e.target.value)}
                   />
                 </div>
               )}

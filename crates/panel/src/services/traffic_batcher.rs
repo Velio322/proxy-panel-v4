@@ -146,8 +146,8 @@ pub async fn flush_batch(state: &AppState) -> AppResult<FlushResult> {
         Ok((processed, committed_batches, to_enforce)) => {
             // Only clients that crossed a limit/expiry/reset threshold need the (locking,
             // config-broadcasting) enforcement pass; the periodic job covers the rest.
-            for cid in to_enforce {
-                let _ = enforcement::enforce_client_policies(state, &cid).await;
+            if !to_enforce.is_empty() {
+                enforcement::enforce_clients_batch(state, &to_enforce).await;
             }
             Ok(FlushResult {
                 drained: items.len(),
@@ -183,9 +183,9 @@ async fn flush_tx(
 ) -> AppResult<(usize, HashSet<String>, Vec<String>)> {
     let mut tx = state.db.begin().await?;
 
-    // Items for clients that no longer exist would violate the foreign key and, being requeued
-    // on failure, block the whole queue forever. Receipts are still recorded for them so the
-    // agent's batch can be acknowledged; no log/counters are written.
+    // Items for clients or nodes that no longer exist would violate foreign keys and, being
+    // requeued on failure, block the whole queue forever. Receipts are still recorded for them so
+    // the agent's batch can be acknowledged; no log/counters are written.
     let client_ids: Vec<String> = items
         .iter()
         .map(|i| i.client_id.clone())
@@ -195,6 +195,19 @@ async fn flush_tx(
     let existing: HashSet<String> =
         sqlx::query_scalar(r#"SELECT id FROM "Client" WHERE id = ANY($1::text[])"#)
             .bind(&client_ids)
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
+    let unique_node_ids: Vec<String> = items
+        .iter()
+        .map(|i| i.node_id.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let existing_nodes: HashSet<String> =
+        sqlx::query_scalar(r#"SELECT id FROM "Node" WHERE id = ANY($1::text[])"#)
+            .bind(&unique_node_ids)
             .fetch_all(&mut *tx)
             .await?
             .into_iter()
@@ -223,6 +236,7 @@ async fn flush_tx(
     let mut committed_batches: HashSet<String> = HashSet::new();
     let mut fresh: Vec<&PendingTrafficItem> = Vec::new();
     let mut orphaned: HashSet<&str> = HashSet::new();
+    let mut orphaned_nodes: HashSet<&str> = HashSet::new();
     for item in items {
         if let Some(batch) = item.batch_id.as_deref().filter(|b| !b.is_empty()) {
             committed_batches.insert(batch.to_string());
@@ -236,11 +250,18 @@ async fn flush_tx(
             orphaned.insert(item.client_id.as_str());
             continue;
         }
+        if !existing_nodes.contains(&item.node_id) {
+            orphaned_nodes.insert(item.node_id.as_str());
+            continue;
+        }
         fresh.push(item);
     }
     for cid in &orphaned {
         state.traffic_queue.invalidate_client(cid);
         tracing::warn!(client_id = %cid, "traffic dropped: client no longer exists");
+    }
+    for nid in &orphaned_nodes {
+        tracing::warn!(node_id = %nid, "traffic dropped: node no longer exists");
     }
 
     // BTreeMap: every flush locks Client/Reseller/Node rows in the same (sorted) order, which
@@ -464,7 +485,7 @@ pub async fn drain_all(state: &AppState) -> usize {
             break;
         }
         match flush_batch(state).await {
-            Ok(res) if res.processed == 0 => break,
+            Ok(res) if res.drained == 0 => break,
             Ok(res) => total += res.processed,
             Err(e) => {
                 tracing::warn!(error = %e, queued = state.traffic_queue.len(), "final traffic flush failed");

@@ -17,6 +17,7 @@ struct LinkRow {
     username: String,
     uuid: String,
     banned: bool,
+    on_hold: bool,
     expire_at: Option<NaiveDateTime>,
     traffic_limit: i64,
     used_traffic: i64,
@@ -61,7 +62,8 @@ pub async fn build(state: &AppState, node_id: &str) -> AppResult<Vec<InboundConf
     // Bulk fetch all ClientInbound + Client rows (guarded by ClientNode / allNodes)
     let link_rows = sqlx::query(
         r#"SELECT ci."inboundId" AS inbound_id, ci."clientId" AS client_id,
-                  c.username, c.uuid, c.banned, c."expireAt" AS expire_at,
+                  c.username, c.uuid, c.banned, COALESCE(c."onHold", false) AS on_hold,
+                  c."expireAt" AS expire_at,
                   c."trafficLimit" AS traffic_limit, c."usedTraffic" AS used_traffic,
                   c."restrictionReason" AS restriction_reason, c.protocols
            FROM "ClientInbound" ci
@@ -92,6 +94,7 @@ pub async fn build(state: &AppState, node_id: &str) -> AppResult<Vec<InboundConf
             username: r.try_get("username")?,
             uuid: r.try_get("uuid")?,
             banned: r.try_get("banned")?,
+            on_hold: r.try_get("on_hold")?,
             expire_at: r.try_get("expire_at")?,
             traffic_limit: r.try_get("traffic_limit")?,
             used_traffic: r.try_get("used_traffic")?,
@@ -163,6 +166,7 @@ pub async fn build(state: &AppState, node_id: &str) -> AppResult<Vec<InboundConf
         for link in &links {
             if !is_client_allowed(
                 link.banned,
+                link.on_hold,
                 link.expire_at,
                 link.traffic_limit,
                 link.used_traffic,
@@ -223,6 +227,7 @@ pub async fn build(state: &AppState, node_id: &str) -> AppResult<Vec<InboundConf
                 }
                 if !is_client_allowed(
                     link.banned,
+                    link.on_hold,
                     link.expire_at,
                     link.traffic_limit,
                     link.used_traffic,

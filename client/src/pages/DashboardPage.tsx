@@ -40,7 +40,7 @@ import {
   formatDateTime,
 } from '@/lib/core-utils';
 import { useTranslation } from '@/lib/i18n';
-import { useUiStore } from '@/lib/store';
+import { useAuthStore, useUiStore } from '@/lib/store';
 
 function auditBadgeVariant(action: string) {
   const up = action.toUpperCase();
@@ -52,6 +52,8 @@ function auditBadgeVariant(action: string) {
 
 export function DashboardPage() {
   const { t } = useTranslation();
+  const role = useAuthStore((s) => s.user?.role);
+  const isAdmin = role === 'SUPER_ADMIN' || role === 'ADMIN';
   const timezone = useUiStore((s) => s.timezone);
   const language = useUiStore((s) => s.language);
   const [days, setDays] = useState(14);
@@ -82,12 +84,14 @@ export function DashboardPage() {
   const { data: recentAudit = [] } = useQuery({
     queryKey: ['dashboard-recent-audit'],
     queryFn: () => dashboardApi.recentAudit(6),
+    enabled: isAdmin,
     retry: false,
   });
 
   const { data: hostTelemetry } = useQuery({
     queryKey: ['monitoring-host'],
     queryFn: () => monitoringApi.host(),
+    enabled: isAdmin,
     refetchInterval: 10_000,
     retry: false,
   });

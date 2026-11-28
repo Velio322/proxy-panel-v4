@@ -133,13 +133,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         { id: 'p-bill', group: 'pages', title: t('nav.billing'), icon: Receipt, onSelect: go('/infra-billing') },
         { id: 'p-users', group: 'pages', title: t('nav.users'), icon: Users, onSelect: go('/users') },
         { id: 'p-audit', group: 'pages', title: t('nav.audit'), icon: HardDrive, onSelect: go('/audit') },
-        { id: 'p-backup', group: 'pages', title: t('nav.backup'), icon: HardDrive, onSelect: go('/backup') },
         { id: 'p-settings', group: 'pages', title: t('nav.settings'), icon: Settings, onSelect: go('/settings') },
       );
     }
 
     if (isSuperAdmin) {
       pages.push(
+        { id: 'p-backup', group: 'pages', title: t('nav.backup'), icon: HardDrive, onSelect: go('/backup') },
         { id: 'p-ct', group: 'pages', title: t('nav.configTransfer'), icon: FileCode2, onSelect: go('/config-transfer') },
       );
     }

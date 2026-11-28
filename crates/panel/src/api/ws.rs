@@ -1,14 +1,14 @@
 use crate::auth::crypto::{ct_eq, sha256_hex};
 use crate::db::enums::NodeStatus;
 use crate::error::{AppError, AppResult};
-use crate::services::{core_updates, node_config, traffic_batcher};
+use crate::services::{core_updates, traffic_batcher};
 use crate::state::AppState;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::{header, HeaderMap};
 use axum::response::Response;
 use futures_util::{SinkExt, StreamExt};
-use mypanel_proto::{ConfigUpdate, Envelope, TrafficAck};
+use mypanel_proto::{Envelope, TrafficAck, TrafficReport};
 use sqlx::Row;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -141,6 +141,23 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
     let closed = CancellationToken::new();
     let writer_closed = closed.clone();
     let shutdown = state.hub.shutdown_token();
+
+    let (traffic_tx, mut traffic_rx) = mpsc::channel::<TrafficReport>(32);
+    let traffic_worker = {
+        let st = state.clone();
+        let nid = node_id.clone();
+        let tx_out = tx.clone();
+        tokio::spawn(async move {
+            while let Some(report) = traffic_rx.recv().await {
+                let batch_id = report.batch_id.clone().unwrap_or_default();
+                let committed = traffic_batcher::record_report(&st, &nid, report).await;
+                if committed {
+                    let _ = tx_out.send(Envelope::TrafficAck(TrafficAck { batch_id }));
+                }
+            }
+        })
+    };
+
     let writer = tokio::spawn(async move {
         let mut ping = tokio::time::interval_at(Instant::now() + PING_INTERVAL, PING_INTERVAL);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -222,23 +239,13 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
 
         match env {
             Envelope::ConfigRequest(_) => {
-                if let (Ok(inbounds), Ok(routing_rules)) = (
-                    node_config::build(&state, &node_id).await,
-                    node_config::build_routing_rules(&state, &node_id).await,
-                ) {
-                    let xray_profile = node_config::build_xray_profile(&state, &node_id)
-                        .await
-                        .ok()
-                        .flatten();
-                    let _ = tx.send(Envelope::ConfigUpdate(ConfigUpdate {
-                        command_id: crate::db::new_id(),
-                        revision: 0,
-                        inbounds,
-                        routing_rules,
-                        xray_profile,
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                    }));
-                }
+                let st = state.clone();
+                let nid = node_id.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = crate::services::outbox::push_config(&st, &nid).await {
+                        tracing::warn!(node_id = %nid, error = %e, "WS ConfigRequest push failed");
+                    }
+                });
             }
             Envelope::CommandAck(ack) => {
                 state.hub.resolve_ack(ack.clone());
@@ -326,14 +333,11 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
                 }
             }
             Envelope::TrafficReport(report) => {
-                if report.validate().is_ok() {
-                    let batch_id = report.batch_id.clone().unwrap_or_default();
-                    // Ack only after the batch is durably recorded, so a panel restart between
-                    // queueing and flushing cannot lose traffic the agent already dropped.
-                    let committed = traffic_batcher::record_report(&state, &node_id, report).await;
-                    if committed {
-                        let _ = tx.send(Envelope::TrafficAck(TrafficAck { batch_id }));
-                    }
+                if traffic_tx.try_send(report).is_err() {
+                    tracing::warn!(
+                        node_id = %node_id,
+                        "WS traffic worker queue full; dropping batch for agent retry"
+                    );
                 }
             }
             Envelope::Heartbeat(_) => {
@@ -367,6 +371,8 @@ async fn handle_socket(state: AppState, node_id: String, node_name: String, sock
         }
     }
 
+    drop(traffic_tx);
+    traffic_worker.abort();
     writer.abort();
     closed.cancel();
     if state.hub.unregister(&node_id, conn_id) {

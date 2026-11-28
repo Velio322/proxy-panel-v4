@@ -2196,32 +2196,45 @@ async fn import_clients(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let mut items: Vec<ImportRowReq> = body.rows.unwrap_or_default();
-    if let Some(ref csv) = body.csv {
-        for (idx, line) in csv.lines().enumerate() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
+    if items.is_empty() {
+        if let Some(ref csv) = body.csv {
+            for (idx, line) in csv.lines().enumerate() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let lower = trimmed.to_ascii_lowercase();
+                if idx == 0 && (lower.starts_with("username") || lower.starts_with("name,")) {
+                    continue;
+                }
+                let cols: Vec<&str> = trimmed.split(',').map(str::trim).collect();
+                let Some(uname) = cols.first().filter(|s| !s.is_empty()) else {
+                    continue;
+                };
+                let protocols = cols
+                    .get(4)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| {
+                        s.split([';', '|'])
+                            .map(str::trim)
+                            .filter(|p| !p.is_empty())
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|v| !v.is_empty());
+                items.push(ImportRowReq {
+                    username: (*uname).to_string(),
+                    email: cols.get(1).filter(|s| !s.is_empty()).map(|s| (*s).to_string()),
+                    password: None,
+                    traffic_limit: None,
+                    traffic_limit_gb: cols.get(2).and_then(|s| s.parse::<i64>().ok()),
+                    expire_at: None,
+                    expire_days: cols.get(3).and_then(|s| s.parse::<i64>().ok()),
+                    protocols,
+                    note: cols.get(5).filter(|s| !s.is_empty()).map(|s| (*s).to_string()),
+                    device_limit: None,
+                });
             }
-            let lower = trimmed.to_ascii_lowercase();
-            if idx == 0 && (lower.starts_with("username") || lower.starts_with("name,")) {
-                continue;
-            }
-            let cols: Vec<&str> = trimmed.split(',').map(str::trim).collect();
-            let Some(uname) = cols.first().filter(|s| !s.is_empty()) else {
-                continue;
-            };
-            items.push(ImportRowReq {
-                username: (*uname).to_string(),
-                email: cols.get(1).filter(|s| !s.is_empty()).map(|s| (*s).to_string()),
-                password: None,
-                traffic_limit: None,
-                traffic_limit_gb: cols.get(2).and_then(|s| s.parse::<i64>().ok()),
-                expire_at: None,
-                expire_days: cols.get(3).and_then(|s| s.parse::<i64>().ok()),
-                protocols: None,
-                note: cols.get(4).filter(|s| !s.is_empty()).map(|s| (*s).to_string()),
-                device_limit: None,
-            });
         }
     }
 

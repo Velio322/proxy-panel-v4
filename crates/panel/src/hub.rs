@@ -83,14 +83,7 @@ impl WorkerHub {
     }
 
     pub fn unregister(&self, node_id: &str, conn_id: u64) -> bool {
-        if let Some(existing) = self.conns.get(node_id) {
-            if existing.conn_id == conn_id {
-                drop(existing);
-                self.conns.remove(node_id);
-                return true;
-            }
-        }
-        false
+        self.conns.remove_if(node_id, |_, v| v.conn_id == conn_id).is_some()
     }
 
     /// Remembers the newest status report pushed by a node over WebSocket.
@@ -180,22 +173,29 @@ impl WorkerHub {
         msg: Envelope,
         timeout: std::time::Duration,
     ) -> Result<CommandAck, String> {
+        struct PendingAckGuard<'a> {
+            map: &'a DashMap<String, oneshot::Sender<CommandAck>>,
+            key: String,
+        }
+        impl Drop for PendingAckGuard<'_> {
+            fn drop(&mut self) {
+                self.map.remove(&self.key);
+            }
+        }
+
         let (tx, rx) = oneshot::channel();
         self.pending_acks.insert(command_id.to_string(), tx);
+        let _guard = PendingAckGuard {
+            map: &self.pending_acks,
+            key: command_id.to_string(),
+        };
         if !self.send(node_id, msg) {
-            self.pending_acks.remove(command_id);
             return Err("Node WebSocket is not connected".to_string());
         }
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(ack)) => Ok(ack),
-            Ok(Err(_)) => {
-                self.pending_acks.remove(command_id);
-                Err("Node command acknowledgement channel closed".to_string())
-            }
-            Err(_) => {
-                self.pending_acks.remove(command_id);
-                Err("Timed out waiting for node acknowledgement".to_string())
-            }
+            Ok(Err(_)) => Err("Node command acknowledgement channel closed".to_string()),
+            Err(_) => Err("Timed out waiting for node acknowledgement".to_string()),
         }
     }
 

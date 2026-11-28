@@ -176,9 +176,9 @@ pub async fn run(cfg: AgentConfig) -> Result<()> {
     cancel.cancel();
 
     for h in background {
-        let _ = h.await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), h).await;
     }
-    let _ = server_task.await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), server_task).await;
 
     let mut guard = pm.lock().await;
     guard.stop_all().await;

@@ -103,7 +103,7 @@ utoipa = { version = "6", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-scalar = { version = "0.4", features = ["axum"] }
 
 # Passkeys / WebAuthn
-webauthn-rs = { version = "0.6", features = ["resident-key-support"] }
+webauthn-rs = { version = "0.6", features = ["resident-key-support", "conditional-ui"] }
 
 # Redis Streams event export
 redis = { version = "1", default-features = false, features = ["tokio-comp", "streams"] }

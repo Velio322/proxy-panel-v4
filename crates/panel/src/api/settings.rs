@@ -27,6 +27,27 @@ struct BatchSettingsReq {
     settings: HashMap<String, Value>,
 }
 
+const SECRET_MASK: &str = "********";
+
+fn is_secret_setting_key(key: &str) -> bool {
+    let k = key.to_ascii_lowercase();
+    k.contains("token")
+        || k.contains("secret")
+        || k.contains("password")
+        || k.ends_with("_key")
+        || k == "smtp_pass"
+}
+
+fn mask_if_secret(key: &str, val: Value) -> Value {
+    if !is_secret_setting_key(key) {
+        return val;
+    }
+    match &val {
+        Value::String(s) if !s.trim().is_empty() => Value::String(SECRET_MASK.to_string()),
+        _ => val,
+    }
+}
+
 async fn get_all(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Value>> {
     user.require_super_admin()?;
     let rows = sqlx::query(r#"SELECT key, value FROM "SystemSetting""#)
@@ -36,7 +57,8 @@ async fn get_all(State(state): State<AppState>, user: AuthUser) -> AppResult<Jso
     for r in rows {
         let k: String = r.try_get("key")?;
         let v: Value = r.try_get("value")?;
-        map.insert(k, v);
+        let masked = mask_if_secret(&k, v);
+        map.insert(k, masked);
     }
     Ok(Json(Value::Object(map)))
 }
@@ -54,9 +76,11 @@ async fn get_one(
         .await?
         .ok_or_else(|| AppError::not_found("Setting not found"))?;
 
+    let k: String = r.try_get("key")?;
+    let v: Value = r.try_get("value")?;
     Ok(Json(json!({
-        "key": r.try_get::<String, _>("key")?,
-        "value": r.try_get::<Value, _>("value")?,
+        "key": k,
+        "value": mask_if_secret(&key, v),
         "description": r.try_get::<Option<String>, _>("description")?,
     })))
 }
@@ -69,6 +93,9 @@ async fn upsert_one(
 ) -> AppResult<Json<Value>> {
     user.require_super_admin()?;
     valid_id(&key)?;
+    if is_secret_setting_key(&key) && body.value.as_str() == Some(SECRET_MASK) {
+        return Ok(Json(json!({ "key": key, "value": SECRET_MASK })));
+    }
     let now = crate::db::now();
     sqlx::query(
         r#"INSERT INTO "SystemSetting" (id, key, value, description, "updatedAt")
@@ -116,6 +143,9 @@ async fn batch_update(
     let now = crate::db::now();
     for (k, v) in body.settings {
         valid_id(&k)?;
+        if is_secret_setting_key(&k) && v.as_str() == Some(SECRET_MASK) {
+            continue;
+        }
         sqlx::query(
             r#"INSERT INTO "SystemSetting" (id, key, value, "updatedAt")
                VALUES ($1, $2, $3, $4)

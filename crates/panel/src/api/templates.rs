@@ -125,7 +125,8 @@ fn srr_json(r: &sqlx::postgres::PgRow) -> AppResult<Value> {
     }))
 }
 
-async fn list_templates(State(state): State<AppState>, _user: AuthUser) -> AppResult<Json<Vec<Value>>> {
+async fn list_templates(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Vec<Value>>> {
+    user.require_admin()?;
     let rows = sqlx::query(
         r#"SELECT id, name, "templateType", content, "isDefault", description, "createdAt", "updatedAt"
            FROM "SubscriptionTemplate" ORDER BY "createdAt" DESC"#,
@@ -137,9 +138,10 @@ async fn list_templates(State(state): State<AppState>, _user: AuthUser) -> AppRe
 
 async fn get_template(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
+    user.require_admin()?;
     valid_id(&id)?;
     let r = sqlx::query(
         r#"SELECT id, name, "templateType", content, "isDefault", description, "createdAt", "updatedAt"
@@ -245,11 +247,15 @@ fn parse_template_type_str(s: &str) -> mypanel_proto::subscription::TemplateType
 
 async fn preview_template(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Path(id): Path<String>,
     body: Option<Json<PreviewTemplateReq>>,
 ) -> AppResult<Json<Value>> {
+    user.require_admin()?;
     valid_id(&id)?;
+    if let Some(ref cid) = body.as_ref().and_then(|b| b.client_id.as_ref()) {
+        valid_id(cid)?;
+    }
     let r = sqlx::query(
         r#"SELECT id, name, "templateType", content FROM "SubscriptionTemplate" WHERE id = $1"#,
     )
@@ -349,7 +355,8 @@ async fn preview_template(
     })))
 }
 
-async fn list_srr(State(state): State<AppState>, _user: AuthUser) -> AppResult<Json<Vec<Value>>> {
+async fn list_srr(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Vec<Value>>> {
+    user.require_admin()?;
     let rows = sqlx::query(
         r#"SELECT id, name, enabled, priority, "matchHeader", "matchOperator", "matchPattern", negate,
                   conditions, action, "templateId", "overrideFormat", "customRemarks", "agePublicKey",
@@ -363,9 +370,10 @@ async fn list_srr(State(state): State<AppState>, _user: AuthUser) -> AppResult<J
 
 async fn get_srr(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
+    user.require_admin()?;
     valid_id(&id)?;
     let r = sqlx::query(
         r#"SELECT id, name, enabled, priority, "matchHeader", "matchOperator", "matchPattern", negate,

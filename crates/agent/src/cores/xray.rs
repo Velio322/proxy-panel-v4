@@ -144,9 +144,51 @@ pub fn generate_config_with_profile(
         if let Some(p_map) = profile.get("policy").and_then(Value::as_object) {
             if let Some(base_map) = policy_obj.as_object_mut() {
                 for (k, v) in p_map {
+                    if k == "levels" {
+                        if let (Some(base_levels), Some(ov_levels)) = (
+                            base_map.get_mut("levels").and_then(Value::as_object_mut),
+                            v.as_object(),
+                        ) {
+                            for (lvl_key, lvl_val) in ov_levels {
+                                if lvl_key == "0" {
+                                    if let (Some(base_l0), Some(ov_l0)) = (
+                                        base_levels.get_mut("0").and_then(Value::as_object_mut),
+                                        lvl_val.as_object(),
+                                    ) {
+                                        for (lk, lv) in ov_l0 {
+                                            base_l0.insert(lk.clone(), lv.clone());
+                                        }
+                                        continue;
+                                    }
+                                }
+                                base_levels.insert(lvl_key.clone(), lvl_val.clone());
+                            }
+                            continue;
+                        }
+                    } else if k == "system" {
+                        if let (Some(base_sys), Some(ov_sys)) = (
+                            base_map.get_mut("system").and_then(Value::as_object_mut),
+                            v.as_object(),
+                        ) {
+                            for (sk, sv) in ov_sys {
+                                base_sys.insert(sk.clone(), sv.clone());
+                            }
+                            continue;
+                        }
+                    }
                     base_map.insert(k.clone(), v.clone());
                 }
             }
+        }
+        // Per-user Xray accounting requires statsUserUplink/statsUserDownlink on level 0.
+        if let Some(l0) = policy_obj
+            .get_mut("levels")
+            .and_then(Value::as_object_mut)
+            .and_then(|lv| lv.get_mut("0"))
+            .and_then(Value::as_object_mut)
+        {
+            l0.insert("statsUserUplink".into(), json!(true));
+            l0.insert("statsUserDownlink".into(), json!(true));
         }
         if let Some(custom_outs) = profile.get("outbounds").and_then(Value::as_array) {
             for co in custom_outs {
@@ -585,6 +627,9 @@ pub fn build_shadowsocks(inbound: &InboundConfig) -> Result<Value, String> {
         } else {
             raw_server_psk.to_string()
         }
+    } else if ss2022 {
+        // Match crates/proto/src/links.rs fallback so server iPSK stays stable across client changes.
+        derive_ss2022_psk(&format!("ss2022-ipsk:{}", inbound.tag), method)
     } else if let Some(first_pw) = clients
         .first()
         .and_then(|c| c.get("password"))

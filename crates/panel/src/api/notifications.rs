@@ -52,24 +52,55 @@ async fn mark_read(
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
     valid_id(&id)?;
-    sqlx::query(
-        r#"UPDATE "Notification" SET read = true
-           WHERE id = $1 AND ("targetUserId" IS NULL OR "targetUserId" = $2)"#,
-    )
-    .bind(&id)
-    .bind(&user.id)
-    .execute(&state.db)
-    .await?;
+    if user.is_admin() {
+        sqlx::query(
+            r#"UPDATE "Notification" SET read = true
+               WHERE id = $1
+                 AND ("targetUserId" IS NULL OR "targetUserId" = $2)
+                 AND ("targetResellerId" IS NULL OR "targetResellerId" = $3)"#,
+        )
+        .bind(&id)
+        .bind(&user.id)
+        .bind(&user.reseller_id)
+        .execute(&state.db)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"UPDATE "Notification" SET read = true
+               WHERE id = $1
+                 AND ("targetUserId" = $2 OR ($3::text IS NOT NULL AND "targetResellerId" = $3))"#,
+        )
+        .bind(&id)
+        .bind(&user.id)
+        .bind(&user.reseller_id)
+        .execute(&state.db)
+        .await?;
+    }
     Ok(ok())
 }
 
 async fn mark_all_read(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Value>> {
-    sqlx::query(
-        r#"UPDATE "Notification" SET read = true
-           WHERE ("targetUserId" IS NULL OR "targetUserId" = $1) AND read = false"#,
-    )
-    .bind(&user.id)
-    .execute(&state.db)
-    .await?;
+    if user.is_admin() {
+        sqlx::query(
+            r#"UPDATE "Notification" SET read = true
+               WHERE ("targetUserId" IS NULL OR "targetUserId" = $1)
+                 AND ("targetResellerId" IS NULL OR "targetResellerId" = $2)
+                 AND read = false"#,
+        )
+        .bind(&user.id)
+        .bind(&user.reseller_id)
+        .execute(&state.db)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"UPDATE "Notification" SET read = true
+               WHERE ("targetUserId" = $1 OR ($2::text IS NOT NULL AND "targetResellerId" = $2))
+                 AND read = false"#,
+        )
+        .bind(&user.id)
+        .bind(&user.reseller_id)
+        .execute(&state.db)
+        .await?;
+    }
     Ok(ok())
 }

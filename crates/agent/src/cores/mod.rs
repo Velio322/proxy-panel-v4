@@ -352,21 +352,16 @@ pub async fn write_atomic_0600(path: &Path, contents: &[u8]) -> Result<(), Strin
         .unwrap_or("config.tmp");
     let tmp_path = path.with_file_name(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4()));
 
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
+    let mut opts = tokio::fs::OpenOptions::new();
+    opts.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        opts.mode(0o600);
+    }
+    let mut file = opts
         .open(&tmp_path)
         .await
         .map_err(|e| format!("Failed to open temp file {}: {e}", tmp_path.display()))?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = file
-            .set_permissions(std::fs::Permissions::from_mode(0o600))
-            .await;
-    }
 
     file.write_all(contents)
         .await
@@ -387,6 +382,36 @@ pub async fn write_atomic_0600(path: &Path, contents: &[u8]) -> Result<(), Strin
     }
 
     Ok(())
+}
+
+/// Confines decoy/fallback web roots under `/var/www` without `..` traversal or symlink escapes.
+pub fn validate_fallback_root(raw: &str) -> Result<std::path::PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(std::path::PathBuf::from("/var/www/html"));
+    }
+    let p = std::path::Path::new(trimmed);
+    if !p.is_absolute() {
+        return Err("settings.fallbackRoot must be an absolute path under /var/www".into());
+    }
+    for comp in p.components() {
+        if matches!(comp, std::path::Component::ParentDir) {
+            return Err("settings.fallbackRoot must not contain '..'".into());
+        }
+    }
+    let web_base = std::path::Path::new("/var/www");
+    if !p.starts_with(web_base) || p == web_base {
+        return Err("settings.fallbackRoot must point to a subdirectory under /var/www".into());
+    }
+    if p.exists() {
+        let canon = std::fs::canonicalize(p)
+            .map_err(|e| format!("Invalid fallbackRoot {}: {e}", p.display()))?;
+        let canon_base = std::fs::canonicalize(web_base).unwrap_or_else(|_| web_base.to_path_buf());
+        if !canon.starts_with(&canon_base) {
+            return Err("settings.fallbackRoot symlink escapes /var/www".into());
+        }
+    }
+    Ok(p.to_path_buf())
 }
 
 /// Helper to read a string property or return `""`.

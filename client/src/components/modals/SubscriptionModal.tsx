@@ -245,9 +245,17 @@ export function SubscriptionModal({ open, onOpenChange, client }: SubscriptionMo
                     </div>
 
                     <div className="flex flex-col items-center gap-3">
-                      <div className="rounded-lg bg-white p-3">
-                        <QRCodeSVG value={entryQrValue} size={184} />
-                      </div>
+                      {entryQrValue.length <= 2400 ? (
+                        <div className="rounded-lg bg-white p-3">
+                          <QRCodeSVG value={entryQrValue} size={184} />
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed px-4 py-6 text-center text-xs text-muted-foreground">
+                          {isRu
+                            ? 'Конфиг слишком большой для QR-кода — скопируйте текст ниже.'
+                            : 'Config exceeds QR capacity — copy the text below instead.'}
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-1.5">

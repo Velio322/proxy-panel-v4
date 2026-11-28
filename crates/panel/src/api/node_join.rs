@@ -21,8 +21,6 @@ use sqlx::Row;
 
 const TOKEN_TTL_MINUTES: i64 = 60;
 const MAX_NAME_LEN: usize = 100;
-/// Failed join attempts per IP and minute before the endpoint answers 429.
-const JOIN_ATTEMPTS_PER_MIN: u32 = 10;
 
 fn token_hash(token: &str) -> String {
     sha256_hex(&format!("node-join:{token}"))
@@ -127,7 +125,7 @@ pub async fn join(
     }
     // Always reject private/loopback/link-local targets here, whatever ALLOW_PRIVATE_NODES says:
     // a join token must never be able to point the panel at an internal address.
-    crate::net::validate_node_host(host, false)?;
+    crate::net::validate_node_host_async(host, false).await?;
     let api_port = body.api_port.unwrap_or(2222);
     if !(1..=65535).contains(&api_port) {
         return Err(AppError::validation("apiPort", "Port must be 1..=65535"));

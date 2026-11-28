@@ -182,7 +182,13 @@ async fn resolve_binary_path(state: &AppState, req_arch: &str) -> AppResult<Path
         .join("binaries")
         .join(format!("mypanel3-linux-{req_arch}"));
     if tokio::fs::try_exists(&data_candidate).await.unwrap_or(false) {
-        return Ok(data_candidate);
+        if override_is_trusted(&data_candidate).await {
+            return Ok(data_candidate);
+        }
+        tracing::warn!(
+            path = %data_candidate.display(),
+            "Ignoring untrusted agent binary override in data_dir/binaries"
+        );
     }
 
     let share_candidate = PathBuf::from(format!("/usr/local/share/mypanel3/mypanel3-linux-{req_arch}"));

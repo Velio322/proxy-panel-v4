@@ -394,6 +394,7 @@ export function InboundModal({
     setForm(initial);
     setRawText(JSON.stringify(formToPayload(initial), null, 2));
     setRawDirty(false);
+    setRawErrors([]);
     setValidationRes(null);
     setActiveTab('general');
   }, [open, inbound, defaultNodeId]);
@@ -407,14 +408,13 @@ export function InboundModal({
   }, [open, inbound, firstNodeId]);
 
   const patchForm = (patch: Partial<InboundFormState>) => {
-    setForm((prev) => {
-      const next = { ...prev, ...patch };
-      if (!rawDirty) {
-        setRawText(JSON.stringify(formToPayload(next), null, 2));
-      }
-      return next;
-    });
+    setForm((prev) => ({ ...prev, ...patch }));
   };
+
+  useEffect(() => {
+    if (!open || rawDirty) return;
+    setRawText(JSON.stringify(formToPayload(form), null, 2));
+  }, [open, form, rawDirty]);
 
   const handleTabChange = (nextTab: string) => {
     if (activeTab === 'raw' && rawDirty && rawErrors.length === 0) {

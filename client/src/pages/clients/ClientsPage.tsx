@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useDeferredValue } from 'react';
 import {
   Activity,
   ArrowRightLeft,
@@ -100,12 +99,21 @@ export function ClientsPage() {
     [nodes],
   );
 
-  const deferredSearch = useDeferredValue(search);
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(id);
+  }, [search]);
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [debouncedSearch, bannedFilter, protocolFilter, nodeFilter, page]);
+
   const { data: res, isLoading } = useQuery({
-    queryKey: ['clients', deferredSearch, bannedFilter, protocolFilter, nodeFilter, page],
+    queryKey: ['clients', debouncedSearch, bannedFilter, protocolFilter, nodeFilter, page],
     queryFn: () =>
       clientsApi.list({
-        search: deferredSearch.trim() || undefined,
+        search: debouncedSearch.trim() || undefined,
         banned: bannedFilter === 'all' ? undefined : bannedFilter,
         protocol: protocolFilter === 'all' ? undefined : protocolFilter,
         nodeId: nodeFilter === 'all' ? undefined : nodeFilter,

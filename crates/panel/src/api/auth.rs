@@ -309,11 +309,13 @@ async fn renew_session_if_due(
     role: UserRole,
     reseller_id: Option<String>,
 ) -> AppResult<Option<HeaderValue>> {
-    if user.is_api_key || user.token.is_empty() {
+    if user.is_api_key || !user.from_cookie || user.token.is_empty() {
         return Ok(None);
     }
     let Some(row) = sqlx::query(
-        r#"SELECT "expiresAt" AS expires_at FROM "UserSession" WHERE token = $1 OR token = $2"#,
+        r#"SELECT id, ip, "userAgent" AS user_agent, "expiresAt" AS expires_at
+           FROM "UserSession"
+           WHERE token = $1 OR token = $2"#,
     )
     .bind(&user.token)
     .bind(sha256_hex(&user.token))
@@ -323,6 +325,9 @@ async fn renew_session_if_due(
     else {
         return Ok(None);
     };
+    let old_session_id: String = row.try_get("id")?;
+    let session_ip: Option<String> = row.try_get("ip")?;
+    let session_ua: Option<String> = row.try_get("user_agent")?;
     let expires_at: NaiveDateTime = row.try_get("expires_at")?;
     let now = crate::db::now();
     let ttl = state.jwt.ttl_secs().max(1);
@@ -341,19 +346,31 @@ async fn renew_session_if_due(
         ttl,
     )?;
     let token_hash = sha256_hex(&token);
-    let renewed = sqlx::query(
-        r#"UPDATE "UserSession" SET token = $2, "expiresAt" = $3, "updatedAt" = $3
-           WHERE token = $1 AND "expiresAt" <= $3"#,
+    sqlx::query(
+        r#"INSERT INTO "UserSession" (id, "userId", token, ip, "userAgent", "expiresAt", "createdAt")
+           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
     )
-    .bind(sha256_hex(&user.token))
+    .bind(crate::db::new_id())
+    .bind(&user.id)
     .bind(&token_hash)
+    .bind(session_ip)
+    .bind(session_ua)
     .bind(new_exp)
+    .bind(now)
     .execute(&state.db)
     .await
     .map_err(|_| AppError::service_unavailable("Unable to renew session"))?;
-    if renewed.rows_affected() == 0 {
-        return Ok(None);
-    }
+
+    // Keep the previous session valid briefly so concurrent requests with the old cookie succeed.
+    let grace_exp = now + chrono::Duration::seconds(60);
+    let _ = sqlx::query(
+        r#"UPDATE "UserSession" SET "expiresAt" = LEAST("expiresAt", $2) WHERE id = $1"#,
+    )
+    .bind(old_session_id)
+    .bind(grace_exp)
+    .execute(&state.db)
+    .await;
+
     Ok(Some(auth_cookie(&token, ttl, state.cfg.production)?))
 }
 
@@ -419,6 +436,9 @@ async fn change_password(
     headers: HeaderMap,
     AppJson(body): AppJson<ChangePasswordReq>,
 ) -> AppResult<Json<Value>> {
+    if user.is_api_key {
+        return Err(AppError::forbidden("API keys cannot change account password"));
+    }
     if body.new_password.len() < 8 {
         return Err(AppError::validation(
             "newPassword",
@@ -443,6 +463,16 @@ async fn change_password(
         .bind(crate::db::now())
         .execute(&state.db)
         .await?;
+
+    let cur_hash = sha256_hex(&user.token);
+    let _ = sqlx::query(
+        r#"DELETE FROM "UserSession" WHERE "userId" = $1 AND token <> $2 AND token <> $3"#,
+    )
+    .bind(&user.id)
+    .bind(&user.token)
+    .bind(&cur_hash)
+    .execute(&state.db)
+    .await;
 
     audit::spawn(
         &state.db,

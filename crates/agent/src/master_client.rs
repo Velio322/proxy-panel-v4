@@ -225,9 +225,10 @@ async fn connect_and_serve(
     request.headers_mut().insert("Authorization", bearer_hv);
     request.headers_mut().insert("X-Node-Secret", secret_hv);
 
+    let ws_connector = crate::mtls::build_ws_tls_connector(cfg).await?;
     let (ws_stream, _) = tokio::time::timeout(
         Duration::from_secs(10),
-        tokio_tungstenite::connect_async(request),
+        tokio_tungstenite::connect_async_tls_with_config(request, None, false, ws_connector),
     )
     .await
     .map_err(|_| "WS handshake timed out".to_string())?
@@ -242,13 +243,28 @@ async fn connect_and_serve(
         send_envelope(&mut write, &Envelope::ConfigRequest(EmptyPayload {})).await?;
 
         // Replay any unacknowledged pending traffic batches
-        let pending = {
+        let pending: Vec<(mypanel_proto::TrafficReport, Option<String>)> = {
             let guard = tracker.lock().await;
-            guard.pending_replay(REPLAY_PER_TICK, &std::collections::HashSet::new())
+            guard
+                .pending_replay(REPLAY_PER_TICK, &std::collections::HashSet::new())
+                .into_iter()
+                .map(|r| {
+                    let core = r
+                        .batch_id
+                        .as_deref()
+                        .and_then(|id| guard.batch_core(id))
+                        .map(ToString::to_string);
+                    (r, core)
+                })
+                .collect()
         };
-        let meta_map = pm.lock().await.traffic_user_meta();
-        for mut report in pending {
-            attach_key_meta(&mut report, &meta_map);
+        let (fallback_meta, by_core_meta) = pm.lock().await.traffic_user_meta_by_core();
+        for (mut report, core) in pending {
+            let meta = core
+                .as_deref()
+                .and_then(|c| by_core_meta.get(c))
+                .unwrap_or(&fallback_meta);
+            attach_key_meta(&mut report, meta);
             send_envelope(&mut write, &Envelope::TrafficReport(report)).await?;
         }
     }
@@ -306,7 +322,7 @@ async fn connect_and_serve(
                 };
                 let cur_refs: Vec<(&str, &HashMap<String, TrafficCounter>)> =
                     per_core.iter().map(|(c, m)| (*c, m)).collect();
-                let (report, extra) = {
+                let (mut report, report_core, extra_with_cores, stale_with_cores) = {
                     let mut tr = tracker.lock().await;
                     let report = match tr.compute_delta_multi(&cur_refs).await {
                         Ok(r) => r,
@@ -315,31 +331,58 @@ async fn connect_and_serve(
                             continue;
                         }
                     };
-                    (report, tr.take_overflow_reports())
+                    let report_core = report
+                        .batch_id
+                        .as_deref()
+                        .and_then(|id| tr.batch_core(id))
+                        .map(ToString::to_string);
+                    let extra: Vec<(mypanel_proto::TrafficReport, Option<String>)> = tr
+                        .take_overflow_reports()
+                        .into_iter()
+                        .map(|r| {
+                            let c = r
+                                .batch_id
+                                .as_deref()
+                                .and_then(|id| tr.batch_core(id))
+                                .map(ToString::to_string);
+                            (r, c)
+                        })
+                        .collect();
+                    let mut skip_ids: std::collections::HashSet<String> = extra
+                        .iter()
+                        .filter_map(|(r, _)| r.batch_id.clone())
+                        .collect();
+                    if let Some(id) = report.batch_id.clone() {
+                        skip_ids.insert(id);
+                    }
+                    let stale: Vec<(mypanel_proto::TrafficReport, Option<String>)> = tr
+                        .pending_replay(REPLAY_PER_TICK, &skip_ids)
+                        .into_iter()
+                        .map(|r| {
+                            let c = r
+                                .batch_id
+                                .as_deref()
+                                .and_then(|id| tr.batch_core(id))
+                                .map(ToString::to_string);
+                            (r, c)
+                        })
+                        .collect();
+                    (report, report_core, extra, stale)
                 };
-                let sent_batch = report.batch_id.clone();
-                let meta_map = pm.lock().await.traffic_user_meta();
-                let mut report = report;
-                attach_key_meta(&mut report, &meta_map);
+                let (fallback_meta, by_core_meta) = pm.lock().await.traffic_user_meta_by_core();
+                let meta_for = |core: Option<&str>| {
+                    core.and_then(|c| by_core_meta.get(c))
+                        .unwrap_or(&fallback_meta)
+                };
+                attach_key_meta(&mut report, meta_for(report_core.as_deref()));
                 send_envelope(&mut write, &Envelope::TrafficReport(report)).await?;
-                let mut sent_ids: std::collections::HashSet<String> = extra
-                    .iter()
-                    .filter_map(|r| r.batch_id.clone())
-                    .collect();
-                sent_ids.extend(sent_batch);
-                for r in extra {
-                    let mut r = r;
-                    attach_key_meta(&mut r, &meta_map);
+                for (mut r, core) in extra_with_cores {
+                    attach_key_meta(&mut r, meta_for(core.as_deref()));
                     send_envelope(&mut write, &Envelope::TrafficReport(r)).await?;
                 }
                 // Re-deliver batches whose ack never arrived (panel dedups by batch id).
-                let stale = {
-                    let tr = tracker.lock().await;
-                    tr.pending_replay(REPLAY_PER_TICK, &sent_ids)
-                };
-                for r in stale {
-                    let mut r = r;
-                    attach_key_meta(&mut r, &meta_map);
+                for (mut r, core) in stale_with_cores {
+                    attach_key_meta(&mut r, meta_for(core.as_deref()));
                     send_envelope(&mut write, &Envelope::TrafficReport(r)).await?;
                 }
             }

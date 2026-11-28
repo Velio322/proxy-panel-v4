@@ -150,8 +150,29 @@ pub(crate) fn redact_inbound_secrets(v: &mut Value, is_admin: bool) {
     fn scrub(node: &mut Value) {
         match node {
             Value::Object(map) => {
-                for k in ["privateKey", "keyFile", "key_path", "echKeyPath", "password"] {
+                for k in [
+                    "privateKey",
+                    "private_key",
+                    "keyFile",
+                    "key_path",
+                    "echKeyPath",
+                    "echServerKeys",
+                    "password",
+                    "serverPassword",
+                    "mldsa65Seed",
+                    "secret",
+                    "key",
+                ] {
                     map.remove(k);
+                }
+                if map
+                    .get("decryption")
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| s != "none")
+                {
+                    map.remove("decryption");
+                } else if map.get("decryption").is_some_and(|v| !v.is_string()) {
+                    map.remove("decryption");
                 }
                 for val in map.values_mut() {
                     scrub(val);
@@ -162,6 +183,33 @@ pub(crate) fn redact_inbound_secrets(v: &mut Value, is_admin: bool) {
         }
     }
     scrub(v);
+}
+
+fn ensure_ss2022_server_ipsk(protocol: Protocol, settings: &mut Value) {
+    if protocol != Protocol::Shadowsocks {
+        return;
+    }
+    let Some(obj) = settings.as_object_mut() else {
+        return;
+    };
+    let method = obj
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("aes-256-gcm");
+    if !mypanel_proto::links::is_ss2022(method) {
+        return;
+    }
+    let has_pw = obj
+        .get("password")
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.trim().is_empty());
+    if !has_pw {
+        let len = mypanel_proto::links::ss2022_key_len(method);
+        let mut buf = vec![0u8; len];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut buf);
+        let key = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf);
+        obj.insert("password".into(), Value::String(key));
+    }
 }
 
 fn validate_inbound_config(
@@ -494,23 +542,48 @@ async fn get_one(
         None => Value::Null,
     };
 
-    let ci_rows = sqlx::query(
-        r#"SELECT id, "clientId", "inboundId", uuid, enable, "createdAt" FROM "ClientInbound" WHERE "inboundId" = $1"#,
-    )
-    .bind(&id)
-    .fetch_all(&state.db)
-    .await?;
-    let mut ci_vals = Vec::with_capacity(ci_rows.len());
-    for cr in ci_rows {
-        let ca: NaiveDateTime = cr.try_get("createdAt")?;
-        ci_vals.push(json!({
-            "id": cr.try_get::<String, _>("id")?,
-            "clientId": cr.try_get::<String, _>("clientId")?,
-            "inboundId": cr.try_get::<String, _>("inboundId")?,
-            "uuid": cr.try_get::<String, _>("uuid")?,
-            "enable": cr.try_get::<bool, _>("enable")?,
-            "createdAt": crate::db::ts::format_iso(&ca),
-        }));
+    let mut ci_vals = Vec::new();
+    if user.is_admin() {
+        let ci_rows = sqlx::query(
+            r#"SELECT id, "clientId", "inboundId", uuid, enable, "createdAt" FROM "ClientInbound" WHERE "inboundId" = $1"#,
+        )
+        .bind(&id)
+        .fetch_all(&state.db)
+        .await?;
+        ci_vals.reserve(ci_rows.len());
+        for cr in ci_rows {
+            let ca: NaiveDateTime = cr.try_get("createdAt")?;
+            ci_vals.push(json!({
+                "id": cr.try_get::<String, _>("id")?,
+                "clientId": cr.try_get::<String, _>("clientId")?,
+                "inboundId": cr.try_get::<String, _>("inboundId")?,
+                "uuid": cr.try_get::<String, _>("uuid")?,
+                "enable": cr.try_get::<bool, _>("enable")?,
+                "createdAt": crate::db::ts::format_iso(&ca),
+            }));
+        }
+    } else if let Some(rid) = user.tenant_scope()? {
+        let ci_rows = sqlx::query(
+            r#"SELECT ci.id, ci."clientId", ci."inboundId", ci.enable, ci."createdAt"
+               FROM "ClientInbound" ci
+               JOIN "Client" c ON c.id = ci."clientId"
+               WHERE ci."inboundId" = $1 AND c."resellerId" = $2"#,
+        )
+        .bind(&id)
+        .bind(rid)
+        .fetch_all(&state.db)
+        .await?;
+        ci_vals.reserve(ci_rows.len());
+        for cr in ci_rows {
+            let ca: NaiveDateTime = cr.try_get("createdAt")?;
+            ci_vals.push(json!({
+                "id": cr.try_get::<String, _>("id")?,
+                "clientId": cr.try_get::<String, _>("clientId")?,
+                "inboundId": cr.try_get::<String, _>("inboundId")?,
+                "enable": cr.try_get::<bool, _>("enable")?,
+                "createdAt": crate::db::ts::format_iso(&ca),
+            }));
+        }
     }
 
     if let Some(obj) = v.as_object_mut() {
@@ -530,13 +603,15 @@ async fn create(
 ) -> AppResult<Response> {
     user.require_admin()?;
     valid_id(&body.node_id)?;
+    let mut settings = body.settings;
+    ensure_ss2022_server_ipsk(body.protocol, &mut settings);
     let stream = body.stream.unwrap_or_else(|| json!({}));
     let routing = body.routing.unwrap_or_else(|| json!({}));
-    validate_inbound_config(body.protocol, &body.tag, body.port, &body.settings, &stream)?;
-    inbound_checks::check_static(body.protocol, body.port, &body.settings, &stream)?;
+    validate_inbound_config(body.protocol, &body.tag, body.port, &settings, &stream)?;
+    inbound_checks::check_static(body.protocol, body.port, &settings, &stream)?;
     if body.enable.unwrap_or(true) {
         let siblings = load_siblings(&state.db, &body.node_id).await?;
-        inbound_checks::check_conflicts(None, body.protocol, body.port, &body.settings, &stream, &siblings)?;
+        inbound_checks::check_conflicts(None, body.protocol, body.port, &settings, &stream, &siblings)?;
     }
 
     let dup: i64 = sqlx::query_scalar(
@@ -567,7 +642,7 @@ async fn create(
     .bind(body.tag.trim())
     .bind(body.port)
     .bind(&listen)
-    .bind(&body.settings)
+    .bind(&settings)
     .bind(&stream)
     .bind(&routing)
     .bind(sniffing)
@@ -644,7 +719,8 @@ async fn update(
     let tag = body.tag.unwrap_or(ex.tag);
     let port = body.port.unwrap_or(ex.port);
     let listen = body.listen.unwrap_or(ex.listen);
-    let settings = body.settings.unwrap_or(ex.settings);
+    let mut settings = body.settings.unwrap_or(ex.settings);
+    ensure_ss2022_server_ipsk(protocol, &mut settings);
     let stream = body.stream.unwrap_or(ex.stream);
     let routing = body.routing.unwrap_or(ex.routing);
     let sniffing = body.sniffing.unwrap_or(ex.sniffing);
@@ -869,7 +945,8 @@ async fn update_port_share(
     let tag = body.tag.unwrap_or(ex.tag);
     let host = body.host.unwrap_or(ex.host);
     let path = body.path.unwrap_or(ex.path);
-    let settings = body.settings.unwrap_or(ex.settings);
+    let mut settings = body.settings.unwrap_or(ex.settings);
+    ensure_ss2022_server_ipsk(protocol, &mut settings);
     let stream = body.stream.unwrap_or(ex.stream);
     let enable = body.enable.unwrap_or(ex.enable);
 

@@ -60,9 +60,47 @@ pub async fn dispatch(state: &AppState, scope: &str, event: &str, data: Value) {
             continue;
         }
 
+        let allow_private = !state.cfg.production && state.cfg.allow_private_nodes;
+        let (parsed_url, resolved_addrs) =
+            match crate::net::validate_outbound_url_with_addrs(&url, allow_private).await {
+                Ok(v) => v,
+                Err(err) => {
+                    let now = crate::db::now();
+                    let _ = sqlx::query(
+                        r#"UPDATE "Webhook" SET "lastStatus" = 0, "lastError" = $2, "updatedAt" = $3 WHERE id = $1"#,
+                    )
+                    .bind(&id)
+                    .bind(format!("Blocked by SSRF policy: {err}"))
+                    .bind(now)
+                    .execute(&state.db)
+                    .await;
+                    continue;
+                }
+            };
+
+        // Pin validated DNS addresses so reqwest cannot hit a re-bound internal IP (TOCTOU).
+        let client = if !allow_private && !resolved_addrs.is_empty() {
+            if let Some(raw_host) = parsed_url.host_str() {
+                let clean_host = raw_host.trim_start_matches('[').trim_end_matches(']');
+                if clean_host.parse::<std::net::IpAddr>().is_err() {
+                    reqwest::Client::builder()
+                        .timeout(Duration::from_secs(10))
+                        .redirect(reqwest::redirect::Policy::none())
+                        .resolve_to_addrs(clean_host, &resolved_addrs)
+                        .build()
+                        .unwrap_or_else(|_| state.webhook_http_client.clone())
+                } else {
+                    state.webhook_http_client.clone()
+                }
+            } else {
+                state.webhook_http_client.clone()
+            }
+        } else {
+            state.webhook_http_client.clone()
+        };
+
         let sig = sign_payload(&secret, &body_bytes);
-        let res = state
-            .http_client
+        let res = client
             .post(&url)
             .timeout(Duration::from_secs(10))
             .header("Content-Type", "application/json")

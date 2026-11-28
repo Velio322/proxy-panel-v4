@@ -136,7 +136,32 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<Value, String> {
         "portBindings": bindings,
         "users": user_vals,
         "loggingLevel": logging_level,
-        "mtu": mtu
+        "mtu": mtu,
+        "egress": {
+            "rules": [
+                {
+                    "ipRanges": [
+                        "127.0.0.0/8",
+                        "10.0.0.0/8",
+                        "172.16.0.0/12",
+                        "192.168.0.0/16",
+                        "169.254.0.0/16",
+                        "100.64.0.0/10",
+                        "0.0.0.0/8",
+                        "::1/128",
+                        "::/128",
+                        "fc00::/7",
+                        "fe80::/10",
+                        "::ffff:0:0/96"
+                    ],
+                    "action": "REJECT"
+                },
+                {
+                    "domainNames": ["localhost", "localhost.localdomain"],
+                    "action": "REJECT"
+                }
+            ]
+        }
     }))
 }
 
@@ -233,5 +258,31 @@ mod runtime_tests {
         assert!(run_quiet("true", &[]).await.unwrap());
         assert!(!run_quiet("false", &[]).await.unwrap());
         assert!(run_quiet("definitely-not-a-real-binary-xyz", &[]).await.is_err());
+    }
+
+    #[test]
+    fn generate_config_includes_egress_loopback_and_private_blocks() {
+        let inbound: InboundConfig = serde_json::from_value(json!({
+            "id": "m1",
+            "tag": "mieru-2053",
+            "protocol": "MIERU",
+            "port": 2053,
+            "settings": {"transport": "tcp"},
+            "users": [{"id": "u1", "username": "alice", "uuid": "00000000-0000-0000-0000-000000000001", "password": "pw"}]
+        }))
+        .unwrap();
+        let cfg = generate_config(&inbound).unwrap();
+        let rules = cfg["egress"]["rules"].as_array().unwrap();
+        assert!(!rules.is_empty());
+        let ips: Vec<&str> = rules
+            .iter()
+            .filter_map(|r| r["ipRanges"].as_array())
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        for blocked in ["127.0.0.0/8", "10.0.0.0/8", "169.254.0.0/16", "::1/128", "::ffff:0:0/96"] {
+            assert!(ips.contains(&blocked), "missing egress block for {blocked}");
+        }
+        assert!(rules.iter().all(|r| r["action"] == "REJECT"));
     }
 }

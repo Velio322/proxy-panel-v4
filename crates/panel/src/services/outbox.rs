@@ -2,10 +2,10 @@ use crate::error::AppResult;
 use crate::services::node_client::{self, NodeTarget};
 use crate::services::node_config;
 use crate::state::AppState;
+use futures_util::stream::{self, StreamExt};
 use mypanel_proto::{ConfigUpdate, Envelope};
 use serde_json::{json, Value};
 use sqlx::{Postgres, Row, Transaction};
-use std::collections::HashSet;
 use std::time::Duration;
 
 pub async fn enqueue_config_sync_tx(
@@ -28,14 +28,14 @@ pub async fn enqueue_config_sync_tx(
     Ok(())
 }
 
-/// Coalescing config push for a single node: reuses oldest PENDING `CONFIG_SYNC` or creates one,
+/// Coalescing config push for a single node: reuses newest PENDING `CONFIG_SYNC` or creates one,
 /// then sends `Envelope::ConfigUpdate` over `WorkerHub` if connected.
 pub async fn push_config(state: &AppState, node_id: &str) -> AppResult<()> {
     let now = crate::db::now();
     let existing = sqlx::query(
         r#"SELECT id, revision FROM "NodeCommand"
            WHERE "nodeId" = $1 AND kind = 'CONFIG_SYNC' AND status = 'PENDING'
-           ORDER BY "createdAt" ASC LIMIT 1"#,
+           ORDER BY "createdAt" DESC LIMIT 1"#,
     )
     .bind(node_id)
     .fetch_optional(&state.db)
@@ -172,25 +172,28 @@ pub async fn broadcast_config_update(state: &AppState) {
     connected.extend(pull_node_ids(state).await);
     connected.sort();
     connected.dedup();
-    for nid in connected {
-        if let Err(e) = push_config(state, &nid).await {
-            tracing::warn!(node_id = %nid, error = %e, "broadcast_config_update failed");
-        }
-    }
+    stream::iter(connected)
+        .for_each_concurrent(8, |nid| async move {
+            if let Err(e) = push_config(state, &nid).await {
+                tracing::warn!(node_id = %nid, error = %e, "broadcast_config_update failed");
+            }
+        })
+        .await;
 }
 
 pub async fn push_config_many(state: &AppState, node_ids: &[String]) {
-    let mut seen = HashSet::new();
-    for nid in node_ids {
-        if !seen.insert(nid.as_str()) {
-            continue;
-        }
-        if state.hub.is_connected(nid) || node_is_pull(state, nid).await {
-            if let Err(e) = push_config(state, nid).await {
-                tracing::warn!(node_id = %nid, error = %e, "push_config_many failed");
+    let mut unique: Vec<String> = node_ids.to_vec();
+    unique.sort();
+    unique.dedup();
+    stream::iter(unique)
+        .for_each_concurrent(8, |nid| async move {
+            if state.hub.is_connected(&nid) || node_is_pull(state, &nid).await {
+                if let Err(e) = push_config(state, &nid).await {
+                    tracing::warn!(node_id = %nid, error = %e, "push_config_many failed");
+                }
             }
-        }
-    }
+        })
+        .await;
 }
 
 /// One outbox pass: re-pushes config to connected/pull nodes that still have a PENDING command.
@@ -216,7 +219,7 @@ pub async fn outbox_cycle(state: AppState) {
             return;
         }
     };
-    if rows.len() > 4 {
+    if !rows.is_empty() {
         let stale = sqlx::query_scalar::<_, i64>(
             r#"SELECT count(DISTINCT "nodeId") FROM "NodeCommand"
                WHERE status = 'PENDING' AND kind = 'CONFIG_SYNC'
@@ -237,11 +240,16 @@ pub async fn outbox_cycle(state: AppState) {
             .await;
         }
     }
-    for r in rows {
-        if let Ok(nid) = r.try_get::<String, _>("nodeId") {
-            if let Err(e) = push_config(&state, &nid).await {
+    let pending_nids: Vec<String> = rows
+        .into_iter()
+        .filter_map(|r| r.try_get::<String, _>("nodeId").ok())
+        .collect();
+    let st = &state;
+    stream::iter(pending_nids)
+        .for_each_concurrent(8, |nid| async move {
+            if let Err(e) = push_config(st, &nid).await {
                 tracing::warn!(node_id = %nid, error = %e, "outbox: config push failed");
             }
-        }
-    }
+        })
+        .await;
 }

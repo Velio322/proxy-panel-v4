@@ -14,8 +14,20 @@ pub async fn push(
     message: &str,
     telegram: bool,
 ) {
+    push_with_meta(state, ty, title, message, None, telegram).await;
+}
+
+/// Best-effort notification insert with optional JSON metadata; failures are logged, never propagated.
+pub async fn push_with_meta(
+    state: &AppState,
+    ty: crate::db::enums::NotificationType,
+    title: &str,
+    message: &str,
+    metadata: Option<serde_json::Value>,
+    telegram: bool,
+) {
     let now = crate::db::now();
-    let recent: i64 = sqlx::query_scalar(
+    let recent: i64 = match sqlx::query_scalar(
         r#"SELECT count(*) FROM "Notification"
            WHERE type = $1 AND title = $2 AND read = false AND "createdAt" > $3"#,
     )
@@ -24,18 +36,25 @@ pub async fn push(
     .bind(now - chrono::Duration::minutes(DEDUP_WINDOW_MINUTES))
     .fetch_one(&state.db)
     .await
-    .unwrap_or(1);
+    {
+        Ok(cnt) => cnt,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to check notification deduplication");
+            0
+        }
+    };
     if recent > 0 {
         return;
     }
     let res = sqlx::query(
-        r#"INSERT INTO "Notification" (id, type, title, message, "targetUserId", "targetResellerId", read, "createdAt")
-           VALUES ($1, $2, $3, $4, NULL, NULL, false, $5)"#,
+        r#"INSERT INTO "Notification" (id, type, title, message, metadata, "targetUserId", "targetResellerId", read, "createdAt")
+           VALUES ($1, $2, $3, $4, $5, NULL, NULL, false, $6)"#,
     )
     .bind(crate::db::new_id())
     .bind(ty)
     .bind(title)
     .bind(message)
+    .bind(metadata)
     .bind(now)
     .execute(&state.db)
     .await;
@@ -71,14 +90,17 @@ pub async fn node_status_changed(
     if prev.is_none() || prev == Some(new) {
         return;
     }
+    let meta = Some(serde_json::json!({ "nodeId": node_id }));
     match new {
         NodeStatus::Offline => {
+            let title = format!("Node offline: {node_name}");
             let msg = format!("Node {node_name} is unreachable. {detail}");
-            push(state, NotificationType::NodeOffline, "Node offline", &msg, true).await;
+            push_with_meta(state, NotificationType::NodeOffline, &title, &msg, meta, true).await;
         }
         NodeStatus::Online if prev == Some(NodeStatus::Offline) => {
+            let title = format!("Node back online: {node_name}");
             let msg = format!("Node {node_name} is back online. {detail}");
-            push(state, NotificationType::Info, "Node back online", &msg, false).await;
+            push_with_meta(state, NotificationType::Info, &title, &msg, meta, false).await;
         }
         _ => {}
     }

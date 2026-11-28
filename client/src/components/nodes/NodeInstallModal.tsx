@@ -142,11 +142,14 @@ export function NodeInstallModal({
   const [checkingNow, setCheckingNow] = useState(false);
 
   const notifiedOnlineRef = useRef(false);
+  const prevStatusRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (open) {
       setTab(defaultTab ?? (resolvedNodeId ? 'connect' : 'scenarios'));
       notifiedOnlineRef.current = false;
+      prevStatusRef.current = undefined;
+      setTlsMode('none');
     }
   }, [open, defaultTab, resolvedNodeId]);
 
@@ -170,7 +173,9 @@ export function NodeInstallModal({
 
   useEffect(() => {
     if (!open || !liveNode) return;
-    if (liveNode.status === 'ONLINE' && !notifiedOnlineRef.current) {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = liveNode.status;
+    if (prev && prev !== 'ONLINE' && liveNode.status === 'ONLINE' && !notifiedOnlineRef.current) {
       notifiedOnlineRef.current = true;
       qc.invalidateQueries({ queryKey: ['nodes'] });
       toast({

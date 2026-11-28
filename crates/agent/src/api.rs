@@ -99,14 +99,19 @@ async fn require_node_auth(
     next: Next,
 ) -> Response {
     if !state.allowed_panel_ips.is_empty() {
-        if let Some(ci) = request.extensions().get::<ConnectInfo<SocketAddr>>() {
-            if !crate::config::is_panel_ip_allowed(&state.allowed_panel_ips, ci.0.ip()) {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({ "error": "Forbidden: panel IP not allowed" })),
-                )
-                    .into_response();
-            }
+        let Some(ci) = request.extensions().get::<ConnectInfo<SocketAddr>>() else {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Forbidden: missing client connection info" })),
+            )
+                .into_response();
+        };
+        if !crate::config::is_panel_ip_allowed(&state.allowed_panel_ips, ci.0.ip()) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Forbidden: panel IP not allowed" })),
+            )
+                .into_response();
         }
     }
 
@@ -256,7 +261,7 @@ async fn handle_traffic_collect(State(state): State<ApiState>) -> Response {
     };
     let cur_refs: Vec<(&str, &HashMap<String, TrafficCounter>)> =
         cur_by_core.iter().map(|(c, m)| (*c, m)).collect();
-    let meta_map = state.pm.lock().await.traffic_user_meta();
+    let (fallback_meta, by_core_meta) = state.pm.lock().await.traffic_user_meta_by_core();
     let mut tr = tracker.lock().await;
     if let Err(e) = tr.compute_delta_multi(&cur_refs).await {
         tracing::warn!(error = %e, "traffic delta computation failed");
@@ -264,7 +269,13 @@ async fn handle_traffic_collect(State(state): State<ApiState>) -> Response {
     let mut reports = tr.pending_reports();
     reports.truncate(MAX_COLLECT_REPORTS);
     for r in reports.iter_mut() {
-        attach_key_meta(r, &meta_map);
+        let meta = r
+            .batch_id
+            .as_deref()
+            .and_then(|id| tr.batch_core(id))
+            .and_then(|core| by_core_meta.get(core))
+            .unwrap_or(&fallback_meta);
+        attach_key_meta(r, meta);
     }
     Json(TrafficCollectResponse { reports }).into_response()
 }
@@ -278,12 +289,13 @@ async fn handle_traffic_ack(
         return StatusCode::NOT_IMPLEMENTED.into_response();
     };
     let mut tr = tracker.lock().await;
-    let mut removed = 0usize;
-    for id in req.batch_ids.iter().take(MAX_COLLECT_REPORTS * 2) {
-        if tr.acknowledge_batch(id).await.unwrap_or(false) {
-            removed += 1;
-        }
-    }
+    let ids: Vec<String> = req
+        .batch_ids
+        .iter()
+        .take(MAX_COLLECT_REPORTS * 2)
+        .cloned()
+        .collect();
+    let removed = tr.acknowledge_batches(&ids).await.unwrap_or(0);
     Json(json!({ "success": true, "acknowledged": removed })).into_response()
 }
 
@@ -560,6 +572,14 @@ mod tests {
             .insert(ConnectInfo(SocketAddr::from(([203, 0, 113, 10], 54321))));
         let resp_allowed = app.clone().oneshot(req_allowed).await.unwrap();
         assert_eq!(resp_allowed.status(), StatusCode::OK);
+
+        let req_missing_ip = Request::builder()
+            .uri("/api/status")
+            .header("X-Node-Secret", &secret)
+            .body(Body::empty())
+            .unwrap();
+        let resp_missing_ip = app.clone().oneshot(req_missing_ip).await.unwrap();
+        assert_eq!(resp_missing_ip.status(), StatusCode::FORBIDDEN);
 
         let mut req_loopback = Request::builder()
             .uri("/api/status")

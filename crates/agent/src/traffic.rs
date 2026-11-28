@@ -247,12 +247,15 @@ impl SingboxConnectionTracker {
 pub async fn fetch_singbox_connections_json(
     client: &reqwest::Client,
     clash_api_addr: &str,
+    secret: Option<&str>,
 ) -> Result<String, String> {
     let addr = clash_api_addr.trim().trim_start_matches("http://");
     let url = format!("http://{addr}/connections");
-    let resp = client
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(2))
+    let mut req = client.get(&url).timeout(std::time::Duration::from_secs(2));
+    if let Some(s) = secret.map(str::trim).filter(|s| !s.is_empty()) {
+        req = req.bearer_auth(s);
+    }
+    let resp = req
         .send()
         .await
         .map_err(|e| format!("Sing-box Clash API request failed: {e}"))?;
@@ -264,17 +267,31 @@ pub async fn fetch_singbox_connections_json(
         .map_err(|e| format!("Failed to read Sing-box Clash API body: {e}"))
 }
 
+fn is_valid_clash_conn_id(conn_id: &str) -> bool {
+    !conn_id.is_empty()
+        && conn_id.len() <= 128
+        && conn_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
 /// Terminates a single Sing-box connection via Clash API `DELETE /connections/<id>`.
 pub async fn drop_singbox_connection(
     client: &reqwest::Client,
     clash_api_addr: &str,
+    secret: Option<&str>,
     conn_id: &str,
 ) -> Result<(), String> {
+    if !is_valid_clash_conn_id(conn_id) {
+        return Err("Invalid Sing-box connection ID".into());
+    }
     let addr = clash_api_addr.trim().trim_start_matches("http://");
     let url = format!("http://{addr}/connections/{conn_id}");
-    let resp = client
-        .delete(&url)
-        .timeout(std::time::Duration::from_secs(2))
+    let mut req = client.delete(&url).timeout(std::time::Duration::from_secs(2));
+    if let Some(s) = secret.map(str::trim).filter(|s| !s.is_empty()) {
+        req = req.bearer_auth(s);
+    }
+    let resp = req
         .send()
         .await
         .map_err(|e| format!("Sing-box DELETE /connections failed: {e}"))?;
@@ -504,16 +521,17 @@ impl NaiveAccessLogReader {
         }
         let mut reader = BufReader::new(file);
         let mut offset = from;
-        let mut line = String::new();
+        let mut raw_buf: Vec<u8> = Vec::new();
         loop {
-            line.clear();
-            match reader.read_line(&mut line).await {
+            raw_buf.clear();
+            match reader.read_until(b'\n', &mut raw_buf).await {
                 Ok(0) => break,
                 Ok(n) => {
-                    if !line.ends_with('\n') {
+                    if !raw_buf.ends_with(b"\n") {
                         break;
                     }
                     offset = offset.saturating_add(n as u64);
+                    let line = String::from_utf8_lossy(&raw_buf);
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
                         self.ingest_line(trimmed);
@@ -648,6 +666,8 @@ fn extract_naive_user(val: &Value) -> Option<String> {
 struct PendingTrafficFile {
     #[serde(default)]
     batches: HashMap<String, HashMap<String, TrafficCounter>>,
+    #[serde(default)]
+    batch_cores: HashMap<String, String>,
     /// Cumulative counter baselines the deltas were computed against. Persisted so an agent
     /// restart does not re-count the full mieru/xray cumulative as a fresh delta.
     #[serde(default)]
@@ -661,6 +681,7 @@ struct PendingTrafficFile {
 pub struct CumulativeTrafficTracker {
     previous: HashMap<String, (u64, u64)>,
     pending_batches: HashMap<String, HashMap<String, TrafficCounter>>,
+    pending_batch_cores: HashMap<String, String>,
     /// Batch ids produced by the last compute beyond the first `MAX_TRAFFIC_ENTRIES` entries.
     overflow: Vec<String>,
     pending_path: PathBuf,
@@ -671,9 +692,15 @@ impl CumulativeTrafficTracker {
         Self {
             previous: HashMap::new(),
             pending_batches: HashMap::new(),
+            pending_batch_cores: HashMap::new(),
             overflow: Vec::new(),
             pending_path: pending_path.as_ref().to_path_buf(),
         }
+    }
+
+    /// Returns the core name associated with a pending `batch_id`, if known.
+    pub fn batch_core(&self, batch_id: &str) -> Option<&str> {
+        self.pending_batch_cores.get(batch_id).map(String::as_str)
     }
 
     /// Loads any unacknowledged traffic batches and the counter baselines from
@@ -686,6 +713,7 @@ impl CumulativeTrafficTracker {
         let parsed: PendingTrafficFile = serde_json::from_str(&raw)
             .map_err(|e| format!("Failed to parse {}: {e}", self.pending_path.display()))?;
         self.pending_batches = parsed.batches;
+        self.pending_batch_cores = parsed.batch_cores;
         self.previous = parsed
             .baselines
             .into_iter()
@@ -723,6 +751,7 @@ impl CumulativeTrafficTracker {
             Err(err) => {
                 self.previous = backup;
                 self.pending_batches.retain(|k, _| batches_before.contains(k));
+                self.pending_batch_cores.retain(|k, _| batches_before.contains(k));
                 self.overflow.clear();
                 Err(err)
             }
@@ -749,30 +778,39 @@ impl CumulativeTrafficTracker {
         per_core: &[(&str, &HashMap<String, TrafficCounter>)],
     ) -> Result<TrafficReport, String> {
         self.overflow.clear();
-        let mut delta_stats: HashMap<String, TrafficCounter> = HashMap::new();
+        let mut per_core_deltas: Vec<(&str, HashMap<String, TrafficCounter>)> = Vec::new();
         let mut baseline_changed = false;
 
         for (core, users) in per_core {
             let seed_core = core_is_persistent(core) && !self.core_known(core);
+            let mut core_delta: HashMap<String, TrafficCounter> = HashMap::new();
             for (id, cur) in users.iter() {
                 let key = core_key(core, id);
                 let (prev_up, prev_down) = self.previous.get(&key).copied().unwrap_or((0, 0));
                 let (upload, download) = if seed_core {
                     // First sighting of a persistent core: seed its cumulative silently.
                     (0, 0)
-                } else if cur.upload >= prev_up && cur.download >= prev_down {
-                    (cur.upload - prev_up, cur.download - prev_down)
                 } else {
-                    // Counter reset (core restarted and lost its cumulative):
-                    // count everything from the new zero.
-                    (cur.upload, cur.download)
+                    // Detect upload and download resets independently so a reset on one
+                    // counter does not double-count the other direction.
+                    let up = if cur.upload >= prev_up {
+                        cur.upload - prev_up
+                    } else {
+                        cur.upload
+                    };
+                    let down = if cur.download >= prev_down {
+                        cur.download - prev_down
+                    } else {
+                        cur.download
+                    };
+                    (up, down)
                 };
 
                 if prev_up != cur.upload || prev_down != cur.download {
                     baseline_changed = true;
                 }
                 if upload > 0 || download > 0 {
-                    let entry = delta_stats
+                    let entry = core_delta
                         .entry(id.clone())
                         .or_insert_with(|| TrafficCounter {
                             upload: 0,
@@ -785,23 +823,28 @@ impl CumulativeTrafficTracker {
                 }
                 self.previous.insert(key, (cur.upload, cur.download));
             }
+            if !core_delta.is_empty() {
+                per_core_deltas.push((*core, core_delta));
+            }
         }
 
         if self.previous.len() > MAX_TRACKER_BASELINE_ENTRIES {
             let current_keys: HashSet<String> = per_core
                 .iter()
-                .flat_map(|(_, users)| users.keys())
-                .flat_map(|id| {
-                    per_core
-                        .iter()
-                        .map(move |(core, _)| core_key(core, id))
-                })
+                .flat_map(|(core, users)| users.keys().map(move |id| core_key(core, id)))
                 .collect();
-            self.previous.retain(|k, _| current_keys.contains(k));
+            self.previous.retain(|k, _| {
+                if current_keys.contains(k) {
+                    return true;
+                }
+                // Preserve persistent core baselines so a temporary poll timeout never forces re-seeding/double-count.
+                k.split_once(CORE_KEY_SEP)
+                    .is_some_and(|(core, _)| core_is_persistent(core))
+            });
             baseline_changed = true;
         }
 
-        if delta_stats.is_empty() {
+        if per_core_deltas.is_empty() {
             // No new traffic, but the baseline may still have moved; keep it durable so a
             // restart cannot re-count the last observed cumulative as a fresh delta.
             if baseline_changed {
@@ -814,26 +857,31 @@ impl CumulativeTrafficTracker {
             });
         }
 
-        // Split into several batches instead of truncating, so no bytes are dropped.
-        let mut entries: Vec<(String, TrafficCounter)> = delta_stats.into_iter().collect();
+        // Emit separate batches per core (and chunk by MAX_TRAFFIC_ENTRIES) so per-batch
+        // `(protocol, inboundTag)` metadata stays accurate when a user runs multiple cores.
         let mut first: Option<TrafficReport> = None;
-        while !entries.is_empty() {
-            let take = entries.len().min(MAX_TRAFFIC_ENTRIES);
-            let chunk: HashMap<String, TrafficCounter> = entries.drain(..take).collect();
-            let batch_id = uuid::Uuid::new_v4().to_string();
-            let report = TrafficReport {
-                batch_id: Some(batch_id.clone()),
-                stats: chunk.clone(),
-                key_meta: None,
-            };
-            report
-                .validate()
-                .map_err(|e| format!("TrafficReport validation failed: {e}"))?;
-            self.pending_batches.insert(batch_id.clone(), chunk);
-            if first.is_none() {
-                first = Some(report);
-            } else {
-                self.overflow.push(batch_id);
+        for (core, core_delta) in per_core_deltas {
+            let mut entries: Vec<(String, TrafficCounter)> = core_delta.into_iter().collect();
+            while !entries.is_empty() {
+                let take = entries.len().min(MAX_TRAFFIC_ENTRIES);
+                let chunk: HashMap<String, TrafficCounter> = entries.drain(..take).collect();
+                let batch_id = uuid::Uuid::new_v4().to_string();
+                let report = TrafficReport {
+                    batch_id: Some(batch_id.clone()),
+                    stats: chunk.clone(),
+                    key_meta: None,
+                };
+                report
+                    .validate()
+                    .map_err(|e| format!("TrafficReport validation failed: {e}"))?;
+                self.pending_batches.insert(batch_id.clone(), chunk);
+                self.pending_batch_cores
+                    .insert(batch_id.clone(), core.to_string());
+                if first.is_none() {
+                    first = Some(report);
+                } else {
+                    self.overflow.push(batch_id);
+                }
             }
         }
         self.save_pending().await?;
@@ -876,8 +924,24 @@ impl CumulativeTrafficTracker {
 
     /// Removes an acknowledged batch and updates `<CONFIG_DIR>/traffic-pending.json`.
     pub async fn acknowledge_batch(&mut self, batch_id: &str) -> Result<bool, String> {
+        self.pending_batch_cores.remove(batch_id);
         let removed = self.pending_batches.remove(batch_id).is_some();
         if removed {
+            self.save_pending().await?;
+        }
+        Ok(removed)
+    }
+
+    /// Removes a list of acknowledged batches with a single atomic persistence flush.
+    pub async fn acknowledge_batches(&mut self, batch_ids: &[String]) -> Result<usize, String> {
+        let mut removed = 0usize;
+        for id in batch_ids {
+            self.pending_batch_cores.remove(id);
+            if self.pending_batches.remove(id).is_some() {
+                removed += 1;
+            }
+        }
+        if removed > 0 {
             self.save_pending().await?;
         }
         Ok(removed)
@@ -886,6 +950,7 @@ impl CumulativeTrafficTracker {
     async fn save_pending(&self) -> Result<(), String> {
         let file = PendingTrafficFile {
             batches: self.pending_batches.clone(),
+            batch_cores: self.pending_batch_cores.clone(),
             baselines: self.previous.clone(),
         };
         // Compact JSON: this file is rewritten every minute and can hold many batches.
@@ -1009,8 +1074,14 @@ mod tests {
             ("singbox", &[("velio", 70, 80)]),
         ]);
         let report = t.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
-        assert_eq!(report.stats["velio"].upload, 5_070);
-        assert_eq!(report.stats["velio"].download, 9_080);
+        let extra = t.take_overflow_reports();
+        assert_eq!(extra.len(), 1, "each core emits its own batch");
+        assert_eq!(t.batch_core(report.batch_id.as_deref().unwrap()), Some("xray"));
+        assert_eq!(t.batch_core(extra[0].batch_id.as_deref().unwrap()), Some("singbox"));
+        let total_up = report.stats["velio"].upload + extra[0].stats["velio"].upload;
+        let total_down = report.stats["velio"].download + extra[0].stats["velio"].download;
+        assert_eq!(total_up, 5_070);
+        assert_eq!(total_down, 9_080);
         let _ = tokio::fs::remove_file(&path).await;
     }
 
@@ -1108,8 +1179,14 @@ mod tests {
             ("mieru", &[("velio", 1200, 2600)]),
         ]);
         let report = t.compute_delta_multi(&as_ref_maps(&mixed)).await.unwrap();
-        assert_eq!(report.stats["velio"].upload, 5 + 200, "xray reset + mieru delta");
-        assert_eq!(report.stats["velio"].download, 8 + 600);
+        let extra = t.take_overflow_reports();
+        assert_eq!(extra.len(), 1);
+        assert_eq!(t.batch_core(report.batch_id.as_deref().unwrap()), Some("xray"));
+        assert_eq!(t.batch_core(extra[0].batch_id.as_deref().unwrap()), Some("mieru"));
+        let total_up = report.stats["velio"].upload + extra[0].stats["velio"].upload;
+        let total_down = report.stats["velio"].download + extra[0].stats["velio"].download;
+        assert_eq!(total_up, 5 + 200, "xray reset + mieru delta");
+        assert_eq!(total_down, 8 + 600);
         let _ = tokio::fs::remove_file(&path).await;
     }
 
@@ -1359,5 +1436,68 @@ mod tests {
         let t = r.poll(&log).await;
         assert_eq!((t["a"].upload, t["a"].download), (13, 130));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn persistent_core_baseline_survives_eviction_over_max_entries() {
+        let path = pending_path("eviction");
+        let mut t = CumulativeTrafficTracker::new(&path);
+
+        // Seed persistent mieru user.
+        let mieru_seed = per_core(&[("mieru", &[("persist_u", 1_000, 2_000)])]);
+        t.compute_delta_multi(&as_ref_maps(&mieru_seed)).await.unwrap();
+
+        // Overflow MAX_TRACKER_BASELINE_ENTRIES using volatile xray users while mieru is omitted.
+        let bulk: HashMap<String, TrafficCounter> = (0..=MAX_TRACKER_BASELINE_ENTRIES)
+            .map(|i| (format!("u{i}"), counter(10, 20)))
+            .collect();
+        let cur: CoreMaps = vec![("xray", bulk)];
+        let _ = t.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
+        let _ = t.take_overflow_reports();
+
+        // Add one more volatile key in a new tick (with only that 1 key in per_core) to force
+        // eviction check where persistent mieru key is NOT in current_keys.
+        let single = per_core(&[("xray", &[("other_u", 5, 5)])]);
+        let _ = t.compute_delta_multi(&as_ref_maps(&single)).await.unwrap();
+
+        assert!(
+            t.previous.contains_key(&core_key("mieru", "persist_u")),
+            "persistent core baseline must survive eviction"
+        );
+        // When mieru returns with unchanged cumulative counter, it must not recount 1000/2000.
+        let mieru_back = per_core(&[("mieru", &[("persist_u", 1_050, 2_100)])]);
+        let delta = t.compute_delta_multi(&as_ref_maps(&mieru_back)).await.unwrap();
+        assert_eq!(delta.stats["persist_u"].upload, 50);
+        assert_eq!(delta.stats["persist_u"].download, 100);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn two_cores_produce_distinct_core_tagged_batches() {
+        let path = pending_path("multi-core-batches");
+        let mut t = CumulativeTrafficTracker::new(&path);
+        let cur = per_core(&[
+            ("xray", &[("shared_user", 100, 200)]),
+            ("telemt", &[("shared_user", 300, 400)]),
+        ]);
+        let first = t.compute_delta_multi(&as_ref_maps(&cur)).await.unwrap();
+        let extra = t.take_overflow_reports();
+        assert_eq!(extra.len(), 1);
+        let mut pairs = vec![
+            (
+                t.batch_core(first.batch_id.as_deref().unwrap()).unwrap().to_string(),
+                first.stats["shared_user"].upload,
+            ),
+            (
+                t.batch_core(extra[0].batch_id.as_deref().unwrap()).unwrap().to_string(),
+                extra[0].stats["shared_user"].upload,
+            ),
+        ];
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![("telemt".to_string(), 300), ("xray".to_string(), 100)]
+        );
+        let _ = tokio::fs::remove_file(&path).await;
     }
 }

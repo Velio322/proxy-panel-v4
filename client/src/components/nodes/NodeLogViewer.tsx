@@ -11,7 +11,7 @@ interface NodeLogViewerProps {
   nodeId: string;
 }
 
-const CORES = ['all', 'xray', 'singbox', 'naive', 'mieru', 'agent'] as const;
+const CORES = ['all', 'xray', 'sing-box', 'naive', 'mieru', 'telemt', 'agent'] as const;
 
 export function NodeLogViewer({ nodeId }: NodeLogViewerProps) {
   const isRu = useUiStore((s) => s.language === 'ru');
@@ -101,9 +101,15 @@ export function NodeLogViewer({ nodeId }: NodeLogViewerProps) {
   const filteredLogs = useMemo(() => {
     const q = search.trim().toLowerCase();
     return logs.filter((l) => {
-      if (coreFilter !== 'all' && l.core.toLowerCase() !== coreFilter) return false;
+      if (coreFilter !== 'all' && (l.core || '').toLowerCase() !== coreFilter) return false;
       if (streamFilter !== 'all' && (l.stream || 'stdout') !== streamFilter) return false;
-      if (q && !l.message.toLowerCase().includes(q) && !l.level.toLowerCase().includes(q)) return false;
+      if (
+        q &&
+        !(l.message || '').toLowerCase().includes(q) &&
+        !(l.level || '').toLowerCase().includes(q)
+      ) {
+        return false;
+      }
       return true;
     });
   }, [logs, coreFilter, streamFilter, search]);

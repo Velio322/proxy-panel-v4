@@ -52,8 +52,8 @@ export function AuditPage() {
       auditApi.list({
         resource: resourceFilter !== 'ALL' ? resourceFilter : undefined,
         action: actionFilter !== 'ALL' ? actionFilter : undefined,
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
+        startDate: startDate ? `${startDate}T00:00:00.000Z` : undefined,
+        endDate: endDate ? `${endDate}T23:59:59.999Z` : undefined,
         page,
         limit: 30,
       }),

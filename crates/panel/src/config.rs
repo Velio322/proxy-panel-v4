@@ -211,9 +211,6 @@ impl Config {
         if !cors_origins.contains(&api_url) {
             cors_origins.push(api_url.clone());
         }
-        if !cors_origins.contains(&sub_url) {
-            cors_origins.push(sub_url.clone());
-        }
 
         let production = env_opt("NODE_ENV")
             .is_some_and(|v| v.eq_ignore_ascii_case("production"));

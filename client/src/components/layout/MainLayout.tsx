@@ -86,7 +86,12 @@ export function MainLayout() {
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      api.get('/auth/me').catch(() => undefined);
+      if (typeof document !== 'undefined' && document.hidden) return;
+      api.get('/auth/me').catch((err) => {
+        if (err?.response?.status === 401) {
+          useAuthStore.getState().clearAuth();
+        }
+      });
     }, 10 * 60_000);
     return () => window.clearInterval(id);
   }, []);

@@ -106,13 +106,8 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<String, String> {
         return Err(format!("Invalid carrier '{carrier}'"));
     }
     let secret_mode = tgweb_secret_mode(s);
-    let decoy_dir = {
-        let d = str_or_empty(s, "fallbackRoot");
-        if d.is_empty() { "/var/www/html" } else { d }
-    };
-    if !decoy_dir.starts_with('/') {
-        return Err("settings.fallbackRoot must be an absolute path".into());
-    }
+    let decoy_dir_buf = crate::cores::validate_fallback_root(&str_or_empty(s, "fallbackRoot"))?;
+    let decoy_dir = decoy_dir_buf.to_string_lossy();
 
     let users = extract_protocol_users(&inbound.users, s, true)?;
     if users.is_empty() {
@@ -124,9 +119,9 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<String, String> {
         }
     }
 
-    let listen = {
-        let l = inbound.listen.trim();
-        if l.is_empty() || l == "0.0.0.0" { "127.0.0.1" } else { l }
+    let listen = match inbound.listen.trim() {
+        "::1" | "[::1]" => "::1",
+        _ => "127.0.0.1",
     };
 
     let mut out = String::new();
@@ -138,9 +133,9 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<String, String> {
         "[server]\nport = {}\nmetrics_listen = \"127.0.0.1:{TGWEB_METRICS_PORT}\"\nmetrics_whitelist = [\"127.0.0.1/32\"]\n\n",
         inbound.port
     ));
-    // The upstream default API listener is 0.0.0.0:9091; keep the Control API on loopback only.
+    // Control API is unused by the agent; keep it disabled so no proxy client can reach it.
     out.push_str(&format!(
-        "[server.api]\nenabled = true\nlisten = \"127.0.0.1:{TGWEB_API_PORT}\"\nwhitelist = [\"127.0.0.1/32\"]\n\n"
+        "[server.api]\nenabled = false\nlisten = \"127.0.0.1:{TGWEB_API_PORT}\"\nwhitelist = [\"127.0.0.1/32\"]\n\n"
     ));
     out.push_str(&format!(
         "[[server.listeners]]\nip = {}\nport = {}\ntransport = \"web\"\nproxy_protocol = false\nweb_client_ip_source = \"x_forwarded_for\"\nweb_trusted_proxy_cidrs = [\"127.0.0.1/32\"]\n\n",
@@ -166,7 +161,7 @@ pub fn generate_config(inbound: &InboundConfig) -> Result<String, String> {
     out.push_str(&format!(
         "public_addr = {}\n\n[web.vhosts.decoy]\nmode = \"static_directory\"\ndirectory = {}\n\n",
         toml_str(&public_addr.to_string())?,
-        toml_str(decoy_dir)?
+        toml_str(&decoy_dir)?
     ));
     for u in &users {
         out.push_str(&format!(
@@ -241,8 +236,21 @@ mod tests {
         assert!(cfg.contains("public_addr = \"203.0.113.10:443\""));
         assert!(cfg.contains("secret_mode = \"dd\""));
         assert!(cfg.contains("show = []"));
+        assert!(cfg.contains("[server.api]\nenabled = false"));
         assert!(cfg.contains(&format!("\"c1\" = \"{}\"", tgweb_user_secret_hex("pw-one"))));
         assert!(!cfg.contains("base_path"));
+    }
+
+    #[test]
+    fn forces_non_loopback_listen_to_loopback() {
+        let mut inbound = ib(ok_settings());
+        inbound.listen = "::".into();
+        let cfg = generate_config(&inbound).unwrap();
+        assert!(cfg.contains("ip = \"127.0.0.1\""));
+        inbound.listen = "0.0.0.0".into();
+        assert!(generate_config(&inbound).unwrap().contains("ip = \"127.0.0.1\""));
+        inbound.listen = "::1".into();
+        assert!(generate_config(&inbound).unwrap().contains("ip = \"::1\""));
     }
 
     #[test]

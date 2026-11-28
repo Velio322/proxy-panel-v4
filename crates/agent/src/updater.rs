@@ -118,21 +118,16 @@ async fn atomic_write_bytes(
     let tmp_path = target_path.with_file_name(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4()));
     let bak_path = backup_path(target_path);
 
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
+    let mut opts = tokio::fs::OpenOptions::new();
+    opts.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        opts.mode(mode);
+    }
+    let mut file = opts
         .open(&tmp_path)
         .await
         .map_err(|e| format!("Failed to open temp file {}: {e}", tmp_path.display()))?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = file
-            .set_permissions(std::fs::Permissions::from_mode(mode))
-            .await;
-    }
 
     file.write_all(bytes)
         .await
@@ -333,6 +328,8 @@ async fn extract_core_payload(
             run_extract_command(
                 "tar",
                 &[
+                    "--no-same-owner",
+                    "--no-same-permissions",
                     "-xzf",
                     &tar_path.to_string_lossy(),
                     "-C",
@@ -349,6 +346,8 @@ async fn extract_core_payload(
             run_extract_command(
                 "tar",
                 &[
+                    "--no-same-owner",
+                    "--no-same-permissions",
                     "-xJf",
                     &tar_path.to_string_lossy(),
                     "-C",
@@ -491,7 +490,7 @@ pub async fn download_and_install_core(
         return Err(format!("Unsupported download URL scheme: {}", parsed.scheme()));
     }
 
-    let resp = client
+    let mut resp = client
         .get(parsed)
         .header(reqwest::header::USER_AGENT, "mypanel3-agent")
         .timeout(Duration::from_secs(180))
@@ -510,12 +509,21 @@ pub async fn download_and_install_core(
         }
     }
 
-    let bytes = resp
-        .bytes()
+    let mut bytes = Vec::with_capacity(
+        resp.content_length()
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(0)
+            .min(MAX_CORE_BINARY_BYTES),
+    );
+    while let Some(chunk) = resp
+        .chunk()
         .await
-        .map_err(|e| format!("Failed to read core package response: {e}"))?;
-    if bytes.len() > MAX_CORE_BINARY_BYTES {
-        return Err("Core package exceeds 256 MiB safety limit".into());
+        .map_err(|e| format!("Failed to read core package response: {e}"))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > MAX_CORE_BINARY_BYTES {
+            return Err("Core package exceeds 256 MiB safety limit".into());
+        }
+        bytes.extend_from_slice(&chunk);
     }
 
     let digest = verify_sha256(&bytes, expected_sha256)?;

@@ -106,12 +106,12 @@ pub const NODE_GET_TIMEOUT: Duration = Duration::from_secs(7);
 /// reqwest-level timeout; slightly below the outer guard so the inner error wins when possible.
 const NODE_GET_HTTP_TIMEOUT: Duration = Duration::from_secs(6);
 
-/// HTTP client for `node`: the mTLS client for pull-mode nodes, the shared client otherwise.
+/// HTTP client for `node`: the mTLS client for pull-mode nodes, the isolated node client otherwise.
 fn client_for<'a>(state: &'a AppState, node: &NodeTarget) -> &'a reqwest::Client {
     if node.is_pull() {
         &state.node_mtls_client
     } else {
-        &state.http_client
+        &state.node_http_client
     }
 }
 

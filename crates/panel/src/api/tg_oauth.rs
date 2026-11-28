@@ -1,12 +1,12 @@
 use crate::api::common::{ok, AppJson};
-use crate::auth::crypto::{ct_eq, sha256_hex};
+use crate::auth::crypto::ct_eq;
 use crate::auth::extract::AuthUser;
 use crate::db::enums::UserRole;
 use crate::error::{AppError, AppResult};
 use crate::net::{user_agent, ClientIp};
 use crate::state::AppState;
 use axum::extract::State;
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
@@ -78,9 +78,9 @@ async fn login_telegram(
     headers: HeaderMap,
     AppJson(body): AppJson<TgAuthData>,
 ) -> AppResult<Response> {
-    let token = state
-        .cfg
-        .telegram_bot_token
+    let tg_cfg = crate::services::telegram::load_telegram_config(&state).await;
+    let token = tg_cfg
+        .bot_token
         .as_deref()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| AppError::bad_request("Telegram OAuth is not configured"))?;
@@ -90,7 +90,7 @@ async fn login_telegram(
     }
 
     let row = sqlx::query(
-        r#"SELECT id, username, email, role, "resellerId", language, banned
+        r#"SELECT id, username, email, role, "resellerId", language, banned, "totpEnabled", "totpSecret"
            FROM "User" WHERE "telegramId" = $1"#,
     )
     .bind(body.id)
@@ -108,47 +108,35 @@ async fn login_telegram(
     let role: UserRole = row.try_get("role")?;
     let reseller_id: Option<String> = row.try_get("resellerId")?;
     let language: String = row.try_get("language")?;
+    let totp_enabled: bool = row.try_get::<Option<bool>, _>("totpEnabled")?.unwrap_or(false);
+    let totp_secret: Option<String> = row.try_get("totpSecret")?;
 
-    let (jwt_tok, expires_at) = state.jwt.sign(&user_id, &username, role, reseller_id.clone())?;
-    let now = crate::db::now();
-    sqlx::query(
-        r#"INSERT INTO "UserSession" (id, "userId", token, ip, "userAgent", "expiresAt", "createdAt")
-           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
-    )
-    .bind(crate::db::new_id())
-    .bind(&user_id)
-    .bind(sha256_hex(&jwt_tok))
-    .bind(&*ip)
-    .bind(user_agent(&headers))
-    .bind(expires_at)
-    .bind(now)
-    .execute(&state.db)
-    .await?;
-
-    let sec_flag = if state.cfg.production { "; Secure" } else { "" };
-    let cookie_val = format!(
-        "auth_token={jwt_tok}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax{sec_flag}",
-        state.jwt.ttl_secs().max(0)
-    );
-    let mut res = (
-        StatusCode::OK,
-        Json(json!({
-            "token": jwt_tok,
-            "user": {
-                "id": user_id,
-                "username": username,
-                "email": email,
-                "role": role,
-                "resellerId": reseller_id,
-                "language": language
-            }
-        })),
-    )
-        .into_response();
-    if let Ok(cv) = HeaderValue::from_str(&cookie_val) {
-        res.headers_mut().insert(header::SET_COOKIE, cv);
+    if totp_enabled && totp_secret.as_deref().is_some_and(|s| !s.is_empty()) {
+        let challenge = state
+            .jwt
+            .sign_2fa_challenge(&user_id, &username, role, reseller_id)?;
+        return Ok((
+            StatusCode::OK,
+            Json(json!({
+                "requires2fa": true,
+                "challengeToken": challenge
+            })),
+        )
+            .into_response());
     }
-    Ok(res)
+
+    crate::api::auth::complete_login(
+        &state,
+        &user_id,
+        &username,
+        email,
+        role,
+        reseller_id,
+        language,
+        &ip,
+        user_agent(&headers),
+    )
+    .await
 }
 
 async fn link_telegram(
@@ -156,9 +144,12 @@ async fn link_telegram(
     user: AuthUser,
     AppJson(body): AppJson<TgAuthData>,
 ) -> AppResult<Json<Value>> {
-    let token = state
-        .cfg
-        .telegram_bot_token
+    if user.is_api_key {
+        return Err(AppError::forbidden("API keys cannot manage Telegram links"));
+    }
+    let tg_cfg = crate::services::telegram::load_telegram_config(&state).await;
+    let token = tg_cfg
+        .bot_token
         .as_deref()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| AppError::bad_request("Telegram OAuth is not configured"))?;
@@ -177,6 +168,9 @@ async fn link_telegram(
 }
 
 async fn unlink_telegram(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Value>> {
+    if user.is_api_key {
+        return Err(AppError::forbidden("API keys cannot manage Telegram links"));
+    }
     sqlx::query(r#"UPDATE "User" SET "telegramId" = NULL, "updatedAt" = $2 WHERE id = $1"#)
         .bind(&user.id)
         .bind(crate::db::now())

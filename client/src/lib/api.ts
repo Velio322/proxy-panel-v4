@@ -59,6 +59,8 @@ export const api = axios.create({
   },
 });
 
+let isRedirectingToLogin = false;
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
@@ -67,15 +69,19 @@ api.interceptors.response.use(
     const isAuthProbe =
       reqUrl.includes('/auth/me') ||
       reqUrl.includes('/auth/login') ||
-      reqUrl.includes('/auth/login/2fa') ||
-      reqUrl.includes('/auth/2fa/') ||
       reqUrl.includes('/auth/passkeys/login') ||
       reqUrl.includes('/auth/telegram/login') ||
-      reqUrl.includes('/auth/telegram');
+      reqUrl.includes('/auth/change-password') ||
+      reqUrl.includes('/auth/telegram/link');
 
     if (status === 401 && !isAuthProbe) {
       onUnauthorizedCallback?.();
-      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      if (
+        typeof window !== 'undefined' &&
+        window.location.pathname !== '/login' &&
+        !isRedirectingToLogin
+      ) {
+        isRedirectingToLogin = true;
         try {
           window.sessionStorage.setItem(
             'auth_return_to',
@@ -195,8 +201,22 @@ export const authApi = {
     const { data } = await api.post<{ user: User }>('/auth/passkeys/login/finish', payload);
     return data;
   },
-  telegramLogin: async (payload: TelegramOAuthPayload): Promise<{ user: User }> => {
-    const { data } = await api.post<{ user: User }>('/auth/telegram/login', payload);
+  telegramLogin: async (
+    payload: TelegramOAuthPayload,
+  ): Promise<{
+    user?: User;
+    requires2fa?: boolean;
+    totpRequired?: boolean;
+    challengeToken?: string;
+    tempToken?: string;
+  }> => {
+    const { data } = await api.post<{
+      user?: User;
+      requires2fa?: boolean;
+      totpRequired?: boolean;
+      challengeToken?: string;
+      tempToken?: string;
+    }>('/auth/telegram/login', payload);
     return data;
   },
   linkTelegram: async (payload: TelegramOAuthPayload): Promise<{ user: User }> => {
@@ -1060,7 +1080,18 @@ export const backupApi = {
       sizeBytes: item.sizeBytes ?? item.fileSize,
     }));
   },
-  config: async (): Promise<Record<string, unknown>> => {
+  config: async (): Promise<{
+    enabled?: boolean;
+    interval?: string;
+    schedule?: string;
+    cron?: string;
+    retentionDays?: number;
+    destinations?: {
+      local?: boolean;
+      telegram?: boolean;
+      s3?: boolean;
+    };
+  }> => {
     const { data } = await api.get('/backup/config');
     return data ?? {};
   },
@@ -1100,14 +1131,6 @@ export const configTransferApi = {
       format: opts.format ?? 'json',
       content: opts.content,
     });
-    return data;
-  },
-  migrate: async (payload: {
-    source: 'marzban' | 'hiddify';
-    content: string;
-    dryRun: boolean;
-  }): Promise<{ created?: number; updated?: number; skipped?: number; errors?: string[] }> => {
-    const { data } = await api.post('/config-transfer/migrate', payload);
     return data;
   },
 };

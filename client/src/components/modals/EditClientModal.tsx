@@ -76,11 +76,13 @@ export function EditClientModal({
   const [inboundsDirty, setInboundsDirty] = useState(false);
   const [inboundSearch, setInboundSearch] = useState('');
   const [exportPreview, setExportPreview] = useState('');
+  const [activeSubToken, setActiveSubToken] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open || !client) return;
     setActiveTab(initialTab);
+    setActiveSubToken(client.subToken);
     setEmail(client.email ?? '');
     setPassword('');
     setNote(client.note ?? '');
@@ -196,8 +198,9 @@ export function EditClientModal({
   });
 
   const regenTokenMut = useMutation({
-    mutationFn: () => clientsApi.regenerateSubToken(client!.subToken),
-    onSuccess: () => {
+    mutationFn: () => clientsApi.regenerateSubToken(activeSubToken || client!.subToken),
+    onSuccess: (res) => {
+      if (res?.subToken) setActiveSubToken(res.subToken);
       onSaved();
       toast({ title: isRu ? 'Ссылка подписки перевыпущена' : 'Subscription token regenerated', variant: 'success' });
     },
@@ -396,7 +399,22 @@ export function EditClientModal({
                   </SelectContent>
                 </Select>
               </div>
-              {resetStrategy === 'MONTH' ? (
+              <div className="space-y-1.5">
+                <Label>{isRu ? 'Режим ограничения' : 'Restriction Mode'}</Label>
+                <Select
+                  value={restrictionMode}
+                  onValueChange={(v) => setRestrictionMode(v as 'SOFT' | 'HARD')}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="HARD">{isRu ? 'HARD (Отключать доступ)' : 'HARD (Disconnect)'}</SelectItem>
+                    <SelectItem value="SOFT">{isRu ? 'SOFT (Мягкий режим)' : 'SOFT (Throttle/Notice)'}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {resetStrategy === 'MONTH' && (
                 <div className="space-y-1.5">
                   <Label>{isRu ? 'День сброса в месяце (1–28)' : 'Monthly Reset Day (1–28)'}</Label>
                   <Input
@@ -406,22 +424,6 @@ export function EditClientModal({
                     value={trafficResetDay}
                     onChange={(e) => setTrafficResetDay(e.target.value)}
                   />
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <Label>{isRu ? 'Режим ограничения' : 'Restriction Mode'}</Label>
-                  <Select
-                    value={restrictionMode}
-                    onValueChange={(v) => setRestrictionMode(v as 'SOFT' | 'HARD')}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="HARD">{isRu ? 'HARD (Отключать доступ)' : 'HARD (Disconnect)'}</SelectItem>
-                      <SelectItem value="SOFT">{isRu ? 'SOFT (Мягкий режим)' : 'SOFT (Throttle/Notice)'}</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               )}
             </div>

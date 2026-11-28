@@ -93,11 +93,8 @@ async fn create(
     AppJson(body): AppJson<UpsertWebhookReq>,
 ) -> AppResult<Response> {
     user.require_admin()?;
-    let parsed = url::Url::parse(body.url.trim())
-        .map_err(|_| AppError::validation("url", "Invalid webhook URL"))?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return Err(AppError::validation("url", "Webhook URL must be http or https"));
-    }
+    let allow_private = !state.cfg.production && state.cfg.allow_private_nodes;
+    crate::net::validate_outbound_url(body.url.trim(), allow_private).await?;
     let id = crate::db::new_id();
     let now = crate::db::now();
     let secret = if body.secret.trim().is_empty() {
@@ -135,6 +132,8 @@ async fn update(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     valid_id(&id)?;
+    let allow_private = !state.cfg.production && state.cfg.allow_private_nodes;
+    crate::net::validate_outbound_url(body.url.trim(), allow_private).await?;
     let r = sqlx::query(
         r#"UPDATE "Webhook"
            SET name = $2, url = $3, secret = CASE WHEN $4 = '' THEN secret ELSE $4 END,

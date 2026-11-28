@@ -125,7 +125,10 @@ async fn register(
         cur_host
     } else {
         match req_host {
-            Some(h) if !h.is_empty() && h != "0.0.0.0" && h != "::" => h.to_string(),
+            Some(h) if !h.is_empty() && h != "0.0.0.0" && h != "::" => {
+                crate::net::validate_node_host_async(h, state.cfg.allow_private_nodes).await?;
+                h.to_string()
+            }
             _ => cur_host,
         }
     };
@@ -370,7 +373,9 @@ async fn report_traffic(
         let count = report.stats.len();
         // Records inline and flushes before answering, so a panel restart right after
         // this response cannot lose the report (legacy agents do not replay).
-        traffic_batcher::record_report(&state, node_id, report).await;
+        if !traffic_batcher::record_report(&state, node_id, report).await {
+            return Err(AppError::service_unavailable("Failed to record traffic report"));
+        }
         return Ok(Json(json!({ "status": "ok", "processed": count })));
     }
 

@@ -39,10 +39,13 @@ export function SettingsWebhooksTab() {
   const { language } = useTranslation();
   const isRu = language === 'ru';
   const isSuperAdmin = useAuthStore((s) => s.user?.role === 'SUPER_ADMIN');
+  const userRole = useAuthStore((s) => s.user?.role);
+  const isAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN';
   // --- Webhooks CRUD
   const { data: webhooks = [] } = useQuery({
     queryKey: ['webhooks'],
     queryFn: () => webhooksApi.list(),
+    enabled: isAdmin,
   });
 
   const [whModalOpen, setWhModalOpen] = useState(false);

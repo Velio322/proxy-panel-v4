@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Crop,
   ExternalLink,
@@ -24,11 +24,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PageHero } from '@/components/ui/PagePrimitives';
 import { LANGUAGES } from '@/i18n/translations';
-import { brandingApi, getApiErrorMessage, settingsApi } from '@/lib/api';
+import { brandingApi, getApiErrorMessage } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n';
 import { useAuthStore, usePublicConfigStore, useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 import type { Language } from '@/types';
+import { useSettingsForm } from './settings/use-settings-form';
 import { SettingsSecurityTab } from './settings/tabs/SecurityTab';
 import { SettingsApiKeysTab } from './settings/tabs/ApiKeysTab';
 import { SettingsWebhooksTab } from './settings/tabs/WebhooksTab';
@@ -40,19 +41,17 @@ export function SettingsPage() {
   const { t, language, setLanguage } = useTranslation();
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'general';
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const activeTab = searchParams.get('tab') || 'general';
 
   const user = useAuthStore((s) => s.user);
   const timezone = useUiStore((s) => s.timezone);
-  const setTimezone = useUiStore((s) => s.setTimezone);
-  const setCompanyName = useUiStore((s) => s.setCompanyName);
   const healthVersion = usePublicConfigStore((s) => s.healthVersion);
   const branding = usePublicConfigStore((s) => s.branding);
   const setBranding = usePublicConfigStore((s) => s.setBranding);
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canEditBranding = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const canEditBranding = isAdmin;
   const isRu = language === 'ru';
 
   // --- Appearance & Branding
@@ -212,53 +211,8 @@ export function SettingsPage() {
       }),
   });
 
-  // --- General & Telegram Settings
-  const { data: rawSettings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => settingsApi.get(),
-    enabled: isSuperAdmin,
-  });
-
-  const [formSettings, setFormSettings] = useState<Record<string, string>>({});
-  const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (rawSettings) {
-      setFormSettings(rawSettings);
-      setDirtyKeys(new Set());
-    }
-  }, [rawSettings]);
-
-  const setSetting = (key: string, val: string) => {
-    setFormSettings((prev) => ({ ...prev, [key]: val }));
-    setDirtyKeys((prev) => new Set(prev).add(key));
-  };
-
-  const saveSettingsMut = useMutation({
-    mutationFn: async () => {
-      const payload: Record<string, string> = {};
-      for (const k of dirtyKeys) {
-        const v = formSettings[k];
-        if (v === '********') continue;
-        payload[k] = v ?? '';
-      }
-      if (Object.keys(payload).length === 0) return;
-      await settingsApi.update(payload);
-      if (payload.timezone) setTimezone(payload.timezone);
-      if (payload.company_name) setCompanyName(payload.company_name);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] });
-      setDirtyKeys(new Set());
-      toast({ title: isRu ? 'Настройки сохранены' : 'Settings saved', variant: 'success' });
-    },
-    onError: (err) =>
-      toast({
-        title: isRu ? 'Ошибка сохранения' : 'Save failed',
-        description: getApiErrorMessage(err),
-        variant: 'destructive',
-      }),
-  });
+  // --- General & Telegram Settings (single shared form state)
+  const { formSettings, setSetting, saveSettingsMut } = useSettingsForm(isSuperAdmin, isRu);
 
   return (
     <div className="space-y-5">
@@ -291,7 +245,6 @@ export function SettingsPage() {
       <Tabs
         value={activeTab}
         onValueChange={(tab) => {
-          setActiveTab(tab);
           setSearchParams({ tab });
         }}
       >
@@ -299,11 +252,11 @@ export function SettingsPage() {
           <TabsTrigger value="general">{t('settings.general')}</TabsTrigger>
           {canEditBranding && <TabsTrigger value="branding">{t('settings.branding')}</TabsTrigger>}
           <TabsTrigger value="security">{t('settings.security')}</TabsTrigger>
-          <TabsTrigger value="api-keys">{t('settings.apiKeys')}</TabsTrigger>
-          <TabsTrigger value="webhooks">{t('settings.webhooks')}</TabsTrigger>
-          <TabsTrigger value="telegram">{t('settings.telegram')}</TabsTrigger>
-          <TabsTrigger value="cores">{t('settings.cores')}</TabsTrigger>
-          <TabsTrigger value="backup">{t('settings.backup')}</TabsTrigger>
+          {isAdmin && <TabsTrigger value="api-keys">{t('settings.apiKeys')}</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="webhooks">{t('settings.webhooks')}</TabsTrigger>}
+          {isSuperAdmin && <TabsTrigger value="telegram">{t('settings.telegram')}</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="cores">{t('settings.cores')}</TabsTrigger>}
+          {isSuperAdmin && <TabsTrigger value="backup">{t('settings.backup')}</TabsTrigger>}
         </TabsList>
 
         {canEditBranding && (
@@ -658,12 +611,19 @@ export function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <SettingsSecurityTab />
-        <SettingsApiKeysTab />
-        <SettingsWebhooksTab />
-        <SettingsTelegramTab />
-        <SettingsCoresTab />
-        <SettingsBackupTab />
+        {activeTab === 'security' && <SettingsSecurityTab />}
+        {isAdmin && activeTab === 'api-keys' && <SettingsApiKeysTab />}
+        {isAdmin && activeTab === 'webhooks' && <SettingsWebhooksTab />}
+        {isSuperAdmin && activeTab === 'telegram' && (
+          <SettingsTelegramTab
+            formSettings={formSettings}
+            setSetting={setSetting}
+            onSave={() => saveSettingsMut.mutate()}
+            saving={saveSettingsMut.isPending}
+          />
+        )}
+        {isAdmin && activeTab === 'cores' && <SettingsCoresTab />}
+        {isSuperAdmin && activeTab === 'backup' && <SettingsBackupTab />}
 
       </Tabs>
 

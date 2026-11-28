@@ -113,3 +113,38 @@ pub async fn build_reqwest_client(cfg: &AgentConfig) -> Result<reqwest::Client, 
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))
 }
+
+/// Builds a `tokio_tungstenite::Connector` with the configured mTLS CA and client identity.
+pub async fn build_ws_tls_connector(
+    cfg: &AgentConfig,
+) -> Result<Option<tokio_tungstenite::Connector>, String> {
+    if !cfg.has_mtls() {
+        return Ok(None);
+    }
+    let mut roots = RootCertStore::empty();
+    if let Some(ref ca) = cfg.mtls_ca_cert {
+        let ca_bytes = load_pem_bytes(ca).await?;
+        for cert in parse_certs(&ca_bytes)? {
+            roots
+                .add(cert)
+                .map_err(|e| format!("Invalid MTLS_CA_CERT for WS: {e}"))?;
+        }
+    }
+    let client_cfg = if let (Some(ref cert_src), Some(ref key_src)) =
+        (&cfg.mtls_client_cert, &cfg.mtls_client_key)
+    {
+        let certs = parse_certs(&load_pem_bytes(cert_src).await?)?;
+        let key = parse_private_key(&load_pem_bytes(key_src).await?)?;
+        rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_client_auth_cert(certs, key)
+            .map_err(|e| format!("Invalid MTLS client identity for WS: {e}"))?
+    } else {
+        rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth()
+    };
+    Ok(Some(tokio_tungstenite::Connector::Rustls(Arc::new(
+        client_cfg,
+    ))))
+}

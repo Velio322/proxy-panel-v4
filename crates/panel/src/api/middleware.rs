@@ -135,7 +135,6 @@ fn is_allowed_origin(st: &AppState, origin: &str) -> bool {
     let mut candidates: Vec<&str> = st.cfg.cors_origins.iter().map(String::as_str).collect();
     candidates.push(&st.cfg.api_url);
     candidates.push(&st.cfg.frontend_url);
-    candidates.push(&st.cfg.sub_url);
     candidates.iter().any(|c| {
         extract_origin(c)
             .map(|co| co == origin)
@@ -211,6 +210,9 @@ fn is_credential_endpoint(path: &str) -> bool {
         || path.ends_with("/login/2fa")
         || path.ends_with("/login/start")
         || path.ends_with("/login/finish")
+        || path.ends_with("/2fa/enable")
+        || path.ends_with("/2fa/disable")
+        || path.ends_with("/change-password")
 }
 
 pub async fn auth_rate_limit(
@@ -218,7 +220,12 @@ pub async fn auth_rate_limit(
     req: Request,
     next: Next,
 ) -> Response {
-    if !is_credential_endpoint(req.uri().path()) {
+    let path = req
+        .extensions()
+        .get::<axum::extract::OriginalUri>()
+        .map(|u| u.0.path())
+        .unwrap_or_else(|| req.uri().path());
+    if !is_credential_endpoint(path) {
         return next.run(req).await;
     }
     let ip = extract_ip(
@@ -268,7 +275,7 @@ pub async fn metrics_middleware(
         .extensions()
         .get::<MatchedPath>()
         .map(|m| m.as_str().to_string())
-        .unwrap_or_else(|| req.uri().path().to_string());
+        .unwrap_or_else(|| "<unmatched>".to_string());
     let start = Instant::now();
     let res = next.run(req).await;
     st.metrics.observe_http(
@@ -282,15 +289,70 @@ pub async fn metrics_middleware(
 
 #[cfg(test)]
 mod tests {
-    use super::is_credential_endpoint;
+    use super::{auth_rate_limit, is_credential_endpoint};
+    use crate::config::Config;
+    use crate::state::AppState;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use axum::middleware as mw;
+    use axum::routing::post;
+    use axum::Router;
+    use sqlx::postgres::PgPoolOptions;
+    use tower::ServiceExt;
 
     #[test]
     fn only_credential_routes_are_limited() {
-        for p in ["/login", "/login/2fa", "/login/start", "/login/finish", "/api/v1/auth/login"] {
+        for p in [
+            "/login",
+            "/login/2fa",
+            "/login/start",
+            "/login/finish",
+            "/api/v1/auth/login",
+            "/api/v1/auth/2fa/enable",
+            "/api/v1/auth/2fa/disable",
+            "/api/v1/auth/change-password",
+        ] {
             assert!(is_credential_endpoint(p), "{p}");
         }
-        for p in ["/me", "/logout", "/change-password", "/", "/register/start"] {
+        for p in ["/me", "/logout", "/", "/register/start", "/2fa/status"] {
             assert!(!is_credential_endpoint(p), "{p}");
+        }
+    }
+
+    #[tokio::test]
+    async fn nested_2fa_disable_route_is_rate_limited_via_original_uri() {
+        let mut cfg = Config::default();
+        cfg.data_dir = std::env::temp_dir().join(format!("mypanel-mw-test-{}", uuid::Uuid::new_v4()));
+        cfg.auth_rate_limit_max = 2;
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@127.0.0.1:5432/nonexistent")
+            .unwrap();
+        let st = AppState::new(pool, cfg);
+
+        let twofa_router = Router::new()
+            .route("/disable", post(|| async { StatusCode::OK }))
+            .layer(mw::from_fn_with_state(st.clone(), auth_rate_limit));
+        let v1 = Router::new().nest("/auth/2fa", twofa_router);
+        let app = Router::new().nest("/api/v1", v1);
+
+        for i in 0..3 {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/auth/2fa/disable")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let expected = if i < 2 {
+                StatusCode::OK
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            };
+            assert_eq!(resp.status(), expected, "request {i}");
         }
     }
 }

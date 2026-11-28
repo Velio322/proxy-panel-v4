@@ -76,82 +76,115 @@ pub fn is_private_or_loopback_ip(ip: &IpAddr) -> bool {
 }
 
 fn is_private_v4(ip: &Ipv4Addr) -> bool {
+    let octets = ip.octets();
     ip.is_loopback()
         || ip.is_private()
         || ip.is_link_local()
         || ip.is_unspecified()
         || ip.is_broadcast()
         || ip.is_documentation()
-        || (ip.octets()[0] == 100 && (ip.octets()[1] & 0b1100_0000) == 64) // CGNAT 100.64.0.0/10
+        || ip.is_multicast()
+        || octets[0] == 0 // 0.0.0.0/8 ("this host on this network")
+        || octets[0] >= 240 // 240.0.0.0/4 reserved/future use
+        || (octets[0] == 100 && (octets[1] & 0b1100_0000) == 64) // CGNAT 100.64.0.0/10
 }
 
 fn is_private_v6(ip: &Ipv6Addr) -> bool {
+    let segs = ip.segments();
+    let is_nat64 = segs[0] == 0x0064 && segs[1] == 0xff9b && segs[2..6] == [0, 0, 0, 0];
+    let nat64_private = if is_nat64 {
+        let embedded = Ipv4Addr::from(((segs[6] as u32) << 16) | (segs[7] as u32));
+        is_private_v4(&embedded)
+    } else {
+        false
+    };
     ip.is_loopback()
         || ip.is_unspecified()
-        || (ip.segments()[0] & 0xfe00) == 0xfc00 // Unique local fc00::/7
-        || (ip.segments()[0] & 0xffc0) == 0xfe80 // Link-local fe80::/10
+        || ip.is_multicast()
+        || (segs[0] & 0xfe00) == 0xfc00 // Unique local fc00::/7
+        || (segs[0] & 0xffc0) == 0xfe80 // Link-local fe80::/10
+        || nat64_private
 }
 
-pub fn is_loopback_host(host: &str) -> bool {
-    let h = host
-        .trim()
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .trim();
-    let host_only = if h.starts_with('[') {
-        h.split(']').next().unwrap_or(h).trim_start_matches('[')
-    } else {
-        h.split(':').next().unwrap_or(h)
-    };
-    matches!(
-        host_only.to_ascii_lowercase().as_str(),
-        "127.0.0.1" | "::1" | "localhost" | "0.0.0.0"
-    )
+fn is_forbidden_hostname(host: &str) -> bool {
+    let h = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    matches!(h.as_str(), "localhost" | "0.0.0.0")
+        || h.ends_with(".localhost")
+        || h.ends_with(".local")
 }
 
-/// Validates node host against SSRF rules.
-pub fn validate_node_host(raw_host: &str, allow_private: bool) -> AppResult<()> {
+fn parse_host_part(raw_host: &str) -> AppResult<String> {
     let trimmed = raw_host.trim();
     if trimmed.is_empty() {
         return Err(AppError::bad_request("Node host is empty"));
     }
-    let host_part = if trimmed.contains("://") {
-        let parsed = url::Url::parse(trimmed)
-            .map_err(|_| AppError::bad_request("Invalid node URL"))?;
-        match parsed.scheme() {
-            "http" | "https" => {}
-            _ => return Err(AppError::bad_request("Unsupported node protocol")),
-        }
-        if !parsed.username().is_empty() || parsed.password().is_some() {
-            return Err(AppError::bad_request(
-                "Node URL must not include credentials",
-            ));
-        }
-        parsed
-            .host_str()
-            .ok_or_else(|| AppError::bad_request("Node URL has no host"))?
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .to_string()
-    } else if trimmed.starts_with('[') {
-        trimmed
-            .split(']')
-            .next()
-            .unwrap_or(trimmed)
-            .trim_start_matches('[')
-            .to_string()
+    let candidate_url = if trimmed.contains("://") {
+        trimmed.to_string()
     } else {
-        trimmed.split(':').next().unwrap_or(trimmed).to_string()
+        if trimmed.chars().any(char::is_whitespace)
+            || trimmed.contains('/')
+            || trimmed.contains('@')
+            || trimmed.contains('?')
+            || trimmed.contains('#')
+        {
+            return Err(AppError::bad_request("Invalid node host"));
+        }
+        if trimmed.parse::<Ipv6Addr>().is_ok() {
+            format!("https://[{trimmed}]")
+        } else {
+            format!("https://{trimmed}")
+        }
     };
+    let parsed =
+        url::Url::parse(&candidate_url).map_err(|_| AppError::bad_request("Invalid node URL"))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => return Err(AppError::bad_request("Unsupported node protocol")),
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AppError::bad_request(
+            "Node URL must not include credentials",
+        ));
+    }
+    let host_part = parsed
+        .host_str()
+        .ok_or_else(|| AppError::bad_request("Node URL has no host"))?
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.')
+        .to_string();
+    if host_part.is_empty() {
+        return Err(AppError::bad_request("Node host is empty"));
+    }
+    Ok(host_part)
+}
 
+pub fn is_loopback_host(host: &str) -> bool {
+    let Ok(host_only) = parse_host_part(host) else {
+        return false;
+    };
+    let lower = host_only.to_ascii_lowercase();
+    if matches!(lower.as_str(), "127.0.0.1" | "::1" | "localhost" | "0.0.0.0") {
+        return true;
+    }
+    if let Ok(ip) = lower.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(v4) => v4.is_loopback() || v4.is_unspecified(),
+            IpAddr::V6(v6) => {
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback() || v4.is_unspecified())
+            }
+        };
+    }
+    false
+}
+
+/// Validates node host against SSRF rules.
+pub fn validate_node_host(raw_host: &str, allow_private: bool) -> AppResult<()> {
+    let host_part = parse_host_part(raw_host)?;
     if !allow_private {
-        if matches!(
-            host_part.to_ascii_lowercase().as_str(),
-            "localhost" | "0.0.0.0"
-        ) {
+        if is_forbidden_hostname(&host_part) {
             return Err(AppError::bad_request(
                 "Private or loopback node addresses are disabled (ALLOW_PRIVATE_NODES=false)",
             ));
@@ -165,6 +198,112 @@ pub fn validate_node_host(raw_host: &str, allow_private: bool) -> AppResult<()> 
         }
     }
     Ok(())
+}
+
+/// Validates node host against SSRF rules, including DNS resolution when `allow_private` is false.
+pub async fn validate_node_host_async(raw_host: &str, allow_private: bool) -> AppResult<()> {
+    validate_node_host(raw_host, allow_private)?;
+    if allow_private {
+        return Ok(());
+    }
+    let host_part = parse_host_part(raw_host)?;
+    if host_part.parse::<IpAddr>().is_ok() {
+        return Ok(());
+    }
+    let addrs = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        tokio::net::lookup_host((host_part.as_str(), 443)),
+    )
+    .await
+    .map_err(|_| AppError::bad_request("DNS lookup timed out for node host"))?
+    .map_err(|_| AppError::bad_request("Unable to resolve node host"))?;
+    let mut count = 0usize;
+    for addr in addrs {
+        count += 1;
+        if is_private_or_loopback_ip(&addr.ip()) {
+            return Err(AppError::bad_request(
+                "Node host resolves to a private or loopback IP address (ALLOW_PRIVATE_NODES=false)",
+            ));
+        }
+    }
+    if count == 0 {
+        return Err(AppError::bad_request("Node host resolved to no addresses"));
+    }
+    Ok(())
+}
+
+/// Validates an outbound HTTP/HTTPS URL (e.g. webhooks) against SSRF rules including DNS resolution.
+pub async fn validate_outbound_url(raw_url: &str, allow_private: bool) -> AppResult<url::Url> {
+    let (parsed, _) = validate_outbound_url_with_addrs(raw_url, allow_private).await?;
+    Ok(parsed)
+}
+
+/// Validates an outbound HTTP/HTTPS URL against SSRF rules and returns its validated socket addresses
+/// so callers can pin DNS resolution and prevent DNS-rebinding TOCTOU.
+pub async fn validate_outbound_url_with_addrs(
+    raw_url: &str,
+    allow_private: bool,
+) -> AppResult<(url::Url, Vec<SocketAddr>)> {
+    let parsed = url::Url::parse(raw_url.trim())
+        .map_err(|_| AppError::validation("url", "Invalid URL"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(AppError::validation("url", "URL must use http or https"));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AppError::validation(
+            "url",
+            "URL must not include credentials",
+        ));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| AppError::validation("url", "URL has no host"))?
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.');
+    if host.is_empty() {
+        return Err(AppError::validation("url", "URL has no host"));
+    }
+    let port = parsed.port_or_known_default().unwrap_or(443);
+    let mut resolved = Vec::new();
+    if !allow_private {
+        if is_forbidden_hostname(host) {
+            return Err(AppError::validation(
+                "url",
+                "Private or loopback URL targets are not allowed",
+            ));
+        }
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            if is_private_or_loopback_ip(&ip) {
+                return Err(AppError::validation(
+                    "url",
+                    "Private or loopback URL targets are not allowed",
+                ));
+            }
+            resolved.push(SocketAddr::new(ip, port));
+            return Ok((parsed, resolved));
+        }
+        let addrs = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            tokio::net::lookup_host((host, port)),
+        )
+        .await
+        .map_err(|_| AppError::validation("url", "DNS lookup timed out for URL host"))?
+        .map_err(|_| AppError::validation("url", "Unable to resolve URL host"))?;
+        for addr in addrs {
+            if is_private_or_loopback_ip(&addr.ip()) {
+                return Err(AppError::validation(
+                    "url",
+                    "URL host resolves to a private or loopback IP address",
+                ));
+            }
+            resolved.push(addr);
+        }
+        if resolved.is_empty() {
+            return Err(AppError::validation("url", "URL host resolved to no addresses"));
+        }
+    }
+    Ok((parsed, resolved))
 }
 
 #[cfg(test)]
@@ -194,5 +333,30 @@ mod client_ip_tests {
     fn untrusted_proxy_headers_are_ignored() {
         let h = headers(&[("x-real-ip", "203.0.113.9")]);
         assert_eq!(extract_ip(&h, None, false), "127.0.0.1");
+    }
+
+    #[test]
+    fn node_host_validation_blocks_ssrf_variants() {
+        for bad in [
+            "::1",
+            "fe80::1",
+            "fc00::1",
+            "::ffff:127.0.0.1",
+            "127.1",
+            "2130706433",
+            "0.1.2.3",
+            "localhost.",
+            "https://169.254.169.254/latest",
+            "http://[::1]:2222",
+        ] {
+            assert!(
+                validate_node_host(bad, false).is_err(),
+                "expected {bad} to be rejected when allow_private=false"
+            );
+        }
+        assert!(validate_node_host("1.1.1.1", false).is_ok());
+        assert!(validate_node_host("node1.example.com", false).is_ok());
+        assert!(is_loopback_host("::1"));
+        assert!(is_loopback_host("https://[::1]:2222"));
     }
 }

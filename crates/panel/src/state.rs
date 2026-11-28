@@ -10,7 +10,16 @@ use sqlx::PgPool;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use webauthn_rs::prelude::{PasskeyAuthentication, PasskeyRegistration};
+use webauthn_rs::prelude::{DiscoverableAuthentication, PasskeyAuthentication, PasskeyRegistration};
+
+#[derive(Clone)]
+pub enum PasskeyAuthState {
+    Named {
+        user_id: String,
+        state: PasskeyAuthentication,
+    },
+    Discoverable(DiscoverableAuthentication),
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -33,10 +42,14 @@ pub struct AppState {
     pub backup_running: Arc<AtomicBool>,
     pub mtls_ca: MtlsCa,
     pub http_client: reqwest::Client,
+    /// HTTP client for legacy non-mTLS node API calls (isolated from external TLS settings).
+    pub node_http_client: reqwest::Client,
+    /// Strict HTTP client for webhooks (no redirects, verified TLS).
+    pub webhook_http_client: reqwest::Client,
     /// mTLS client for pull-mode nodes (panel -> node HTTPS with a CA-signed identity).
     pub node_mtls_client: reqwest::Client,
-    pub passkey_reg_states: Arc<DashMap<String, PasskeyRegistration>>,
-    pub passkey_auth_states: Arc<DashMap<String, (Option<String>, PasskeyAuthentication)>>,
+    pub passkey_reg_states: Arc<DashMap<String, (Instant, PasskeyRegistration)>>,
+    pub passkey_auth_states: Arc<DashMap<String, (Instant, PasskeyAuthState)>>,
 }
 
 impl AppState {
@@ -70,11 +83,23 @@ impl AppState {
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        let node_http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .redirect(reqwest::redirect::Policy::none())
             // Certificates are verified. Only an explicit opt-in (self-signed https nodes in a
-            // trusted network) turns that off.
+            // trusted network) turns that off, isolated to legacy node calls only.
             .danger_accept_invalid_certs(
                 std::env::var("NODE_TLS_INSECURE").is_ok_and(|v| v.eq_ignore_ascii_case("true")),
             )
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        let webhook_http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -101,6 +126,8 @@ impl AppState {
             backup_running: Arc::new(AtomicBool::new(false)),
             mtls_ca,
             http_client,
+            node_http_client,
+            webhook_http_client,
             node_mtls_client,
             passkey_reg_states: Arc::new(DashMap::new()),
             passkey_auth_states: Arc::new(DashMap::new()),

@@ -80,7 +80,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/hosts', labelKey: 'nav.hosts', icon: Globe },
       { to: '/routing', labelKey: 'nav.routing', icon: Waypoints },
       { to: '/plans', labelKey: 'nav.plans', icon: Sparkles, roles: ['SUPER_ADMIN', 'ADMIN'] },
-      { to: '/resellers', labelKey: 'nav.resellers', icon: UserCheck, roles: ['SUPER_ADMIN', 'ADMIN', 'RESELLER'] },
+      { to: '/resellers', labelKey: 'nav.resellers', icon: UserCheck, roles: ['SUPER_ADMIN', 'ADMIN'] },
       { to: '/templates', labelKey: 'nav.templates', icon: FileCode2, roles: ['SUPER_ADMIN', 'ADMIN'] },
       { to: '/srr', labelKey: 'nav.srr', icon: Shield, roles: ['SUPER_ADMIN', 'ADMIN'] },
       { to: '/infra-billing', labelKey: 'nav.billing', icon: Receipt, roles: ['SUPER_ADMIN', 'ADMIN'] },
@@ -92,7 +92,7 @@ const NAV_GROUPS: NavGroup[] = [
     collapsible: true,
     items: [
       { to: '/users', labelKey: 'nav.users', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN'] },
-      { to: '/backup', labelKey: 'nav.backup', icon: HardDrive, roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { to: '/backup', labelKey: 'nav.backup', icon: HardDrive, roles: ['SUPER_ADMIN'] },
       { to: '/config-transfer', labelKey: 'nav.configTransfer', icon: FileCode2, roles: ['SUPER_ADMIN'] },
       { to: '/audit', labelKey: 'nav.audit', icon: ScrollText, roles: ['SUPER_ADMIN', 'ADMIN'] },
     ],

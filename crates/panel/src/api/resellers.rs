@@ -31,6 +31,8 @@ struct CreateResellerReq {
     max_clients: Option<i32>,
     max_nodes: Option<i32>,
     traffic_limit: Option<i64>,
+    balance: Option<Decimal>,
+    active: Option<bool>,
     white_label: Option<Value>,
 }
 
@@ -43,6 +45,7 @@ struct UpdateResellerReq {
     max_clients: Option<i32>,
     max_nodes: Option<i32>,
     traffic_limit: Option<i64>,
+    balance: Option<Decimal>,
     white_label: Option<Value>,
     active: Option<bool>,
 }
@@ -110,10 +113,12 @@ async fn create(
     let max_clients = body.max_clients.unwrap_or(100).max(1);
     let max_nodes = body.max_nodes.unwrap_or(5).max(1);
     let traffic_limit = body.traffic_limit.unwrap_or(107_374_182_400).max(0);
+    let balance = body.balance.unwrap_or(Decimal::ZERO);
+    let active = body.active.unwrap_or(true);
 
     let r = sqlx::query(
-        r#"INSERT INTO "Reseller" (id, name, "contactEmail", "contactTelegram", "maxClients", "maxNodes", "trafficLimit", "whiteLabel", "createdAt", "updatedAt")
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+        r#"INSERT INTO "Reseller" (id, name, "contactEmail", "contactTelegram", "maxClients", "maxNodes", "trafficLimit", balance, active, "whiteLabel", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
            RETURNING id, name, "contactEmail", "contactTelegram", "maxClients", "maxNodes", "trafficLimit", "usedTraffic", balance, "whiteLabel", active, "expiresAt", "createdAt", "updatedAt""#,
     )
     .bind(&id)
@@ -123,6 +128,8 @@ async fn create(
     .bind(max_clients)
     .bind(max_nodes)
     .bind(traffic_limit)
+    .bind(balance)
+    .bind(active)
     .bind(&body.white_label)
     .bind(now)
     .fetch_one(&state.db)
@@ -152,7 +159,7 @@ async fn update(
     valid_id(&id)?;
 
     let existing = sqlx::query(
-        r#"SELECT name, "contactEmail", "contactTelegram", "maxClients", "maxNodes", "trafficLimit", "whiteLabel", active
+        r#"SELECT name, "contactEmail", "contactTelegram", "maxClients", "maxNodes", "trafficLimit", balance, "whiteLabel", active
            FROM "Reseller" WHERE id = $1"#,
     )
     .bind(&id)
@@ -182,6 +189,9 @@ async fn update(
     let traffic_limit = body
         .traffic_limit
         .unwrap_or_else(|| existing.try_get("trafficLimit").unwrap_or(0));
+    let balance = body
+        .balance
+        .unwrap_or_else(|| existing.try_get("balance").unwrap_or(Decimal::ZERO));
     let white_label = body
         .white_label
         .or_else(|| existing.try_get("whiteLabel").ok().flatten());
@@ -193,7 +203,7 @@ async fn update(
     let r = sqlx::query(
         r#"UPDATE "Reseller"
            SET name = $2, "contactEmail" = $3, "contactTelegram" = $4, "maxClients" = $5,
-               "maxNodes" = $6, "trafficLimit" = $7, "whiteLabel" = $8, active = $9, "updatedAt" = $10
+               "maxNodes" = $6, "trafficLimit" = $7, balance = $8, "whiteLabel" = $9, active = $10, "updatedAt" = $11
            WHERE id = $1
            RETURNING id, name, "contactEmail", "contactTelegram", "maxClients", "maxNodes", "trafficLimit", "usedTraffic", balance, "whiteLabel", active, "expiresAt", "createdAt", "updatedAt""#,
     )
@@ -204,6 +214,7 @@ async fn update(
     .bind(max_clients)
     .bind(max_nodes)
     .bind(traffic_limit)
+    .bind(balance)
     .bind(white_label)
     .bind(active)
     .bind(now)
