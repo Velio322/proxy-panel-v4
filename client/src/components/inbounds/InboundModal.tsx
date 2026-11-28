@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProtocolForm } from '@/components/inbounds/ProtocolForm';
 import { TabSecurity } from '@/components/inbounds/TabSecurity';
 import { PortSharesTab } from '@/components/inbounds/PortSharesTab';
+import { getProtocolModalConfig } from '@/components/inbounds/protocolModalConfig';
 import {
   applyRawInboundJsonToForm,
   createDefaultInboundForm,
@@ -26,7 +28,16 @@ import {
 import type { InboundFormState } from '@/components/inbounds/types';
 import { JsonEditor } from '@/components/JsonEditor';
 import { getApiErrorMessage, inboundsApi } from '@/lib/api';
-import { PROTOCOLS, generateRealityKeypair, generateShortId, generateSs2022Key, parsePortRange } from '@/lib/core-utils';
+import {
+  PROTOCOL_COLORS,
+  PROTOCOLS,
+  cn,
+  generateRealityKeypair,
+  generateShortId,
+  generateSs2022Key,
+  parsePortRange,
+} from '@/lib/core-utils';
+import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 import type { Inbound, NodeItem, Protocol, XrayValidationResult } from '@/types';
 
@@ -39,9 +50,15 @@ interface InboundModalProps {
   onSaved: () => void;
 }
 
-const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundFormState) => Partial<InboundFormState> }> = [
+const INBOUND_PRESETS: Array<{
+  id: string;
+  protocol: Protocol;
+  label: string;
+  apply: (f: InboundFormState) => Partial<InboundFormState>;
+}> = [
   {
     id: 'vless-xhttp-reality',
+    protocol: 'VLESS',
     label: 'VLESS + XHTTP + Reality (v26)',
     apply: () => {
       const k = generateRealityKeypair();
@@ -73,6 +90,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'vless-vision-reality',
+    protocol: 'VLESS',
     label: 'VLESS + Vision + Reality (Stealth TCP)',
     apply: () => {
       const k = generateRealityKeypair();
@@ -94,6 +112,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'vless-ws-cdn',
+    protocol: 'VLESS',
     label: 'VLESS + WebSocket + CDN TLS',
     apply: () => ({
       protocol: 'VLESS',
@@ -109,6 +128,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'vless-grpc-reality',
+    protocol: 'VLESS',
     label: 'VLESS + gRPC + Reality',
     apply: () => {
       const k = generateRealityKeypair();
@@ -131,6 +151,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'vless-xhttp-tls-cdn',
+    protocol: 'VLESS',
     label: 'VLESS + XHTTP + TLS (CDN, auto mode)',
     apply: () => ({
       protocol: 'VLESS',
@@ -149,6 +170,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'vless-xhttp-reality-stream-one',
+    protocol: 'VLESS',
     label: 'VLESS + XHTTP + Reality (stream-one, low latency)',
     apply: () => {
       const k = generateRealityKeypair();
@@ -174,6 +196,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'vless-httpupgrade-cdn',
+    protocol: 'VLESS',
     label: 'VLESS + HTTPUpgrade + CDN TLS',
     apply: () => ({
       protocol: 'VLESS',
@@ -189,6 +212,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'hy2-hopping-gecko',
+    protocol: 'HYSTERIA2',
     label: 'Hysteria2 + Port Hopping + BBR',
     apply: () => ({
       protocol: 'HYSTERIA2',
@@ -203,6 +227,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'tuic-v5-0rtt',
+    protocol: 'TUIC',
     label: 'TUIC v5 + 0-RTT',
     apply: () => ({
       protocol: 'TUIC',
@@ -217,6 +242,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'anytls-padding',
+    protocol: 'ANYTLS',
     label: 'AnyTLS + Padding Scheme',
     apply: () => ({
       protocol: 'ANYTLS',
@@ -227,6 +253,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'shadowtls-v3',
+    protocol: 'SHADOWTLS',
     label: 'ShadowTLS v3',
     apply: () => ({
       protocol: 'SHADOWTLS',
@@ -240,6 +267,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'ss2022',
+    protocol: 'SHADOWSOCKS',
     label: 'Shadowsocks-2022 (AES-128)',
     apply: () => ({
       protocol: 'SHADOWSOCKS',
@@ -252,6 +280,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'mieru-tcp',
+    protocol: 'MIERU',
     label: 'Mieru - TCP (single port)',
     apply: () => ({
       protocol: 'MIERU',
@@ -264,6 +293,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'mieru-udp',
+    protocol: 'MIERU',
     label: 'Mieru - UDP (single port)',
     apply: () => ({
       protocol: 'MIERU',
@@ -276,6 +306,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'mieru-both',
+    protocol: 'MIERU',
     label: 'Mieru - TCP + UDP (single port)',
     apply: () => ({
       protocol: 'MIERU',
@@ -288,6 +319,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'mieru-port-range',
+    protocol: 'MIERU',
     label: 'Mieru - TCP + UDP, port range 30000-30100',
     apply: () => ({
       protocol: 'MIERU',
@@ -300,6 +332,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'tgweb-https-lanes',
+    protocol: 'TGWEB',
     label: 'Telegram WEB proxy (telemt, tg://webproxy) - set domain + public IP',
     apply: () => ({
       protocol: 'TGWEB',
@@ -314,6 +347,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'naive-https-acme',
+    protocol: 'NAIVEPROXY',
     label: 'NaiveProxy - HTTPS + Let\'s Encrypt (set domain + email)',
     apply: () => ({
       protocol: 'NAIVEPROXY',
@@ -329,6 +363,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'naive-https-node-cert',
+    protocol: 'NAIVEPROXY',
     label: 'NaiveProxy - HTTPS + node TLS cert (set domain)',
     apply: () => ({
       protocol: 'NAIVEPROXY',
@@ -346,6 +381,7 @@ const INBOUND_PRESETS: Array<{ id: string; label: string; apply: (f: InboundForm
   },
   {
     id: 'naive-quic',
+    protocol: 'NAIVEPROXY',
     label: 'NaiveProxy - HTTP/3 (QUIC) + Let\'s Encrypt (set domain + email)',
     apply: () => ({
       protocol: 'NAIVEPROXY',
@@ -369,6 +405,7 @@ export function InboundModal({
   defaultNodeId,
   onSaved,
 }: InboundModalProps) {
+  const isRu = useUiStore((s) => s.language) === 'ru';
   const [form, setForm] = useState<InboundFormState>(() =>
     createDefaultInboundForm(defaultNodeId || nodes[0]?.id || ''),
   );
@@ -379,6 +416,9 @@ export function InboundModal({
   const [rawErrors, setRawErrors] = useState<string[]>([]);
   const [validating, setValidating] = useState(false);
   const [validationRes, setValidationRes] = useState<XrayValidationResult | null>(null);
+
+  const modalCfg = getProtocolModalConfig(form.protocol, isRu, form.portShares.length);
+  const hasTab = (id: string) => modalCfg.tabs.some((tab) => tab.id === id);
 
   // `nodes` is re-fetched in the background (sidebar, nodes page) and gets a new identity on
   // every refresh. Keep it out of the reset effect's dependencies, otherwise the dialog is
@@ -399,6 +439,13 @@ export function InboundModal({
     setActiveTab('general');
   }, [open, inbound, defaultNodeId]);
 
+  useEffect(() => {
+    const allowedTabs = getProtocolModalConfig(form.protocol, isRu, form.portShares.length).tabs;
+    if (!allowedTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab('general');
+    }
+  }, [form.protocol, form.portShares.length, activeTab, isRu]);
+
   // Nodes may arrive after the dialog was opened for a new inbound: fill in the node only
   // while it is still empty, without touching the rest of the form or the active tab.
   const firstNodeId = nodes[0]?.id || '';
@@ -409,6 +456,20 @@ export function InboundModal({
 
   const patchForm = (patch: Partial<InboundFormState>) => {
     setForm((prev) => ({ ...prev, ...patch }));
+  };
+
+  const handleProtocolChange = (nextProtocol: Protocol) => {
+    const patch: Partial<InboundFormState> = { protocol: nextProtocol };
+    if (!inbound) {
+      if (nextProtocol === 'TGWEB') {
+        patch.listen = '127.0.0.1';
+        patch.port = '18080';
+      } else if (form.protocol === 'TGWEB') {
+        if (form.listen === '127.0.0.1') patch.listen = '0.0.0.0';
+        if (form.port === '18080') patch.port = '443';
+      }
+    }
+    patchForm(patch);
   };
 
   useEffect(() => {
@@ -550,70 +611,86 @@ export function InboundModal({
     }
   };
 
+  const matchingPresets = INBOUND_PRESETS.filter((p) => p.protocol === form.protocol);
+  const otherPresets = inbound ? [] : INBOUND_PRESETS.filter((p) => p.protocol !== form.protocol);
+  const availablePresets = [...matchingPresets, ...otherPresets];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="3xl">
         <DialogHeader>
           <div className="flex flex-wrap items-center justify-between gap-2 pr-6">
             <div>
-              <DialogTitle>{inbound ? `Edit Inbound: ${inbound.tag}` : 'Create Inbound'}</DialogTitle>
-              <DialogDescription>
-                Configure protocol, transport, TLS/Reality security, routing, and PortShares.
-              </DialogDescription>
+              <div className="flex flex-wrap items-center gap-2">
+                <DialogTitle>
+                  {inbound
+                    ? isRu
+                      ? `Редактирование: ${inbound.tag}`
+                      : `Edit Inbound: ${inbound.tag}`
+                    : isRu
+                      ? 'Новый инбаунд'
+                      : 'Create Inbound'}
+                </DialogTitle>
+                <Badge className={cn('border text-[10px]', PROTOCOL_COLORS[form.protocol])}>
+                  {form.protocol}
+                </Badge>
+              </div>
+              <DialogDescription>{modalCfg.description}</DialogDescription>
             </div>
-            <div className="w-56">
-              <Select
-                value="preset"
-                onValueChange={(id) => {
-                  const found = INBOUND_PRESETS.find((p) => p.id === id);
-                  if (!found) return;
-                  setRawDirty(false);
-                  const nextForm: InboundFormState = { ...form, ...found.apply(form) };
-                  setForm(nextForm);
-                  setRawText(JSON.stringify(formToPayload(nextForm), null, 2));
-                  toast({ title: `Preset applied: ${found.label}`, variant: 'success' });
-                }}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <Braces className="h-3.5 w-3.5 mr-1 text-primary" />
-                  <SelectValue placeholder="Apply Preset..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="preset" disabled>
-                    Load Protocol Preset...
-                  </SelectItem>
-                  {INBOUND_PRESETS.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.label}
+            {availablePresets.length > 0 && (
+              <div className="w-56">
+                <Select
+                  value="preset"
+                  onValueChange={(id) => {
+                    const found = INBOUND_PRESETS.find((p) => p.id === id);
+                    if (!found) return;
+                    setRawDirty(false);
+                    const nextForm: InboundFormState = { ...form, ...found.apply(form) };
+                    setForm(nextForm);
+                    setRawText(JSON.stringify(formToPayload(nextForm), null, 2));
+                    toast({ title: `Preset applied: ${found.label}`, variant: 'success' });
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <Braces className="h-3.5 w-3.5 mr-1 text-primary" />
+                    <SelectValue placeholder={isRu ? 'Пресет...' : 'Apply Preset...'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="preset" disabled>
+                      {isRu ? 'Загрузить пресет протокола...' : 'Load Protocol Preset...'}
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                    {availablePresets.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <TabsList className="w-full justify-start flex-wrap">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="protocol">Protocol & Transport</TabsTrigger>
-            <TabsTrigger value="security">Security</TabsTrigger>
-            <TabsTrigger value="routing">Routing</TabsTrigger>
-            <TabsTrigger value="shares">PortShares ({form.portShares.length})</TabsTrigger>
-            <TabsTrigger value="raw">Raw JSON</TabsTrigger>
+            {modalCfg.tabs.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.id}>
+                {tab.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           <TabsContent value="general" className="space-y-4">
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Node</Label>
+                <Label>{isRu ? 'Нода' : 'Node'}</Label>
                 <Select
                   value={form.nodeId || 'unassigned'}
                   onValueChange={(v) => patchForm({ nodeId: v === 'unassigned' ? '' : v })}
                   disabled={Boolean(inbound)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select node" />
+                    <SelectValue placeholder={isRu ? 'Выберите ноду' : 'Select node'} />
                   </SelectTrigger>
                   <SelectContent>
                     {nodes.length === 0 && <SelectItem value="unassigned">No nodes</SelectItem>}
@@ -626,10 +703,10 @@ export function InboundModal({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Protocol</Label>
+                <Label>{isRu ? 'Протокол' : 'Protocol'}</Label>
                 <Select
                   value={form.protocol}
-                  onValueChange={(v) => patchForm({ protocol: v as Protocol })}
+                  onValueChange={(v) => handleProtocolChange(v as Protocol)}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -644,11 +721,11 @@ export function InboundModal({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Tag</Label>
+                <Label>{isRu ? 'Тег' : 'Tag'}</Label>
                 <Input value={form.tag} onChange={(e) => patchForm({ tag: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <Label>Port</Label>
+                <Label>{modalCfg.portLabel}</Label>
                 <Input
                   type="number"
                   min={1}
@@ -656,27 +733,41 @@ export function InboundModal({
                   value={form.port}
                   onChange={(e) => patchForm({ port: e.target.value })}
                 />
+                {modalCfg.portHint && (
+                  <p className="text-[11px] text-muted-foreground">{modalCfg.portHint}</p>
+                )}
               </div>
               <div className="space-y-1.5">
-                <Label>Listen Address</Label>
-                <Input value={form.listen} onChange={(e) => patchForm({ listen: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Remark</Label>
+                <Label>{modalCfg.listenLabel}</Label>
                 <Input
-                  placeholder="Optional remark"
+                  value={form.listen}
+                  placeholder={modalCfg.listenHint}
+                  onChange={(e) => patchForm({ listen: e.target.value })}
+                />
+                {modalCfg.listenHint && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {isRu ? `Рекомендуется: ${modalCfg.listenHint}` : `Recommended: ${modalCfg.listenHint}`}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>{isRu ? 'Заметка' : 'Remark'}</Label>
+                <Input
+                  placeholder={isRu ? 'Необязательная заметка' : 'Optional remark'}
                   value={form.remark}
                   onChange={(e) => patchForm({ remark: e.target.value })}
                 />
               </div>
               <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-                <Label>Enable Inbound</Label>
+                <Label>{isRu ? 'Включить инбаунд' : 'Enable Inbound'}</Label>
                 <Switch checked={form.enable} onCheckedChange={(v) => patchForm({ enable: v })} />
               </div>
-              <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-                <Label>Sniffing</Label>
-                <Switch checked={form.sniffing} onCheckedChange={(v) => patchForm({ sniffing: v })} />
-              </div>
+              {modalCfg.showSniffing && (
+                <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                  <Label>Sniffing</Label>
+                  <Switch checked={form.sniffing} onCheckedChange={(v) => patchForm({ sniffing: v })} />
+                </div>
+              )}
             </div>
           </TabsContent>
 
@@ -684,39 +775,51 @@ export function InboundModal({
             <ProtocolForm form={form} onChange={patchForm} />
           </TabsContent>
 
-          <TabsContent value="security">
-            <TabSecurity form={form} onChange={patchForm} />
-          </TabsContent>
+          {hasTab('security') && (
+            <TabsContent value="security">
+              <TabSecurity form={form} onChange={patchForm} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="routing" className="space-y-3">
-            <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-              <div>
-                <div className="text-sm font-medium">Block BitTorrent</div>
-                <div className="text-xs text-muted-foreground">Drop P2P / BitTorrent traffic on this inbound</div>
+          {hasTab('routing') && (
+            <TabsContent value="routing" className="space-y-3">
+              <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
+                <div>
+                  <div className="text-sm font-medium">Block BitTorrent</div>
+                  <div className="text-xs text-muted-foreground">
+                    {isRu
+                      ? 'Блокировать P2P / BitTorrent трафик на этом инбаунде'
+                      : 'Drop P2P / BitTorrent traffic on this inbound'}
+                  </div>
+                </div>
+                <Switch
+                  checked={form.routingBlockTorrent}
+                  onCheckedChange={(v) => patchForm({ routingBlockTorrent: v })}
+                />
               </div>
-              <Switch
-                checked={form.routingBlockTorrent}
-                onCheckedChange={(v) => patchForm({ routingBlockTorrent: v })}
-              />
-            </div>
-            <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-              <div>
-                <div className="text-sm font-medium">Block Ads</div>
-                <div className="text-xs text-muted-foreground">Block known advertising domains</div>
+              <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
+                <div>
+                  <div className="text-sm font-medium">Block Ads</div>
+                  <div className="text-xs text-muted-foreground">
+                    {isRu ? 'Блокировать известные рекламные домены' : 'Block known advertising domains'}
+                  </div>
+                </div>
+                <Switch
+                  checked={form.routingBlockAds}
+                  onCheckedChange={(v) => patchForm({ routingBlockAds: v })}
+                />
               </div>
-              <Switch
-                checked={form.routingBlockAds}
-                onCheckedChange={(v) => patchForm({ routingBlockAds: v })}
-              />
-            </div>
-          </TabsContent>
+            </TabsContent>
+          )}
 
-          <TabsContent value="shares">
-            <PortSharesTab
-              shares={form.portShares}
-              onChange={(portShares) => patchForm({ portShares })}
-            />
-          </TabsContent>
+          {hasTab('shares') && (
+            <TabsContent value="shares">
+              <PortSharesTab
+                shares={form.portShares}
+                onChange={(portShares) => patchForm({ portShares })}
+              />
+            </TabsContent>
+          )}
 
           <TabsContent value="raw" className="space-y-3">
             <JsonEditor
@@ -726,7 +829,7 @@ export function InboundModal({
                 setRawDirty(true);
               }}
               language="json"
-              schemaKind="xray-inbound"
+              schemaKind={modalCfg.isXray ? 'xray-inbound' : 'singbox-inbound'}
               onValidationChange={setRawErrors}
               height="300px"
             />
@@ -781,7 +884,7 @@ export function InboundModal({
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {isRu ? 'Отмена' : 'Cancel'}
           </Button>
           <Button
             type="button"
@@ -789,7 +892,13 @@ export function InboundModal({
             loading={saving}
             disabled={rawErrors.length > 0}
           >
-            {inbound ? 'Save Changes' : 'Create Inbound'}
+            {inbound
+              ? isRu
+                ? 'Сохранить'
+                : 'Save Changes'
+              : isRu
+                ? 'Создать инбаунд'
+                : 'Create Inbound'}
           </Button>
         </DialogFooter>
       </DialogContent>

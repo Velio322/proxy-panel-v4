@@ -6,8 +6,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { getProtocolModalConfig } from '@/components/inbounds/protocolModalConfig';
 import { getApiErrorMessage, inboundsApi } from '@/lib/api';
 import { generateRealityKeypair, generateShortId } from '@/lib/core-utils';
+import { useUiStore } from '@/lib/store';
 import { toast } from '@/hooks/use-toast';
 import type { Hy2BbrProfile, Hy2ObfsType, InboundFormState, SecurityType } from '@/components/inbounds/types';
 
@@ -62,12 +64,13 @@ interface TabSecurityProps {
 }
 
 export function TabSecurity({ form, onChange }: TabSecurityProps) {
+  const isRu = useUiStore((s) => s.language) === 'ru';
   const [genBusy, setGenBusy] = useState<'reality' | 'mldsa65' | null>(null);
-  const isXray =
-    form.protocol === 'VLESS' ||
-    form.protocol === 'VMESS' ||
-    form.protocol === 'TROJAN' ||
-    form.protocol === 'SHADOWSOCKS';
+  const { securityMode } = getProtocolModalConfig(form.protocol, isRu, form.portShares.length);
+
+  if (securityMode === 'none') {
+    return null;
+  }
 
   const handleGenReality = async () => {
     setGenBusy('reality');
@@ -107,29 +110,309 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
     }
   };
 
+  if (securityMode === 'naive-tls') {
+    return (
+      <div className="space-y-3 rounded-lg border p-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+          {isRu ? 'Сертификат Caddy (HTTPS / QUIC)' : 'Caddy TLS Certificate'}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>{isRu ? 'Режим TLS' : 'TLS Mode'}</Label>
+            <Select
+              value={form.naiveTlsMode}
+              onValueChange={(v) => onChange({ naiveTlsMode: v as 'letsencrypt' | 'custom' })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="custom">
+                  {isRu ? 'Свой сертификат / ключ на ноде' : 'Custom Cert/Key'}
+                </SelectItem>
+                <SelectItem value="letsencrypt">Let&apos;s Encrypt (ACME)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {form.naiveTlsMode === 'custom' ? (
+            <>
+              <div className="space-y-1.5">
+                <Label>{isRu ? 'Путь к сертификату' : 'Certificate Path'}</Label>
+                <Input
+                  placeholder="/etc/mypanel3-node/tls/fullchain.pem"
+                  value={form.certFile}
+                  onChange={(e) => onChange({ certFile: e.target.value })}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{isRu ? 'Путь к приватному ключу' : 'Private Key Path'}</Label>
+                <Input
+                  placeholder="/etc/mypanel3-node/tls/privkey.pem"
+                  value={form.keyFile}
+                  onChange={(e) => onChange({ keyFile: e.target.value })}
+                  className="font-mono text-xs"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="space-y-2 sm:col-span-2">
+              <div className="space-y-1.5">
+                <Label>ACME Email</Label>
+                <Input
+                  placeholder="admin@example.com"
+                  value={form.naiveEmail}
+                  onChange={(e) => onChange({ naiveEmail: e.target.value })}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {isRu
+                  ? `Caddy автоматически получит и будет продлевать сертификат для домена ${form.naiveDomain.trim() || 'domain'} (нужен открытый порт 80/443 или DNS).`
+                  : `Caddy will automatically obtain and renew a TLS certificate for ${form.naiveDomain.trim() || 'domain'}.`}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (securityMode === 'singbox-tls') {
+    const alpnPlaceholder = form.protocol === 'TUIC' ? 'h3' : 'h2,http/1.1';
+    return (
+      <div className="space-y-3 rounded-lg border p-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+          {form.protocol} TLS (Sing-box)
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>SNI (Server Name)</Label>
+            <Input
+              placeholder="example.com"
+              value={form.sni}
+              onChange={(e) => onChange({ sni: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>ALPN (comma-separated)</Label>
+            <Input
+              placeholder={alpnPlaceholder}
+              value={form.alpn}
+              onChange={(e) => onChange({ alpn: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{isRu ? 'Путь к сертификату' : 'Certificate Path'}</Label>
+            <Input
+              placeholder="/etc/ssl/cert.pem"
+              value={form.certFile}
+              onChange={(e) => onChange({ certFile: e.target.value })}
+              className="font-mono text-xs"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{isRu ? 'Путь к приватному ключу' : 'Private Key Path'}</Label>
+            <Input
+              placeholder="/etc/ssl/key.pem"
+              value={form.keyFile}
+              onChange={(e) => onChange({ keyFile: e.target.value })}
+              className="font-mono text-xs"
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2 sm:col-span-2">
+            <Label>Allow Insecure</Label>
+            <Switch
+              checked={form.allowInsecure}
+              onCheckedChange={(v) => onChange({ allowInsecure: v })}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (securityMode === 'hysteria2') {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-3 rounded-lg border p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+            Hysteria2 TLS (QUIC)
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>SNI (Server Name)</Label>
+              <Input
+                placeholder="example.com"
+                value={form.sni}
+                onChange={(e) => onChange({ sni: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>ALPN (comma-separated)</Label>
+              <Input
+                placeholder="h3"
+                value={form.alpn}
+                onChange={(e) => onChange({ alpn: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Путь к сертификату' : 'Certificate Path'}</Label>
+              <Input
+                placeholder="/etc/ssl/cert.pem"
+                value={form.certFile}
+                onChange={(e) => onChange({ certFile: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Путь к приватному ключу' : 'Private Key Path'}</Label>
+              <Input
+                placeholder="/etc/ssl/key.pem"
+                value={form.keyFile}
+                onChange={(e) => onChange({ keyFile: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border px-3 py-2 sm:col-span-2">
+              <Label>Allow Insecure</Label>
+              <Switch
+                checked={form.allowInsecure}
+                onCheckedChange={(v) => onChange({ allowInsecure: v })}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Hysteria2 Obfuscation, BBR & Chrome Parrot */}
+        <div className="space-y-3 rounded-lg border p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+            {isRu ? 'Обфускация и профиль QUIC' : 'Obfuscation & QUIC Profile'}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Обфускация' : 'Obfuscation'}</Label>
+              <Select
+                value={form.hy2ObfsType}
+                onValueChange={(v) => onChange({ hy2ObfsType: v as Hy2ObfsType })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="salamander">Salamander</SelectItem>
+                  <SelectItem value="gecko">Gecko</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {form.hy2ObfsType !== 'none' && (
+              <div className="space-y-1.5">
+                <Label>Obfs Password</Label>
+                <Input
+                  value={form.hy2ObfsPassword}
+                  onChange={(e) => onChange({ hy2ObfsPassword: e.target.value })}
+                />
+              </div>
+            )}
+            {form.hy2ObfsType === 'gecko' && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Gecko Min Packet Size</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.hy2GeckoMinPacketSize}
+                    onChange={(e) => onChange({ hy2GeckoMinPacketSize: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Gecko Max Packet Size</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.hy2GeckoMaxPacketSize}
+                    onChange={(e) => onChange({ hy2GeckoMaxPacketSize: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+            <div className="space-y-1.5">
+              <Label>BBR Profile</Label>
+              <Select
+                value={form.hy2BbrProfile}
+                onValueChange={(v) => onChange({ hy2BbrProfile: v as Hy2BbrProfile })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Default</SelectItem>
+                  <SelectItem value="conservative">Conservative</SelectItem>
+                  <SelectItem value="standard">Standard</SelectItem>
+                  <SelectItem value="aggressive">Aggressive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+              <Label>Disable Chrome Parrot</Label>
+              <Switch
+                checked={form.disableChromeParrot}
+                onCheckedChange={(v) => onChange({ disableChromeParrot: v })}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ECH for Hysteria2 */}
+        <div className="space-y-2 rounded-lg border p-3">
+          <div className="flex items-center justify-between">
+            <Label>ECH (Encrypted Client Hello)</Label>
+            <Switch
+              checked={form.echEnabled}
+              onCheckedChange={(v) => onChange({ echEnabled: v })}
+            />
+          </div>
+          {form.echEnabled && (
+            <div className="grid gap-2 pt-1 sm:grid-cols-2">
+              <Input
+                placeholder="echConfig (Base64)"
+                value={form.echConfig}
+                onChange={(e) => onChange({ echConfig: e.target.value })}
+              />
+              <Input
+                placeholder="echKeyPath (/etc/ssl/ech.key)"
+                value={form.echKeyPath}
+                onChange={(e) => onChange({ echKeyPath: e.target.value })}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // securityMode === 'xray'
   return (
     <div className="space-y-4">
-      {isXray && (
-        <div className="space-y-1.5">
-          <Label>Stream Security</Label>
-          <Select
-            value={form.security}
-            onValueChange={(v) => onChange({ security: v as SecurityType })}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">None</SelectItem>
-              <SelectItem value="tls">TLS</SelectItem>
-              <SelectItem value="reality">Reality</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
+      <div className="space-y-1.5">
+        <Label>Stream Security</Label>
+        <Select
+          value={form.security}
+          onValueChange={(v) => onChange({ security: v as SecurityType })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">None</SelectItem>
+            <SelectItem value="tls">TLS</SelectItem>
+            <SelectItem value="reality">Reality</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
-      {/* Common SNI / TLS fields for TLS & non-Xray TLS-capable protocols */}
-      {(form.security === 'tls' || !isXray) && (
+      {form.security === 'tls' && (
         <div className="space-y-3 rounded-lg border p-3">
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -174,7 +457,6 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
             </div>
           </div>
 
-          {/* Pinning & TLS v26 Options */}
           <div className="grid gap-2 sm:grid-cols-2 border-t pt-3">
             <div className="space-y-1.5">
               <Label>Pinned Peer Cert SHA-256</Label>
@@ -192,50 +474,45 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
                 onChange={(e) => onChange({ verifyPeerCertByName: e.target.value })}
               />
             </div>
-            {isXray && (
-              <>
-                <div className="space-y-1.5">
-                  <Label>Cipher Suites (optional)</Label>
-                  <Input
-                    placeholder="TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
-                    value={form.tlsCipherSuites}
-                    onChange={(e) => onChange({ tlsCipherSuites: e.target.value })}
-                    className="font-mono text-xs"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Curve Preferences</Label>
-                  <Input
-                    placeholder="X25519,P-256"
-                    value={form.tlsCurvePreferences}
-                    onChange={(e) => onChange({ tlsCurvePreferences: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>OCSP Stapling Interval (s)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="3600"
-                    value={form.tlsOcspStapling}
-                    onChange={(e) => onChange({ tlsOcspStapling: e.target.value })}
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-                  <Label>Reject Unknown SNI</Label>
-                  <Switch
-                    checked={form.tlsRejectUnknownSni}
-                    onCheckedChange={(v) => onChange({ tlsRejectUnknownSni: v })}
-                  />
-                </div>
-              </>
-            )}
+            <div className="space-y-1.5">
+              <Label>Cipher Suites (optional)</Label>
+              <Input
+                placeholder="TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+                value={form.tlsCipherSuites}
+                onChange={(e) => onChange({ tlsCipherSuites: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Curve Preferences</Label>
+              <Input
+                placeholder="X25519,P-256"
+                value={form.tlsCurvePreferences}
+                onChange={(e) => onChange({ tlsCurvePreferences: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>OCSP Stapling Interval (s)</Label>
+              <Input
+                type="number"
+                min={0}
+                placeholder="3600"
+                value={form.tlsOcspStapling}
+                onChange={(e) => onChange({ tlsOcspStapling: e.target.value })}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+              <Label>Reject Unknown SNI</Label>
+              <Switch
+                checked={form.tlsRejectUnknownSni}
+                onCheckedChange={(v) => onChange({ tlsRejectUnknownSni: v })}
+              />
+            </div>
           </div>
         </div>
       )}
 
-      {/* Reality */}
-      {isXray && form.security === 'reality' && (
+      {form.security === 'reality' && (
         <div className="space-y-3 rounded-lg border p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-primary">
@@ -418,86 +695,7 @@ export function TabSecurity({ form, onChange }: TabSecurityProps) {
         </div>
       )}
 
-      {/* Hysteria2 Obfuscation, BBR & Chrome Parrot */}
-      {form.protocol === 'HYSTERIA2' && (
-        <div className="space-y-3 rounded-lg border p-3">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Obfuscation</Label>
-              <Select
-                value={form.hy2ObfsType}
-                onValueChange={(v) => onChange({ hy2ObfsType: v as Hy2ObfsType })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="salamander">Salamander</SelectItem>
-                  <SelectItem value="gecko">Gecko</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {form.hy2ObfsType !== 'none' && (
-              <div className="space-y-1.5">
-                <Label>Obfs Password</Label>
-                <Input
-                  value={form.hy2ObfsPassword}
-                  onChange={(e) => onChange({ hy2ObfsPassword: e.target.value })}
-                />
-              </div>
-            )}
-            {form.hy2ObfsType === 'gecko' && (
-              <>
-                <div className="space-y-1.5">
-                  <Label>Gecko Min Packet Size</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={form.hy2GeckoMinPacketSize}
-                    onChange={(e) => onChange({ hy2GeckoMinPacketSize: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Gecko Max Packet Size</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={form.hy2GeckoMaxPacketSize}
-                    onChange={(e) => onChange({ hy2GeckoMaxPacketSize: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-            <div className="space-y-1.5">
-              <Label>BBR Profile</Label>
-              <Select
-                value={form.hy2BbrProfile}
-                onValueChange={(v) => onChange({ hy2BbrProfile: v as Hy2BbrProfile })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Default</SelectItem>
-                  <SelectItem value="conservative">Conservative</SelectItem>
-                  <SelectItem value="standard">Standard</SelectItem>
-                  <SelectItem value="aggressive">Aggressive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-              <Label>Disable Chrome Parrot</Label>
-              <Switch
-                checked={form.disableChromeParrot}
-                onCheckedChange={(v) => onChange({ disableChromeParrot: v })}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ECH & FinalMask */}
+      {/* ECH & FinalMask (Xray v26+) */}
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="space-y-2 rounded-lg border p-3">
           <div className="flex items-center justify-between">

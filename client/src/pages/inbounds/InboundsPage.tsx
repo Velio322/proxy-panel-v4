@@ -288,9 +288,9 @@ export function InboundsPage() {
 
       {/* Main Content */}
       {isLoading ? (
-        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-          <Skeleton className="h-44 w-full rounded-xl" />
-          <Skeleton className="h-44 w-full rounded-xl" />
+        <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
         </div>
       ) : filtered.length === 0 ? (
         <RackEmptyState
@@ -315,7 +315,7 @@ export function InboundsPage() {
           }
         />
       ) : viewMode === 'blades' ? (
-        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
           {filtered.map((ib) => (
             <InboundBladeCard
               key={ib.id}

@@ -202,6 +202,7 @@ export interface InboundFormState {
   mieruPortRange: string;
   mieruLoggingLevel: 'FATAL' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG' | 'TRACE';
   mieruDomain: string;
+  mieruMtu: string;
 
   // Telegram WEB proxy (telemt)
   tgwebDomain: string;

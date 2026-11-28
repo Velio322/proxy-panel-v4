@@ -214,6 +214,7 @@ export function createDefaultInboundForm(nodeId = ''): InboundFormState {
     mieruPortRange: '',
     mieruLoggingLevel: 'WARN',
     mieruDomain: '',
+    mieruMtu: '',
 
     tgwebDomain: '',
     tgwebPublicAddr: '',
@@ -548,6 +549,7 @@ export function inboundToForm(inbound: Inbound): InboundFormState {
     mieruPortRange: asStr(settings.portRange),
     mieruLoggingLevel: (asStr(settings.loggingLevel, 'WARN') as InboundFormState['mieruLoggingLevel']),
     mieruDomain: asStr(settings.domain),
+    mieruMtu: asNumStr(settings.mtu),
 
     tgwebDomain: asStr(settings.domain),
     tgwebPublicAddr: asStr(settings.publicAddr),
@@ -746,6 +748,10 @@ export function formToPayload(form: InboundFormState): Record<string, unknown> {
     else delete settings.portRange;
     settings.loggingLevel = form.mieruLoggingLevel;
     if (form.mieruDomain.trim()) settings.domain = form.mieruDomain.trim();
+    else delete settings.domain;
+    const mtu = parsePositiveNum(form.mieruMtu);
+    if (mtu !== undefined && mtu >= 1280 && mtu <= 1500) settings.mtu = Math.floor(mtu);
+    else delete settings.mtu;
     if (form.sni.trim()) settings.sni = form.sni.trim();
   } else if (form.protocol === 'TGWEB') {
     settings.domain = form.tgwebDomain.trim();

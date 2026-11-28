@@ -413,134 +413,143 @@ export function ProtocolForm({ form, onChange }: ProtocolFormProps) {
       )}
 
       {form.protocol === 'NAIVEPROXY' && (
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>Protocol</Label>
-            <Select
-              value={form.naiveProto}
-              onValueChange={(v) => onChange({ naiveProto: v as 'https' | 'quic' })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="https">HTTPS</SelectItem>
-                <SelectItem value="quic">QUIC</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Domain (Caddy Site)</Label>
-            <Input
-              placeholder="naive.example.com"
-              value={form.naiveDomain}
-              onChange={(e) => onChange({ naiveDomain: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>TLS Mode</Label>
-            <Select
-              value={form.naiveTlsMode}
-              onValueChange={(v) => onChange({ naiveTlsMode: v as 'letsencrypt' | 'custom' })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="custom">Custom Cert/Key</SelectItem>
-                <SelectItem value="letsencrypt">Let's Encrypt (ACME)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>ACME Email</Label>
-            <Input
-              placeholder="admin@example.com"
-              value={form.naiveEmail}
-              onChange={(e) => onChange({ naiveEmail: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Fallback Root</Label>
-            <Input
-              value={form.naiveFallbackRoot}
-              onChange={(e) => onChange({ naiveFallbackRoot: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>WARP Upstream (optional)</Label>
-            <Input
-              value={form.naiveWarpUpstream}
-              onChange={(e) => onChange({ naiveWarpUpstream: e.target.value })}
-            />
-          </div>
-          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-            <Label>Hide IP</Label>
-            <Switch checked={form.naiveHideIp} onCheckedChange={(v) => onChange({ naiveHideIp: v })} />
-          </div>
-          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-            <Label>Probe Resistance</Label>
-            <Switch
-              checked={form.naiveProbeResistance}
-              onCheckedChange={(v) => onChange({ naiveProbeResistance: v })}
-            />
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            {isRu
+              ? 'Caddy forward_proxy: выберите HTTP/2 (HTTPS) или HTTP/3 (QUIC), домен и сайт-заглушку. Настройки сертификата TLS / ACME находятся во вкладке «TLS (Caddy)».'
+              : 'Caddy forward_proxy: configure HTTP/2 (HTTPS) or HTTP/3 (QUIC), domain, privacy headers, and decoy site. Certificate / ACME settings are in the "TLS (Caddy)" tab.'}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Транспорт (Протокол)' : 'Protocol'}</Label>
+              <Select
+                value={form.naiveProto}
+                onValueChange={(v) => onChange({ naiveProto: v as 'https' | 'quic' })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="https">HTTPS (HTTP/2)</SelectItem>
+                  <SelectItem value="quic">QUIC (HTTP/3)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Домен (сайт Caddy)' : 'Domain (Caddy Site)'}</Label>
+              <Input
+                placeholder="naive.example.com"
+                value={form.naiveDomain}
+                onChange={(e) => onChange({ naiveDomain: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Папка сайта-заглушки' : 'Fallback Root'}</Label>
+              <Input
+                placeholder="/var/www/html"
+                value={form.naiveFallbackRoot}
+                onChange={(e) => onChange({ naiveFallbackRoot: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'WARP Upstream (опционально)' : 'WARP Upstream (optional)'}</Label>
+              <Input
+                placeholder="socks5://127.0.0.1:40000"
+                value={form.naiveWarpUpstream}
+                onChange={(e) => onChange({ naiveWarpUpstream: e.target.value })}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+              <Label>Hide IP</Label>
+              <Switch checked={form.naiveHideIp} onCheckedChange={(v) => onChange({ naiveHideIp: v })} />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+              <Label>Hide Via</Label>
+              <Switch checked={form.naiveHideVia} onCheckedChange={(v) => onChange({ naiveHideVia: v })} />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border px-3 py-2 sm:col-span-2">
+              <Label>{isRu ? 'Защита от активного зондирования (Probe Resistance)' : 'Probe Resistance'}</Label>
+              <Switch
+                checked={form.naiveProbeResistance}
+                onCheckedChange={(v) => onChange({ naiveProbeResistance: v })}
+              />
+            </div>
           </div>
         </div>
       )}
 
       {form.protocol === 'MIERU' && (
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>Transport</Label>
-            <Select
-              value={form.mieruTransport}
-              onValueChange={(v) => onChange({ mieruTransport: v as InboundFormState['mieruTransport'] })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tcp">TCP</SelectItem>
-                <SelectItem value="udp">UDP</SelectItem>
-                <SelectItem value="both">Both (TCP + UDP)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Logging Level</Label>
-            <Select
-              value={form.mieruLoggingLevel}
-              onValueChange={(v) =>
-                onChange({ mieruLoggingLevel: v as InboundFormState['mieruLoggingLevel'] })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="FATAL">FATAL</SelectItem>
-                <SelectItem value="ERROR">ERROR</SelectItem>
-                <SelectItem value="WARN">WARN</SelectItem>
-                <SelectItem value="INFO">INFO</SelectItem>
-                <SelectItem value="DEBUG">DEBUG</SelectItem>
-                <SelectItem value="TRACE">TRACE</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Port Range (optional)</Label>
-            <Input
-              placeholder="e.g. 20000-20020"
-              value={form.mieruPortRange}
-              onChange={(e) => onChange({ mieruPortRange: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Domain / Host</Label>
-            <Input
-              value={form.mieruDomain}
-              onChange={(e) => onChange({ mieruDomain: e.target.value })}
-            />
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            {isRu
+              ? 'Mieru (mita) использует собственное встроенное шифрование поверх TCP/UDP — TLS-сертификаты и Xray-транспорт не требуются.'
+              : 'Mieru (mita) uses its own built-in transport encryption over TCP/UDP — no TLS certificates or Xray stream settings are needed.'}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Транспорт' : 'Transport'}</Label>
+              <Select
+                value={form.mieruTransport}
+                onValueChange={(v) => onChange({ mieruTransport: v as InboundFormState['mieruTransport'] })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="tcp">TCP</SelectItem>
+                  <SelectItem value="udp">UDP</SelectItem>
+                  <SelectItem value="both">Both (TCP + UDP)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Уровень логирования' : 'Logging Level'}</Label>
+              <Select
+                value={form.mieruLoggingLevel}
+                onValueChange={(v) =>
+                  onChange({ mieruLoggingLevel: v as InboundFormState['mieruLoggingLevel'] })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FATAL">FATAL</SelectItem>
+                  <SelectItem value="ERROR">ERROR</SelectItem>
+                  <SelectItem value="WARN">WARN</SelectItem>
+                  <SelectItem value="INFO">INFO</SelectItem>
+                  <SelectItem value="DEBUG">DEBUG</SelectItem>
+                  <SelectItem value="TRACE">TRACE</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Диапазон портов (1025–65535)' : 'Port Range (1025–65535)'}</Label>
+              <Input
+                placeholder="e.g. 20000-20020"
+                value={form.mieruPortRange}
+                onChange={(e) => onChange({ mieruPortRange: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{isRu ? 'Домен / Хост' : 'Domain / Host'}</Label>
+              <Input
+                placeholder="optional host override"
+                value={form.mieruDomain}
+                onChange={(e) => onChange({ mieruDomain: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>MTU (1280–1500)</Label>
+              <Input
+                type="number"
+                min={1280}
+                max={1500}
+                placeholder="1400"
+                value={form.mieruMtu}
+                onChange={(e) => onChange({ mieruMtu: e.target.value })}
+              />
+            </div>
           </div>
         </div>
       )}

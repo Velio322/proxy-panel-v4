@@ -106,6 +106,10 @@ export function InboundBladeCard({
   const meta = extractProtocolCardMeta(inbound, isRu);
   const ProtocolIcon = PROTOCOL_ICONS[meta.icon] ?? Shield;
 
+  const inlineSpecs = meta.specs
+    .filter((s) => s.value && s.value !== '—' && s.value !== meta.endpoint.display)
+    .slice(0, 3);
+
   const handleCopy = async () => {
     try {
       await copyEndpoint(meta.endpoint.copyValue);
@@ -118,7 +122,7 @@ export function InboundBladeCard({
     <div
       data-protocol={inbound.protocol}
       className={cn(
-        'node-blade relative flex flex-col overflow-hidden rounded-xl border border-border/80 transition-colors',
+        'node-blade relative overflow-hidden rounded-xl border border-border/80 transition-colors',
         meta.theme.cardHoverClass,
         !inbound.enable && 'opacity-75',
       )}
@@ -131,52 +135,63 @@ export function InboundBladeCard({
         aria-hidden="true"
       />
 
-      {/* Row 1: protocol identity + control dock */}
+      {/* Row 1: protocol icon, identity, subtitle & control dock */}
       <div
         className={cn(
-          'flex items-start gap-2.5 bg-gradient-to-r p-2.5 pl-4',
+          'flex items-center gap-2 bg-gradient-to-r p-2 pl-3.5',
           meta.theme.headerWashClass,
         )}
       >
         <div
           className={cn(
-            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
+            'flex h-6 w-6 shrink-0 items-center justify-center rounded-md border',
             meta.theme.iconBoxClass,
           )}
           title={meta.protocolLabel}
         >
-          <ProtocolIcon className="h-4 w-4" />
+          <ProtocolIcon className="h-3.5 w-3.5" />
         </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => onEdit(inbound)}
-              className="min-w-0 break-words text-left text-sm font-bold tracking-tight transition-colors hover:text-primary"
-            >
-              {inbound.tag}
-            </button>
-            <Badge variant={inbound.enable ? 'success' : 'secondary'} className="shrink-0 text-[10px]">
-              {inbound.enable ? t('common.enabled') : t('common.disabled')}
-            </Badge>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <Badge
-              className={cn(
-                'shrink-0 border px-1.5 py-0 text-[10px] font-semibold',
-                PROTOCOL_COLORS[inbound.protocol],
-              )}
-            >
-              {meta.protocolLabel}
-            </Badge>
-            <span className="truncate font-mono text-[11px] text-muted-foreground" title={meta.subtitle}>
-              {meta.subtitle}
-            </span>
-          </div>
-        </div>
+        <Badge
+          className={cn(
+            'shrink-0 border px-1.5 py-0 text-[10px] font-semibold',
+            PROTOCOL_COLORS[inbound.protocol],
+          )}
+        >
+          {meta.protocolLabel}
+        </Badge>
+
+        <button
+          type="button"
+          onClick={() => onEdit(inbound)}
+          className="min-w-0 truncate text-left text-sm font-bold tracking-tight transition-colors hover:text-primary"
+          title={inbound.remark?.trim() ? `${inbound.tag} — ${inbound.remark.trim()}` : inbound.tag}
+        >
+          {inbound.tag}
+        </button>
+
+        <span
+          className="hidden shrink-0 truncate font-mono text-[10px] text-muted-foreground sm:inline max-w-[11rem]"
+          title={meta.subtitle}
+        >
+          {meta.subtitle}
+        </span>
+
+        <span className="flex-1" />
+
+        <Badge variant={inbound.enable ? 'success' : 'secondary'} className="shrink-0 text-[10px]">
+          {inbound.enable ? t('common.enabled') : t('common.disabled')}
+        </Badge>
 
         <div className="flex shrink-0 items-center gap-1">
+          <Badge
+            variant="outline"
+            className="hidden gap-1 font-mono text-[10px] sm:inline-flex"
+            title={meta.coreLabel}
+          >
+            <Cpu className="h-3 w-3 text-primary" />
+            {meta.coreLabel}
+          </Badge>
           <Button
             type="button"
             size="icon"
@@ -233,18 +248,15 @@ export function InboundBladeCard({
         </div>
       </div>
 
-      {/* Row 2: primary protocol-aware endpoint strip */}
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-border/50 bg-background/45 px-3 py-1.5 pl-4 text-[11px]">
+      {/* Row 2: compact protocol-aware endpoint, inline specs, flags, node */}
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-border/50 bg-background/40 px-2 py-1.5 pl-3.5 text-[11px]">
         <button
           type="button"
           onClick={handleCopy}
-          className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-border/70 bg-background/70 px-2 py-0.5 font-mono text-[11px] text-foreground transition-colors hover:border-primary/45 hover:text-primary"
-          title={meta.endpoint.copyValue}
+          className="inline-flex min-w-0 max-w-[16rem] items-center gap-1 rounded border border-border/70 bg-background/60 px-1.5 py-0.5 font-mono text-[11px] text-foreground transition-colors hover:border-primary/45 hover:text-primary"
+          title={`${meta.endpoint.label}: ${meta.endpoint.copyValue}`}
         >
-          <span className="shrink-0 font-sans text-[10px] uppercase tracking-wider text-muted-foreground">
-            {meta.endpoint.label}
-          </span>
-          <span className="truncate font-semibold">{meta.endpoint.display}</span>
+          <span className="truncate">{meta.endpoint.display}</span>
           {copiedEndpoint ? (
             <Check className="h-3 w-3 shrink-0 text-emerald-400" />
           ) : (
@@ -255,50 +267,28 @@ export function InboundBladeCard({
         {meta.endpoint.secondary && (
           <Badge
             variant="outline"
-            className="shrink-0 font-mono text-[10px] text-muted-foreground"
+            className="shrink-0 px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
             title={`${meta.endpoint.secondary.label}: ${meta.endpoint.secondary.value}`}
           >
-            <span className="font-sans text-muted-foreground/80">{meta.endpoint.secondary.label}:</span>
-            <span>{meta.endpoint.secondary.value}</span>
+            {meta.endpoint.secondary.label}:{meta.endpoint.secondary.value}
           </Badge>
         )}
-      </div>
 
-      {/* Row 3: tailored protocol-specific settings grid */}
-      <div className="grid grid-cols-2 gap-1.5 px-3 py-2 pl-4">
-        {meta.specs.map((spec) => (
-          <div
+        {inlineSpecs.map((spec) => (
+          <Badge
             key={spec.label}
-            className="min-w-0 rounded-lg border border-border/55 bg-background/50 px-2.5 py-1.5"
+            variant="secondary"
+            className={cn(
+              'shrink-0 max-w-[11rem] truncate px-1.5 py-0 text-[10px]',
+              spec.mono && 'font-mono',
+              specToneClass(spec.tone, meta.theme.accentTextClass),
+            )}
+            title={`${spec.label}: ${spec.title ?? spec.value}`}
           >
-            <div className="truncate text-[10px] uppercase tracking-wider text-muted-foreground leading-none">
-              {spec.label}
-            </div>
-            <div
-              className={cn(
-                'mt-1 truncate text-xs font-medium',
-                spec.mono && 'font-mono',
-                specToneClass(spec.tone, meta.theme.accentTextClass),
-              )}
-              title={spec.title ?? spec.value}
-            >
-              {spec.value}
-            </div>
-          </div>
+            {spec.value}
+          </Badge>
         ))}
-      </div>
 
-      {inbound.remark?.trim() && (
-        <div
-          className="truncate px-3 pb-1.5 pl-4 text-[11px] text-muted-foreground"
-          title={inbound.remark.trim()}
-        >
-          {inbound.remark.trim()}
-        </div>
-      )}
-
-      {/* Row 4: protocol-specific flags + clients + engine + node */}
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t border-border/50 bg-background/35 px-3 py-1.5 pl-4 text-[11px]">
         {meta.flags.map((flag) => (
           <Badge
             key={flag.label}
@@ -323,18 +313,9 @@ export function InboundBladeCard({
           </Badge>
         )}
 
-        <Badge
-          variant="outline"
-          className="hidden shrink-0 gap-1 px-1.5 py-0 font-mono text-[10px] sm:inline-flex"
-          title={meta.coreLabel}
-        >
-          <Cpu className="h-3 w-3 text-primary" />
-          {meta.coreLabel}
-        </Badge>
-
         <Link
           to={`/nodes/${inbound.nodeId}`}
-          className="inline-flex min-w-0 max-w-[12rem] items-center gap-1 rounded border border-border/70 bg-background/60 px-1.5 py-0.5 font-medium text-foreground transition-colors hover:border-primary/45 hover:text-primary"
+          className="inline-flex min-w-0 max-w-[14rem] items-center gap-1 rounded border border-border/70 bg-background/60 px-1.5 py-0.5 font-medium text-foreground transition-colors hover:border-primary/45 hover:text-primary"
           title={inbound.node?.name ?? inbound.nodeId}
         >
           <Server className="h-3 w-3 shrink-0 text-primary" />
