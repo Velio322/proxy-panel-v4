@@ -48,6 +48,7 @@ import {
   latencyBadgeClass,
 } from '@/components/nodes/NodeTelemetryPrimitives';
 import { XrayConfigStudioPanel } from '@/components/inbounds/XrayConfigStudioModal';
+import { extractProtocolCardMeta } from '@/components/inbounds/protocolCardMeta';
 import { clientsApi, coresApi, getApiErrorMessage, monitoringApi, nodesApi } from '@/lib/api';
 import { PROTOCOL_COLORS, cn, formatBps, formatBytes, formatDateTime } from '@/lib/core-utils';
 import { useTranslation } from '@/lib/i18n';
@@ -725,37 +726,55 @@ export function NodeDetailPage() {
                     {isRu ? 'На этой ноде пока нет протоколов.' : 'No inbounds assigned to this node.'}
                   </div>
                 ) : (
-                  inbounds.map((ib) => (
-                    <div
-                      key={ib.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/75 bg-background/55 px-3 py-2 text-xs"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className={cn(
-                            'h-2 w-2 shrink-0 rounded-full',
-                            ib.enable ? 'bg-emerald-400' : 'bg-zinc-500',
-                          )}
-                        />
-                        <Badge
-                          className={cn('border text-[10px]', PROTOCOL_COLORS[ib.protocol as Protocol])}
-                        >
-                          {ib.protocol}
-                        </Badge>
-                        <span className="font-medium break-words min-w-0">{ib.tag}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 font-mono text-xs">
-                        {ib.portShares && ib.portShares.length > 0 && (
-                          <Badge variant="outline" className="text-[10px]">
-                            +{ib.portShares.length} share
-                          </Badge>
+                  inbounds.map((ib) => {
+                    const meta = extractProtocolCardMeta(ib, isRu, node?.host);
+                    return (
+                      <div
+                        key={ib.id}
+                        className="rounded-lg border border-border/75 bg-background/55 px-3 py-2 text-xs"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2 min-w-0">
+                            <span
+                              className={cn(
+                                'h-2 w-2 shrink-0 rounded-full',
+                                ib.enable ? 'bg-emerald-400' : 'bg-zinc-500',
+                              )}
+                            />
+                            <Badge
+                              className={cn('border text-[10px]', PROTOCOL_COLORS[ib.protocol as Protocol])}
+                            >
+                              {meta.protocolLabel}
+                            </Badge>
+                            <span className="font-medium break-words min-w-0">{ib.tag}</span>
+                            <span className="font-mono text-[11px] text-muted-foreground">
+                              {meta.subtitle}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs">
+                            {ib.portShares && ib.portShares.length > 0 && (
+                              <Badge variant="outline" className="text-[10px]">
+                                +{ib.portShares.length} share
+                              </Badge>
+                            )}
+                            {meta.endpoint.secondary && (
+                              <span className="rounded border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                {meta.endpoint.secondary.label}: {meta.endpoint.secondary.value}
+                              </span>
+                            )}
+                            <span className="rounded bg-muted/60 px-2 py-0.5">
+                              {meta.endpoint.display}
+                            </span>
+                          </div>
+                        </div>
+                        {meta.compactSummary && (
+                          <div className="mt-1 truncate pl-4 font-mono text-[11px] text-muted-foreground" title={meta.compactSummary}>
+                            {meta.compactSummary}
+                          </div>
                         )}
-                        <span className="rounded bg-muted/60 px-2 py-0.5">
-                          {ib.listen}:{ib.port}
-                        </span>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </CardContent>
             </Card>

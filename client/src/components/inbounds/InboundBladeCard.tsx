@@ -4,12 +4,24 @@ import {
   Copy,
   Cpu,
   Edit,
+  EyeOff,
+  Fingerprint,
+  Gauge,
+  Globe,
+  KeyRound,
+  Layers,
+  Lock,
   MoreHorizontal,
-  Network,
   Power,
+  Send,
   Server,
   Shield,
+  ShieldCheck,
+  Shuffle,
   Trash2,
+  Users,
+  Zap,
+  type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +32,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { PROTOCOL_COLORS, cn, getCoreForProtocol } from '@/lib/core-utils';
+import {
+  extractProtocolCardMeta,
+  type ProtocolFlag,
+  type ProtocolIconKey,
+  type SpecTone,
+} from '@/components/inbounds/protocolCardMeta';
+import { PROTOCOL_COLORS, cn } from '@/lib/core-utils';
 import { useTranslation } from '@/lib/i18n';
 import type { Inbound } from '@/types';
 import { useCopyFeedback } from '@/hooks/use-copy-feedback';
@@ -33,13 +51,48 @@ interface InboundBladeCardProps {
   onDelete: (id: string) => void;
 }
 
-const CORE_LABELS: Record<string, string> = {
-  xray: 'Xray',
-  singbox: 'Sing-box',
-  naive: 'Naive',
-  mieru: 'Mieru',
-  telemt: 'telemt',
+const PROTOCOL_ICONS: Record<ProtocolIconKey, LucideIcon> = {
+  vless: Shield,
+  reality: Fingerprint,
+  vmess: Layers,
+  trojan: KeyRound,
+  shadowsocks: Lock,
+  hysteria2: Zap,
+  naiveproxy: Globe,
+  mieru: Shuffle,
+  tuic: Gauge,
+  anytls: ShieldCheck,
+  shadowtls: EyeOff,
+  tgweb: Send,
 };
+
+function specToneClass(tone: SpecTone | undefined, accentTextClass: string): string {
+  switch (tone) {
+    case 'emerald':
+      return 'text-emerald-600 dark:text-emerald-400';
+    case 'amber':
+      return 'text-amber-600 dark:text-amber-400';
+    case 'accent':
+      return accentTextClass;
+    case 'muted':
+      return 'text-muted-foreground';
+    default:
+      return 'text-foreground';
+  }
+}
+
+function flagVariant(tone: ProtocolFlag['tone']): 'outline' | 'success' | 'warning' | 'default' {
+  switch (tone) {
+    case 'emerald':
+      return 'success';
+    case 'amber':
+      return 'warning';
+    case 'accent':
+      return 'default';
+    default:
+      return 'outline';
+  }
+}
 
 export function InboundBladeCard({
   inbound,
@@ -50,30 +103,12 @@ export function InboundBladeCard({
 }: InboundBladeCardProps) {
   const { t } = useTranslation();
   const [copiedEndpoint, copyEndpoint] = useCopyFeedback(1400);
-
-  const core = getCoreForProtocol(inbound.protocol);
-  const endpointHost = inbound.node?.host || inbound.listen || '0.0.0.0';
-  const endpointStr = `${endpointHost}:${inbound.port}`;
-
-  const stream = (inbound.stream ?? {}) as Record<string, unknown>;
-  const settings = (inbound.settings ?? {}) as Record<string, unknown>;
-  const network = typeof stream.network === 'string' ? stream.network.toUpperCase() : 'TCP';
-  const security = typeof stream.security === 'string' ? stream.security.toUpperCase() : 'NONE';
-  const flow = typeof settings.flow === 'string' && settings.flow ? settings.flow : null;
-
-  const realitySettings = (stream.realitySettings ?? {}) as Record<string, unknown>;
-  const tlsSettings = (stream.tlsSettings ?? {}) as Record<string, unknown>;
-  const serverNames = Array.isArray(realitySettings.serverNames)
-    ? (realitySettings.serverNames as string[])
-    : [];
-  const sni =
-    serverNames[0] ||
-    (typeof tlsSettings.serverName === 'string' ? tlsSettings.serverName : null) ||
-    (typeof stream.sni === 'string' ? stream.sni : null);
+  const meta = extractProtocolCardMeta(inbound, isRu);
+  const ProtocolIcon = PROTOCOL_ICONS[meta.icon] ?? Shield;
 
   const handleCopy = async () => {
     try {
-      await copyEndpoint(endpointStr);
+      await copyEndpoint(meta.endpoint.copyValue);
     } catch {
       // clipboard optional
     }
@@ -81,42 +116,67 @@ export function InboundBladeCard({
 
   return (
     <div
+      data-protocol={inbound.protocol}
       className={cn(
-        'node-blade relative overflow-hidden rounded-xl border border-border/80 transition-colors hover:border-primary/45',
+        'node-blade relative flex flex-col overflow-hidden rounded-xl border border-border/80 transition-colors',
+        meta.theme.cardHoverClass,
         !inbound.enable && 'opacity-75',
       )}
     >
       <div
         className={cn(
           'absolute inset-y-0 left-0 w-1',
-          inbound.enable
-            ? 'bg-emerald-400 shadow-[0_0_12px_hsl(162_84%_43%/0.6)]'
-            : 'bg-zinc-600',
+          inbound.enable ? meta.theme.railClass : 'bg-zinc-600/80',
         )}
         aria-hidden="true"
       />
 
-      {/* Row 1: identity + control dock */}
-      <div className="flex items-center gap-2 p-2 pl-3.5">
-        <Badge className={cn('shrink-0 border font-semibold', PROTOCOL_COLORS[inbound.protocol])}>
-          {inbound.protocol}
-        </Badge>
-        <button
-          type="button"
-          onClick={() => onEdit(inbound)}
-          className="min-w-0 flex-1 break-words text-left text-sm font-bold tracking-tight transition-colors hover:text-primary"
+      {/* Row 1: protocol identity + control dock */}
+      <div
+        className={cn(
+          'flex items-start gap-2.5 bg-gradient-to-r p-2.5 pl-4',
+          meta.theme.headerWashClass,
+        )}
+      >
+        <div
+          className={cn(
+            'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
+            meta.theme.iconBoxClass,
+          )}
+          title={meta.protocolLabel}
         >
-          {inbound.tag}
-        </button>
-        <Badge variant={inbound.enable ? 'success' : 'secondary'} className="shrink-0 text-[10px]">
-          {inbound.enable ? t('common.enabled') : t('common.disabled')}
-        </Badge>
+          <ProtocolIcon className="h-4 w-4" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onEdit(inbound)}
+              className="min-w-0 break-words text-left text-sm font-bold tracking-tight transition-colors hover:text-primary"
+            >
+              {inbound.tag}
+            </button>
+            <Badge variant={inbound.enable ? 'success' : 'secondary'} className="shrink-0 text-[10px]">
+              {inbound.enable ? t('common.enabled') : t('common.disabled')}
+            </Badge>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <Badge
+              className={cn(
+                'shrink-0 border px-1.5 py-0 text-[10px] font-semibold',
+                PROTOCOL_COLORS[inbound.protocol],
+              )}
+            >
+              {meta.protocolLabel}
+            </Badge>
+            <span className="truncate font-mono text-[11px] text-muted-foreground" title={meta.subtitle}>
+              {meta.subtitle}
+            </span>
+          </div>
+        </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <Badge variant="outline" className="hidden gap-1 font-mono text-[10px] sm:inline-flex" title={CORE_LABELS[core] ?? core}>
-            <Cpu className="h-3 w-3 text-primary" />
-            {CORE_LABELS[core] ?? core}
-          </Badge>
           <Button
             type="button"
             size="icon"
@@ -141,7 +201,13 @@ export function InboundBladeCard({
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" aria-label={t('common.actions')}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                aria-label={t('common.actions')}
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -167,15 +233,18 @@ export function InboundBladeCard({
         </div>
       </div>
 
-      {/* Row 2: compact vitals — endpoint, transport, sni, node */}
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-border/50 bg-background/40 px-2 py-1.5 pl-3.5 text-[11px]">
+      {/* Row 2: primary protocol-aware endpoint strip */}
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-border/50 bg-background/45 px-3 py-1.5 pl-4 text-[11px]">
         <button
           type="button"
           onClick={handleCopy}
-          className="inline-flex min-w-0 max-w-[15rem] items-center gap-1 rounded border border-border/70 bg-background/60 px-1.5 py-0.5 font-mono text-[11px] text-foreground transition-colors hover:border-primary/45 hover:text-primary"
-          title={isRu ? 'Скопировать адрес:порт' : 'Copy host:port'}
+          className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-border/70 bg-background/70 px-2 py-0.5 font-mono text-[11px] text-foreground transition-colors hover:border-primary/45 hover:text-primary"
+          title={meta.endpoint.copyValue}
         >
-          <span className="break-all">{endpointStr}</span>
+          <span className="shrink-0 font-sans text-[10px] uppercase tracking-wider text-muted-foreground">
+            {meta.endpoint.label}
+          </span>
+          <span className="truncate font-semibold">{meta.endpoint.display}</span>
           {copiedEndpoint ? (
             <Check className="h-3 w-3 shrink-0 text-emerald-400" />
           ) : (
@@ -183,54 +252,93 @@ export function InboundBladeCard({
           )}
         </button>
 
-        <Badge variant="secondary" className="shrink-0 font-mono text-[10px]">
-          {network}
-        </Badge>
-        {security !== 'NONE' && (
-          <Badge variant="outline" className="shrink-0 border-emerald-500/35 font-mono text-[10px] text-emerald-400">
-            <Shield className="mr-0.5 h-2.5 w-2.5" />
-            {security}
-          </Badge>
-        )}
-        {sni && (
-          <span
-            className="hidden max-w-[12rem] truncate font-mono text-[11px] text-muted-foreground md:inline"
-            title={sni}
+        {meta.endpoint.secondary && (
+          <Badge
+            variant="outline"
+            className="shrink-0 font-mono text-[10px] text-muted-foreground"
+            title={`${meta.endpoint.secondary.label}: ${meta.endpoint.secondary.value}`}
           >
-            SNI: {sni}
-          </span>
-        )}
-        {flow && (
-          <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-            {flow}
+            <span className="font-sans text-muted-foreground/80">{meta.endpoint.secondary.label}:</span>
+            <span>{meta.endpoint.secondary.value}</span>
           </Badge>
         )}
-        {!inbound.sniffing && (
-          <Badge variant="secondary" className="shrink-0 font-mono text-[10px]">
-            sniff:OFF
+      </div>
+
+      {/* Row 3: tailored protocol-specific settings grid */}
+      <div className="grid grid-cols-2 gap-1.5 px-3 py-2 pl-4">
+        {meta.specs.map((spec) => (
+          <div
+            key={spec.label}
+            className="min-w-0 rounded-lg border border-border/55 bg-background/50 px-2.5 py-1.5"
+          >
+            <div className="truncate text-[10px] uppercase tracking-wider text-muted-foreground leading-none">
+              {spec.label}
+            </div>
+            <div
+              className={cn(
+                'mt-1 truncate text-xs font-medium',
+                spec.mono && 'font-mono',
+                specToneClass(spec.tone, meta.theme.accentTextClass),
+              )}
+              title={spec.title ?? spec.value}
+            >
+              {spec.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {inbound.remark?.trim() && (
+        <div
+          className="truncate px-3 pb-1.5 pl-4 text-[11px] text-muted-foreground"
+          title={inbound.remark.trim()}
+        >
+          {inbound.remark.trim()}
+        </div>
+      )}
+
+      {/* Row 4: protocol-specific flags + clients + engine + node */}
+      <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t border-border/50 bg-background/35 px-3 py-1.5 pl-4 text-[11px]">
+        {meta.flags.map((flag) => (
+          <Badge
+            key={flag.label}
+            variant={flagVariant(flag.tone)}
+            className="shrink-0 px-1.5 py-0 font-mono text-[10px]"
+            title={flag.title ?? flag.label}
+          >
+            {flag.label}
           </Badge>
-        )}
-        {inbound.portShares?.length ? (
-          <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-            <Network className="mr-1 h-2.5 w-2.5" />
-            {inbound.portShares.length}
-          </Badge>
-        ) : null}
-        {inbound.routing?.blockTorrent && (
-          <Badge variant="warning" className="shrink-0 text-[10px]">
-            No-Torrent
-          </Badge>
-        )}
+        ))}
 
         <span className="flex-1" />
 
+        {typeof inbound._count?.clients === 'number' && (
+          <Badge
+            variant="outline"
+            className="shrink-0 gap-1 px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
+            title={isRu ? 'Подключённые клиенты' : 'Assigned clients'}
+          >
+            <Users className="h-2.5 w-2.5" />
+            {inbound._count.clients}
+          </Badge>
+        )}
+
+        <Badge
+          variant="outline"
+          className="hidden shrink-0 gap-1 px-1.5 py-0 font-mono text-[10px] sm:inline-flex"
+          title={meta.coreLabel}
+        >
+          <Cpu className="h-3 w-3 text-primary" />
+          {meta.coreLabel}
+        </Badge>
+
         <Link
           to={`/nodes/${inbound.nodeId}`}
-          className="inline-flex min-w-0 max-w-[14rem] items-center gap-1 rounded border border-border/70 bg-background/60 px-1.5 py-0.5 font-medium text-foreground transition-colors hover:border-primary/45 hover:text-primary"
+          className="inline-flex min-w-0 max-w-[12rem] items-center gap-1 rounded border border-border/70 bg-background/60 px-1.5 py-0.5 font-medium text-foreground transition-colors hover:border-primary/45 hover:text-primary"
           title={inbound.node?.name ?? inbound.nodeId}
         >
           <Server className="h-3 w-3 shrink-0 text-primary" />
-          <span className="break-words">{inbound.node?.name ?? inbound.nodeId}</span>
+          <span className="truncate">{inbound.node?.name ?? inbound.nodeId}</span>
         </Link>
       </div>
     </div>

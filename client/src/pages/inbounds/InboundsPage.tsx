@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/PagePrimitives';
 import { InboundModal } from '@/components/inbounds/InboundModal';
 import { InboundBladeCard } from '@/components/inbounds/InboundBladeCard';
+import { extractProtocolCardMeta } from '@/components/inbounds/protocolCardMeta';
 import { XrayConfigStudioModal } from '@/components/inbounds/XrayConfigStudioModal';
 import { getApiErrorMessage, inboundsApi, nodesApi } from '@/lib/api';
 import { PROTOCOL_COLORS, PROTOCOLS, cn, getCoreForProtocol } from '@/lib/core-utils';
@@ -146,14 +147,9 @@ export function InboundsPage() {
       if (statusFilter === 'enabled' && !i.enable) return false;
       if (statusFilter === 'disabled' && i.enable) return false;
       if (!q) return true;
-      return (
-        i.tag.toLowerCase().includes(q) ||
-        i.protocol.toLowerCase().includes(q) ||
-        String(i.port).includes(q) ||
-        (i.node?.name ?? '').toLowerCase().includes(q)
-      );
+      return extractProtocolCardMeta(i, isRu).searchText.includes(q);
     });
-  }, [inbounds, search, statusFilter]);
+  }, [inbounds, search, statusFilter, isRu]);
 
   const statusPills = [
     { key: 'all', label: isRu ? 'Все' : 'All', count: stats.total },
@@ -292,9 +288,9 @@ export function InboundsPage() {
 
       {/* Main Content */}
       {isLoading ? (
-        <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-          <Skeleton className="h-40 w-full rounded-xl" />
-          <Skeleton className="h-40 w-full rounded-xl" />
+        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+          <Skeleton className="h-44 w-full rounded-xl" />
+          <Skeleton className="h-44 w-full rounded-xl" />
         </div>
       ) : filtered.length === 0 ? (
         <RackEmptyState
@@ -319,7 +315,7 @@ export function InboundsPage() {
           }
         />
       ) : viewMode === 'blades' ? (
-        <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
           {filtered.map((ib) => (
             <InboundBladeCard
               key={ib.id}
@@ -345,107 +341,136 @@ export function InboundsPage() {
                     <th className="py-1.5 px-2">{isRu ? 'Протокол' : 'Protocol'}</th>
                     <th className="py-1.5 px-2">{isRu ? 'Ядро' : 'Engine'}</th>
                     <th className="py-1.5 px-2">{isRu ? 'Нода' : 'Node'}</th>
-                    <th className="py-1.5 px-2">{isRu ? 'Адрес : Порт' : 'Listen : Port'}</th>
-                    <th className="py-1.5 px-2">{isRu ? 'Доп. порты' : 'Shares'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Адрес / Эндпоинт' : 'Endpoint'}</th>
+                    <th className="py-1.5 px-2">{isRu ? 'Конфигурация' : 'Config'}</th>
                     <th className="py-1.5 px-2">{t('common.status')}</th>
                     <th className="py-1.5 px-2 text-right">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((ib) => (
-                    <tr key={ib.id} className="border-b border-border/60 last:border-b-0 hover:bg-accent/35">
-                      <td className="py-1.5 px-2 font-medium">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditing(ib);
-                            setModalOpen(true);
-                          }}
-                          className="flex items-center gap-2 hover:text-primary transition-colors text-left"
-                        >
-                          <Network className="h-4 w-4 text-primary shrink-0" />
-                          <span>{ib.tag}</span>
-                        </button>
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <Badge className={cn('border', PROTOCOL_COLORS[ib.protocol])}>{ib.protocol}</Badge>
-                      </td>
-                      <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">
-                        {getCoreForProtocol(ib.protocol)}
-                      </td>
-                      <td className="py-1.5 px-2 text-xs text-muted-foreground">
-                        {ib.node?.name ?? ib.nodeId}
-                      </td>
-                      <td className="py-1.5 px-2 font-mono text-xs">
-                        {ib.listen}:{ib.port}
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <Badge variant="outline">{ib.portShares?.length ?? 0}</Badge>
-                      </td>
-                      <td className="py-1.5 px-2">
-                        <Badge variant={ib.enable ? 'success' : 'secondary'}>
-                          {ib.enable ? t('common.enabled') : t('common.disabled')}
-                        </Badge>
-                      </td>
-                      <td className="py-1.5 px-2 text-right">
-                        <div className="inline-flex items-center gap-1.5">
-                          <Button
+                  {filtered.map((ib) => {
+                    const meta = extractProtocolCardMeta(ib, isRu);
+                    return (
+                      <tr key={ib.id} className="border-b border-border/60 last:border-b-0 hover:bg-accent/35">
+                        <td className="py-1.5 px-2 font-medium">
+                          <button
                             type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-8 gap-1.5 px-2.5 text-xs"
                             onClick={() => {
                               setEditing(ib);
                               setModalOpen(true);
                             }}
+                            className="flex items-center gap-2 hover:text-primary transition-colors text-left"
                           >
-                            <Edit className="h-3.5 w-3.5" />
-                            <span>{t('common.edit')}</span>
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            className="h-8 gap-1 px-2.5 text-xs"
-                            onClick={() => toggleMut.mutate(ib.id)}
-                          >
-                            <Power className="h-3.5 w-3.5" />
-                            <span>{ib.enable ? t('inbounds.turnOff') : t('inbounds.turnOn')}</span>
-                          </Button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={t('common.actions')}>
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setEditing(ib);
-                                  setModalOpen(true);
-                                }}
-                              >
-                                <Edit className="h-3.5 w-3.5" />
-                                <span>{t('common.edit')}</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => toggleMut.mutate(ib.id)}>
-                                <Power className="h-3.5 w-3.5" />
-                                <span>{ib.enable ? t('inbounds.turnOff') : t('inbounds.turnOn')}</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => deleteMut.mutate(ib.id)}
-                                className="text-red-500 dark:text-red-400 focus:text-red-500 dark:focus:text-red-400"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                <span>{t('common.delete')}</span>
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            <Network className="h-4 w-4 text-primary shrink-0" />
+                            <span>{ib.tag}</span>
+                          </button>
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <div className="flex flex-col items-start gap-0.5">
+                            <Badge className={cn('border', PROTOCOL_COLORS[ib.protocol])}>
+                              {meta.protocolLabel}
+                            </Badge>
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                              {meta.subtitle}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">
+                          {meta.coreLabel}
+                        </td>
+                        <td className="py-1.5 px-2 text-xs text-muted-foreground">
+                          {ib.node?.name ?? ib.nodeId}
+                        </td>
+                        <td className="py-1.5 px-2 font-mono text-xs">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span>{meta.endpoint.display}</span>
+                            {meta.endpoint.secondary && (
+                              <span className="rounded border border-border/60 bg-background/60 px-1 py-0 text-[10px] text-muted-foreground">
+                                {meta.endpoint.secondary.label}:{meta.endpoint.secondary.value}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-2 max-w-[18rem]">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span
+                              className="truncate font-mono text-[11px] text-muted-foreground"
+                              title={meta.compactSummary}
+                            >
+                              {meta.compactSummary || '—'}
+                            </span>
+                            {(ib.portShares?.length ?? 0) > 0 && (
+                              <Badge variant="outline" className="text-[10px]">
+                                +{ib.portShares!.length} {isRu ? 'доп.' : 'shares'}
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <Badge variant={ib.enable ? 'success' : 'secondary'}>
+                            {ib.enable ? t('common.enabled') : t('common.disabled')}
+                          </Badge>
+                        </td>
+                        <td className="py-1.5 px-2 text-right">
+                          <div className="inline-flex items-center gap-1.5">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1.5 px-2.5 text-xs"
+                              onClick={() => {
+                                setEditing(ib);
+                                setModalOpen(true);
+                              }}
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                              <span>{t('common.edit')}</span>
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              className="h-8 gap-1 px-2.5 text-xs"
+                              onClick={() => toggleMut.mutate(ib.id)}
+                            >
+                              <Power className="h-3.5 w-3.5" />
+                              <span>{ib.enable ? t('inbounds.turnOff') : t('inbounds.turnOn')}</span>
+                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={t('common.actions')}>
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setEditing(ib);
+                                    setModalOpen(true);
+                                  }}
+                                >
+                                  <Edit className="h-3.5 w-3.5" />
+                                  <span>{t('common.edit')}</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => toggleMut.mutate(ib.id)}>
+                                  <Power className="h-3.5 w-3.5" />
+                                  <span>{ib.enable ? t('inbounds.turnOff') : t('inbounds.turnOn')}</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => deleteMut.mutate(ib.id)}
+                                  className="text-red-500 dark:text-red-400 focus:text-red-500 dark:focus:text-red-400"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <span>{t('common.delete')}</span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
