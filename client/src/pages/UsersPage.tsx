@@ -132,20 +132,23 @@ export function UsersPage() {
   const saveMut = useMutation({
     mutationFn: async () => {
       if (editing) {
-        return usersApi.update(editing.id, {
+        const updated = await usersApi.update(editing.id, {
           email: email.trim() || null,
           role,
           language,
           ...(password.trim() ? { password: password.trim() } : {}),
         });
+        return { user: updated, generatedPassword: '' };
       }
-      return usersApi.create({
+      const nextPass = password.trim() || randomPassword(16);
+      const created = await usersApi.create({
         username: username.trim(),
         email: email.trim() || undefined,
         role,
         language,
-        password: password.trim() || randomPassword(16),
+        password: nextPass,
       });
+      return { user: created, generatedPassword: nextPass };
     },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['users'] });
@@ -160,9 +163,12 @@ export function UsersPage() {
             : 'User created',
         variant: 'success',
       });
-      const genPass = (res as User & { password?: string }).password || (!editing ? password.trim() : '');
+      const genPass =
+        res.generatedPassword ||
+        (res.user as User & { password?: string }).password ||
+        (!editing ? password.trim() : '');
       if (!editing && genPass) {
-        setRevealedPassword({ username: res.username, password: genPass });
+        setRevealedPassword({ username: res.user.username, password: genPass });
       }
     },
     onError: (err) =>

@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -58,12 +57,6 @@ export function NotificationCenter() {
     refetchInterval: 60_000,
     retry: false,
   });
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      refetch();
-    }
-  }, [isAuthenticated, refetch]);
 
   const markReadMut = useMutation({
     mutationFn: (id: string) => notificationsApi.markRead(id),

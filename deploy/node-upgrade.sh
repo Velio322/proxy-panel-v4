@@ -35,7 +35,10 @@ secret="$(env_get NODE_RPC_SECRET)"
 base="${1:-$(env_get MASTER_URL)}"
 [[ -n "$base" ]] || die "MASTER_URL missing in $ENV_FILE and no URL argument given"
 base="$(printf '%s' "$base" | sed -E 's#^wss://#https://#; s#^ws://#http://#; s#/ws/worker.*$##; s#/+$##')"
-case "$base" in https://*|http://127.0.0.1*|http://localhost*) ;; *) die "refusing non-HTTPS panel URL: $base" ;; esac
+case "$base" in
+    https://*|http://127.0.0.1|http://127.0.0.1:*|http://127.0.0.1/*|http://localhost|http://localhost:*|http://localhost/*) ;;
+    *) die "refusing non-HTTPS panel URL: $base" ;;
+esac
 
 case "$(uname -m)" in
     x86_64|amd64) arch=amd64 ;;
@@ -47,7 +50,9 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 log "downloading $base/api/v1/nodes/self/binary (arch=$arch)"
-printf 'header = "X-Node-Secret: %s"\n' "$secret" | curl -fsS -K - --max-time 300 \
+escaped_secret="${secret//\\/\\\\}"
+escaped_secret="${escaped_secret//\"/\\\"}"
+printf 'header = "X-Node-Secret: %s"\n' "$escaped_secret" | curl -fsS -K - --max-time 300 \
     -D "$tmp/headers" -o "$tmp/new" "$base/api/v1/nodes/self/binary?arch=$arch" \
     || die "download failed (wrong panel URL or secret?)"
 
@@ -55,9 +60,9 @@ printf 'header = "X-Node-Secret: %s"\n' "$secret" | curl -fsS -K - --max-time 30
 [[ "$(head -c 4 "$tmp/new" | od -An -tx1 | tr -d ' \n')" == "7f454c46" ]] || die "downloaded file is not an ELF binary"
 
 expected="$(grep -i '^x-binary-sha256:' "$tmp/headers" | head -n 1 | awk '{print $2}' | tr -d '\r\n' || true)"
-[[ -n "$expected" ]] || die "panel did not send X-Binary-Sha256"
+[[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || die "missing or invalid X-Binary-Sha256 header"
 actual="$(sha256sum "$tmp/new" | awk '{print $1}')"
-[[ "$actual" == "$expected" ]] || die "SHA-256 mismatch (expected $expected, got $actual)"
+[[ "${actual,,}" == "${expected,,}" ]] || die "SHA-256 mismatch (expected $expected, got $actual)"
 
 chmod 0755 "$tmp/new"
 version="$("$tmp/new" --version 2>&1 | head -n 1)" || die "new binary does not run"

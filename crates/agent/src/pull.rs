@@ -129,7 +129,9 @@ pub async fn run_identity_loop(
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "stored TLS material is unusable");
-                    BACKOFF[failures.min(BACKOFF.len() - 1)]
+                    let d = BACKOFF[failures.min(BACKOFF.len() - 1)];
+                    failures = failures.saturating_add(1);
+                    d
                 }
             },
             Err(e) => {

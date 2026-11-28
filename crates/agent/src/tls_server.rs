@@ -19,6 +19,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Semaphore};
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
+use tokio_util::sync::CancellationToken;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_PENDING_HANDSHAKES: usize = 256;
@@ -53,18 +54,25 @@ pub struct TlsListener {
 }
 
 impl TlsListener {
-    pub fn new(tcp: TcpListener, config: SharedTlsConfig) -> io::Result<Self> {
+    pub fn new(
+        tcp: TcpListener,
+        config: SharedTlsConfig,
+        cancel: CancellationToken,
+    ) -> io::Result<Self> {
         let local = tcp.local_addr()?;
         let (tx, rx) = mpsc::channel(64);
         let limit = Arc::new(Semaphore::new(MAX_PENDING_HANDSHAKES));
         tokio::spawn(async move {
             loop {
-                let (sock, peer) = match tcp.accept().await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "TLS listener accept failed");
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                        continue;
+                let (sock, peer) = tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    res = tcp.accept() => match res {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "TLS listener accept failed");
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            continue;
+                        }
                     }
                 };
                 if tx.is_closed() {
@@ -162,7 +170,7 @@ mod tests {
         let slot = new_shared_config();
         install_config(&slot, Arc::new(sc));
         let tcp = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let listener = TlsListener::new(tcp, slot).unwrap();
+        let listener = TlsListener::new(tcp, slot, CancellationToken::new()).unwrap();
         let addr = listener.local_addr().unwrap();
         let app = axum::Router::new().route("/ping", get(|| async { "pong" }));
         let handle = tokio::spawn(async move {
@@ -216,7 +224,7 @@ mod tests {
     async fn connections_are_refused_until_a_certificate_is_installed() {
         let tcp = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = tcp.local_addr().unwrap();
-        let listener = TlsListener::new(tcp, new_shared_config()).unwrap();
+        let listener = TlsListener::new(tcp, new_shared_config(), CancellationToken::new()).unwrap();
         let app = axum::Router::new().route("/ping", get(|| async { "pong" }));
         let task = tokio::spawn(async move {
             let _ = axum::serve(listener.tap_io(|_| {}), app.into_make_service_with_connect_info::<SocketAddr>()).await;

@@ -142,7 +142,13 @@ pub fn remap_inbounds(inbounds: &[InboundConfig]) -> Result<RemappedConfig, Stri
         let enabled_shares: Vec<_> = inbound
             .port_shares
             .iter()
-            .filter(|ps| ps.enable && !matches!(ps.protocol, Protocol::Tuic | Protocol::Mieru | Protocol::Tgweb))
+            .filter(|ps| {
+                ps.enable
+                    && !matches!(
+                        ps.protocol,
+                        Protocol::Tuic | Protocol::Mieru | Protocol::Hysteria2 | Protocol::Tgweb
+                    )
+            })
             .collect();
 
         if enabled_shares.is_empty() {
@@ -646,12 +652,13 @@ fn parse_http_header(buf: &[u8]) -> ParseStatus {
         if let Some((k, v)) = line.split_once(':') {
             if k.trim().eq_ignore_ascii_case("host") {
                 let raw_host = v.trim();
-                let host_only = raw_host
-                    .split_once(':')
-                    .map(|(h, _)| h)
-                    .unwrap_or(raw_host)
-                    .trim()
-                    .to_ascii_lowercase();
+                let host_only = if let Some(rest) = raw_host.strip_prefix('[') {
+                    rest.split(']').next().unwrap_or(raw_host)
+                } else {
+                    raw_host.split_once(':').map(|(h, _)| h).unwrap_or(raw_host)
+                }
+                .trim()
+                .to_ascii_lowercase();
                 if !host_only.is_empty() {
                     http_host = Some(host_only);
                 }
@@ -781,9 +788,10 @@ impl PortShareRuntime {
                                 continue;
                             };
                             let g = group_arc.clone();
+                            let conn_cancel = child_token.child_token();
                             tokio::spawn(async move {
                                 let _permit = permit;
-                                let _ = proxy_connection(client, &g).await;
+                                let _ = proxy_connection(client, &g, conn_cancel).await;
                             });
                         }
                     }
@@ -808,7 +816,11 @@ impl PortShareRuntime {
     }
 }
 
-async fn proxy_connection(mut client: TcpStream, group: &PortShareGroup) -> std::io::Result<()> {
+async fn proxy_connection(
+    mut client: TcpStream,
+    group: &PortShareGroup,
+    cancel: CancellationToken,
+) -> std::io::Result<()> {
     let mut buf = Vec::with_capacity(2048);
     let mut chunk = [0u8; 4096];
 
@@ -846,6 +858,12 @@ async fn proxy_connection(mut client: TcpStream, group: &PortShareGroup) -> std:
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "upstream connect timed out"))??;
     enable_keepalive(&upstream);
     upstream.write_all(&buf).await?;
-    let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+    tokio::select! {
+        _ = cancel.cancelled() => {}
+        _ = tokio::time::timeout(
+            Duration::from_secs(3600),
+            tokio::io::copy_bidirectional(&mut client, &mut upstream),
+        ) => {}
+    }
     Ok(())
 }

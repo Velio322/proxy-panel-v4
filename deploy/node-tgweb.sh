@@ -111,6 +111,13 @@ fi
 command -v caddy >/dev/null 2>&1 || die "caddy is not installed (run the node installer with --self-steal first)"
 [[ -f "$CADDYFILE" ]] || die "$CADDYFILE not found"
 grep -q "9443" "$CADDYFILE" || die "no Self-Steal listener on 127.0.0.1:9443 in $CADDYFILE; install the node with --self-steal first"
+if awk -v b="$MARK_BEGIN" -v e="$MARK_END" '
+    index($0, b) { skip = 1; next }
+    skip && index($0, e) { skip = 0; next }
+    !skip { print }
+' "$CADDYFILE" | grep -qE "^[[:space:]]*(https://)?${DOMAIN}:9443([[:space:]]|\\{|$)"; then
+    die "site ${DOMAIN}:9443 already exists outside the managed tgweb block in $CADDYFILE"
+fi
 if grep -q "proxy_protocol" "$CADDYFILE"; then
     log "WARNING: $CADDYFILE uses proxy_protocol; make sure Reality 'xver' matches (client IPs)."
 fi
@@ -131,13 +138,13 @@ restore_and_die() {
 write_block() {
     local stage="$1" tmp
     tmp="$(mktemp)"
+    trap 'rm -f "${tmp:-}"' RETURN
     awk -v b="$MARK_BEGIN" -v e="$MARK_END" '
         index($0, b) { skip = 1; next }
         skip && index($0, e) { skip = 0; next }
         !skip { print }
     ' "$CADDYFILE" > "$tmp"
     { cat "$tmp"; printf '\n'; render_block "$stage"; } > "$CADDYFILE"
-    rm -f "$tmp"
     chmod 0644 "$CADDYFILE"
     caddy validate --config "$CADDYFILE" --adapter caddyfile >/dev/null 2>&1 \
         || restore_and_die "generated Caddyfile does not validate"
@@ -152,6 +159,7 @@ chmod 0750 "$CERTS_DIR"
 if [[ ! -s "$CERT_FILE" || ! -s "$KEY_FILE" ]]; then
     command -v certbot >/dev/null 2>&1 || {
         log "installing certbot"
+        apt-get update -qq
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends certbot
     }
     log "publishing the ACME challenge route for ${DOMAIN}"

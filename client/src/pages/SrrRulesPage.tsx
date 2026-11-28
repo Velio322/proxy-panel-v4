@@ -184,6 +184,9 @@ export function SrrRulesPage() {
     const sorted = [...rules].filter((r) => r.enabled).sort((a, b) => a.priority - b.priority);
     return sorted.find((r) => {
       if (r.matchHeader.toLowerCase() !== testHeaderName.trim().toLowerCase()) return false;
+      if (!r.matchPattern || r.matchPattern.length > 200 || /(\+|\*|\{\d+,\})\s*\)\s*(\+|\*|\{)/.test(r.matchPattern)) {
+        return false;
+      }
       try {
         return new RegExp(r.matchPattern, 'i').test(testHeaderValue);
       } catch {

@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from '@/App';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { toast } from '@/hooks/use-toast';
@@ -25,6 +25,19 @@ const queryClient = new QueryClient({
       const ru = useUiStore.getState().language !== 'en';
       toast({
         title: ru ? 'Ошибка загрузки данных' : 'Failed to load data',
+        description: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      });
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      if (mutation.options.onError) return;
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 401) return;
+      const ru = useUiStore.getState().language !== 'en';
+      toast({
+        title: ru ? 'Ошибка операции' : 'Action failed',
         description: error instanceof Error ? error.message : String(error),
         variant: 'destructive',
       });

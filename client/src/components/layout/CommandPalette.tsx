@@ -89,17 +89,22 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       setInbounds([]);
       return;
     }
+    let cancelled = false;
     const timer = window.setTimeout(async () => {
       const [cRes, nRes, iRes] = await Promise.allSettled([
         clientsApi.list({ search: q, limit: 5 }),
         nodesApi.list({ search: q }),
         inboundsApi.list({ search: q }),
       ]);
+      if (cancelled) return;
       setClients(cRes.status === 'fulfilled' ? cRes.value.data : []);
       setNodes(nRes.status === 'fulfilled' ? nRes.value.slice(0, 5) : []);
       setInbounds(iRes.status === 'fulfilled' ? iRes.value.slice(0, 5) : []);
     }, 220);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [open, query]);
 
   const isAdmin = user ? ADMIN_ROLES.includes(user.role) : false;

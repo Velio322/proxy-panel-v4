@@ -275,6 +275,8 @@ parse_args() {
             --email|--admin-email)
                 [[ $# -ge 2 ]] || die "$1 требует значение"
                 EMAIL="$2"
+                [[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] \
+                    || die "Некорректный --email: $EMAIL"
                 shift 2
                 ;;
             --proxy)
@@ -299,6 +301,8 @@ parse_args() {
             --tls-certs-domain)
                 [[ $# -ge 2 ]] || die "--tls-certs-domain требует значение"
                 TLS_CERTS_DOMAIN="$2"
+                validate_domain "$TLS_CERTS_DOMAIN" \
+                    || die "Некорректный --tls-certs-domain: $TLS_CERTS_DOMAIN"
                 TLS_CERTS_DOMAIN_EXPLICIT="true"
                 shift 2
                 ;;
@@ -935,9 +939,10 @@ download_binary_from_panel_or_url() {
     local expected_sha=""
     expected_sha="$(grep -i '^x-binary-sha256:' "$hdr_tmp" 2>/dev/null | head -n 1 | awk '{print $2}' | tr -d '\r\n' || true)"
     if [[ -n "$expected_sha" ]]; then
+        [[ "$expected_sha" =~ ^[0-9a-fA-F]{64}$ ]] || die "Некорректный формат X-Binary-Sha256: $expected_sha"
         local actual_sha=""
         actual_sha="$(sha256sum "$bin_tmp" | awk '{print $1}')"
-        if [[ "$actual_sha" != "$expected_sha" ]]; then
+        if [[ "${actual_sha,,}" != "${expected_sha,,}" ]]; then
             if [[ "$allow_fallback" == "true" ]]; then
                 warn "Контрольная сумма SHA-256 не совпала ($expected_sha != $actual_sha)"
                 return 1
@@ -972,9 +977,13 @@ download_binary_from_github_release() {
         local expected_sha=""
         expected_sha="$(grep -E "[[:space:]](\./)?${asset_name}$" "$sums_tmp" 2>/dev/null | head -n 1 | awk '{print $1}' | tr -d '\r\n' || true)"
         if [[ -n "$expected_sha" ]]; then
+            if [[ ! "$expected_sha" =~ ^[0-9a-fA-F]{64}$ ]]; then
+                warn "Некорректная строка SHA-256 для ${asset_name} в SHA256SUMS"
+                return 1
+            fi
             local actual_sha=""
             actual_sha="$(sha256sum "$bin_tmp" | awk '{print $1}')"
-            if [[ "$actual_sha" != "$expected_sha" ]]; then
+            if [[ "${actual_sha,,}" != "${expected_sha,,}" ]]; then
                 warn "Ошибка SHA-256 для ${asset_name} (${expected_sha} != ${actual_sha})."
                 return 1
             fi
@@ -1378,10 +1387,11 @@ setup_postgres_db() {
         db_pass="$(openssl rand -hex 24)"
     fi
 
+    local db_pass_sql="${db_pass//\'/\'\'}"
     if ! su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='mypanel3'\"" | grep -q 1; then
-        su - postgres -c "psql -v ON_ERROR_STOP=1 -c \"CREATE ROLE mypanel3 WITH LOGIN PASSWORD '${db_pass}';\""
+        su - postgres -c "psql -v ON_ERROR_STOP=1 -c \"CREATE ROLE mypanel3 WITH LOGIN PASSWORD '${db_pass_sql}';\""
     else
-        su - postgres -c "psql -v ON_ERROR_STOP=1 -c \"ALTER ROLE mypanel3 WITH PASSWORD '${db_pass}';\""
+        su - postgres -c "psql -v ON_ERROR_STOP=1 -c \"ALTER ROLE mypanel3 WITH PASSWORD '${db_pass_sql}';\""
     fi
 
     if ! su - postgres -c "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='mypanel3'\"" | grep -q 1; then
@@ -1437,7 +1447,9 @@ write_panel_env() {
         cors_origins="${api_url},http://127.0.0.1:3000"
     fi
 
-    cat > "$PANEL_ENV" <<EOF
+    (
+        umask 077
+        cat > "$PANEL_ENV" <<EOF
 DATABASE_URL=${DATABASE_URL}
 DB_MAX_CONNECTIONS=20
 API_HOST=$( [[ "$PROXY_MODE" == "caddy" && -n "$DOMAIN" ]] && echo "127.0.0.1" || echo "0.0.0.0" )
@@ -1464,12 +1476,18 @@ RUST_LOG=info
 LOG_FORMAT=text
 DATA_DIR=/var/lib/mypanel3
 EOF
+    )
     chown root:mypanel3 "$PANEL_ENV"
     chmod 0640 "$PANEL_ENV"
 }
 
 write_node_env() {
-    install -d -m 0750 -o root -g root "$ETC_DIR" "$NODE_DATA_DIR"
+    if getent group mypanel3 >/dev/null 2>&1; then
+        install -d -m 0750 -o root -g mypanel3 "$ETC_DIR"
+    else
+        install -d -m 0750 -o root -g root "$ETC_DIR"
+    fi
+    install -d -m 0750 -o root -g root "$NODE_DATA_DIR"
 
     local secret="$NODE_SECRET"
     if [[ -z "$secret" ]] && [[ "$MODE" == "both" ]]; then
@@ -1544,7 +1562,9 @@ write_node_env() {
     NODE_DOMAIN="$effective_node_host"
     NODE_NAME="$effective_node_name"
 
-    cat > "$NODE_ENV_FILE" <<EOF
+    (
+        umask 077
+        cat > "$NODE_ENV_FILE" <<EOF
 MASTER_URL=${effective_master}
 NODE_RPC_SECRET=${secret}
 NODE_SECRET=${secret}
@@ -1564,6 +1584,7 @@ XRAY_LOCATION_ASSET=/usr/local/share/xray
 RUST_LOG=info
 LOG_FORMAT=text
 EOF
+    )
     chown root:root "$NODE_ENV_FILE"
     chmod 0600 "$NODE_ENV_FILE"
 }
@@ -2670,23 +2691,38 @@ check_node_port_listening() {
     fi
 
     local check_port="$AGENT_WORKER_PORT"
-    log "Проверяю локальный агент ноды (http://127.0.0.1:${check_port}/api/status)..."
     local agent_ready="false"
     local _i=0
-    for _i in $(seq 1 15); do
-        if curl -fsS \
-            -H "Authorization: Bearer ${node_sec}" \
-            -H "X-Node-Secret: ${node_sec}" \
-            "http://127.0.0.1:${check_port}/api/status" >/dev/null 2>&1; then
-            agent_ready="true"
-            break
+    if [[ "$API_MODE" == "pull" ]]; then
+        log "Проверяю локальный сокет mTLS-агента ноды (порт ${check_port}/tcp)..."
+        for _i in $(seq 1 15); do
+            if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${check_port}" 2>/dev/null | grep -q .; then
+                agent_ready="true"
+                break
+            fi
+            sleep 1
+        done
+        if [[ "$agent_ready" != "true" ]]; then
+            NODE_VERIFY_ERRORS+=("Агент ноды (pull mTLS) не слушает порт ${check_port}/tcp (проверьте: journalctl -u mypanel3-agent -n 40)")
+            return 1
         fi
-        sleep 1
-    done
+    else
+        log "Проверяю локальный агент ноды (http://127.0.0.1:${check_port}/api/status)..."
+        for _i in $(seq 1 15); do
+            if curl -fsS \
+                -H "Authorization: Bearer ${node_sec}" \
+                -H "X-Node-Secret: ${node_sec}" \
+                "http://127.0.0.1:${check_port}/api/status" >/dev/null 2>&1; then
+                agent_ready="true"
+                break
+            fi
+            sleep 1
+        done
 
-    if [[ "$agent_ready" != "true" ]]; then
-        NODE_VERIFY_ERRORS+=("Агент ноды не отвечает на http://127.0.0.1:${check_port}/api/status (проверьте: journalctl -u mypanel3-agent -n 40)")
-        return 1
+        if [[ "$agent_ready" != "true" ]]; then
+            NODE_VERIFY_ERRORS+=("Агент ноды не отвечает на http://127.0.0.1:${check_port}/api/status (проверьте: journalctl -u mypanel3-agent -n 40)")
+            return 1
+        fi
     fi
 
     if command -v ss >/dev/null 2>&1; then

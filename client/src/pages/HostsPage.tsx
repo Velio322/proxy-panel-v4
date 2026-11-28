@@ -571,6 +571,10 @@ export function HostsPage() {
                     <SelectItem value="safari">safari</SelectItem>
                     <SelectItem value="ios">ios</SelectItem>
                     <SelectItem value="android">android</SelectItem>
+                    <SelectItem value="edge">edge</SelectItem>
+                    <SelectItem value="360">360</SelectItem>
+                    <SelectItem value="qq">qq</SelectItem>
+                    <SelectItem value="random">random</SelectItem>
                     <SelectItem value="randomized">randomized</SelectItem>
                   </SelectContent>
                 </Select>

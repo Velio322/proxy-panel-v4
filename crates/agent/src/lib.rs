@@ -130,7 +130,7 @@ pub async fn run(cfg: AgentConfig) -> Result<()> {
 
     let server_task = if pull {
         let slot = tls_server::new_shared_config();
-        let listener = tls_server::TlsListener::new(tcp, slot.clone())?;
+        let listener = tls_server::TlsListener::new(tcp, slot.clone(), cancel.clone())?;
         {
             let (c, h, tok) = (cfg.clone(), http_client.clone(), cancel.clone());
             background.push(tokio::spawn(async move {
